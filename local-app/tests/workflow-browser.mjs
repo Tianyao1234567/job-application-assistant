@@ -214,7 +214,13 @@ let watchdog;
 try {
   await Promise.race([workflow(),new Promise((_,reject)=>{watchdog=setTimeout(()=>reject(new Error('Workflow browser regression exceeded 180 seconds')),180_000);})]);
   evidence.status='PASS';
-} catch(error) {evidence.status='FAIL';evidence.error=error.message;process.exitCode=1;console.error(error.stack);}
+} catch(error) {
+  evidence.status='FAIL';evidence.error=error.message;process.exitCode=1;console.error(error.stack);
+  // Keep the concrete failure visible through the Checks API as well as log storage.
+  // This suite contains fictional data only; do not emit browser storage or API keys.
+  const annotation=String(error.stack||error.message).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A');
+  console.error('::error title=Fictional workflow browser regression::'+annotation);
+}
 finally {
   clearTimeout(watchdog);releaseApply?.();
   try {await context?.close();}catch(error){evidence.cleanupError=error.message;process.exitCode=1;}
