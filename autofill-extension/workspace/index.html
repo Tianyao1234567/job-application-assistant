@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>字段预览与确认</title><link rel="stylesheet" href="../shared/style.css"></head><body>
+<h1>字段预览与确认</h1><p id="site" class="muted"></p><p id="adapter" class="muted"></p>
+<div class="bar"><button id="rescan" class="primary" type="button">重新扫描</button><button id="manage" type="button">管理资料</button><label>资料语言 <select id="language"><option value="zh">中文优先</option><option value="en">English 优先</option></select></label><button id="saveMapping" type="button">保存本站映射</button><button id="diagnostic" type="button">导出脱敏诊断</button></div>
+<p class="notice">填入即可能被网站读取或自动保存。填写不代表申请成功；请回招聘页检查，并由你自己提交。已有值默认保留。敏感问题、文件上传和协议请手动处理。</p>
+<p id="status" role="status"></p><div class="table-wrap"><table><thead><tr><th>确认 / 覆盖</th><th>网页字段 / Section</th><th>资料对应键（可手动指定）</th><th>拟填值 / 来源</th><th>依据 / 置信 / 结果</th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="bar"><label><input id="ack" type="checkbox"> 我已检查所选字段，了解网站可能立即读取或保存</label><button id="fill" class="primary" type="button" disabled>填入所选字段</button><button id="undo" type="button">撤销最近一次填写</button><button id="return" type="button">返回招聘页</button></div>
+<p class="muted">同名教育/实习/项目条目按学位线索或显示顺序建议，默认不勾选，请核对稳定 ID。撤销只在当前页面会话内有效，且不会覆盖你后续修改的值。内容脚本不持有完整资料库。</p>
+<script type="module" src="workspace.js"></script></body></html>

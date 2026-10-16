@@ -1,0 +1,49 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>虚构求职表单 — 仅供测试</title><link rel="stylesheet" href="fixture.css"></head><body>
+<h1>虚构求职表单 — 本地验收</h1><p>所有资料均为虚构，不连接招聘服务。可以导入根目录 profile.example.json。</p>
+<form id="application-form">
+<fieldset><legend>个人信息</legend>
+<div class="field"><label for="name">姓名</label><input id="name" autocomplete="name"></div>
+<div class="field"><label for="email">邮箱</label><input id="email" type="email" autocomplete="email"></div>
+<div class="field"><label for="phone">手机</label><input id="phone" type="tel"></div>
+<div class="field"><label for="current">现居城市</label><input id="current" value="保留的用户内容"></div>
+<div class="field"><label for="desired">期望城市</label><select id="desired"><option value="">请选择</option><option value="HZ">杭州</option><option value="BJ">北京</option></select></div>
+<div class="field"><label for="contact">紧急联系人姓名</label><input id="contact"></div>
+</fieldset>
+<section aria-label="教育经历">
+<fieldset id="edu1"><legend>本科教育经历</legend>
+<div class="field"><label for="school1">学校名称</label><input id="school1"></div>
+<div class="field"><label for="degree1">学位</label><select id="degree1"><option value="">请选择</option><option>学士</option><option>硕士</option></select></div>
+<div class="field"><label for="major1">专业名称</label><input id="major1"></div>
+<div class="field"><label for="start1">开始时间</label><input id="start1" type="month"></div>
+<div class="field"><label for="end1">结束时间</label><input id="end1" type="month"></div>
+</fieldset>
+<fieldset id="edu2"><legend>硕士教育经历</legend>
+<div class="field"><label for="school2">学校名称</label><input id="school2"></div>
+<div class="field"><label for="degree2">学位</label><select id="degree2"><option value="">请选择</option><option>学士</option><option>硕士</option></select></div>
+<div class="field"><label for="major2">专业名称</label><input id="major2"></div>
+<div class="field"><label for="start2">开始时间</label><input id="start2" type="month"></div>
+<div class="field"><label for="end2">结束时间</label><input id="end2" type="date"></div>
+</fieldset></section>
+<fieldset><legend>项目经历</legend><div class="field"><label for="project">项目名称</label><input id="project"></div><div class="field"><label for="description">项目描述</label><textarea id="description"></textarea></div></fieldset>
+<fieldset><legend>需手动填写的问题</legend>
+<div class="field"><label for="salary">期望薪资 Expected salary</label><input id="salary"></div>
+<div class="field"><label for="gender">性别 Gender</label><select id="gender"><option value="">请选择</option><option>测试</option></select></div>
+<div class="field"><label for="visa">是否需要签证担保 / Sponsorship</label><input id="visa"></div>
+<div class="field"><label for="work">合法工作许可 / Work authorization</label><input id="work"></div>
+<div class="field"><label for="criminal">犯罪记录 / Criminal history</label><input id="criminal"></div>
+<div class="field"><label for="disability">残障 / Disability</label><input id="disability"></div>
+<div class="field"><label for="ethnic">族裔 / Ethnicity</label><input id="ethnic"></div>
+<div class="field"><label for="veteran">退伍身份 / Veteran</label><input id="veteran"></div>
+<div class="field"><label for="move">搬迁意愿 / Relocation</label><input id="move"></div>
+<div class="field"><label for="notice">到岗时间 / Notice period</label><input id="notice"></div>
+<div class="field"><label for="legal">法律声明 / Legal declaration</label><input id="legal"></div>
+<div class="field"><label for="conflict">利益冲突 / Conflict of interest</label><input id="conflict"></div>
+<label><input id="agreement" type="checkbox">同意隐私协议和合同条款</label>
+<div class="field"><label for="resume">简历文件</label><input id="resume" type="file"></div>
+<div class="field"><label>自定义选择框 <input id="custom" role="combobox" readonly></label></div>
+</fieldset>
+<fieldset><legend>登录 Login</legend><label>登录邮箱<input id="loginEmail" type="email" value="do-not-read@example.invalid"></label><label>密码<input id="password" type="password" value="never-read-test"></label><label>验证码 OTP<input id="otp" value="NEVER-READ"></label></fieldset>
+<input id="hidden" type="hidden"><input id="readonly" readonly value="readonly"><input id="disabled" disabled><input id="honey" name="honeypot" style="display:none">
+<button id="dynamic" type="button">手动新增项目字段</button><button id="submit" type="submit">模拟提交（插件不能点击）</button>
+</form><p>模拟提交计数：<output id="submitCount">0</output>；回车计数：<output id="enterCount">0</output></p>
+<iframe title="未支持的 frame" src="frame.html"></iframe><script src="fixture.js"></script></body></html>

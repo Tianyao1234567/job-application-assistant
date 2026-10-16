@@ -1,0 +1,18 @@
+{
+  "name": "job-autofill-local",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/unit.test.js",
+    "test:browser": "node tests/browser.mjs",
+    "test:extension": "node tests/extension.mjs",
+    "test:ui": "node tests/ui.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.58.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vue": "^3.5.13"
+  }
+}

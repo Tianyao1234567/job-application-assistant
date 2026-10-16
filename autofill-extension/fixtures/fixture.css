@@ -1,0 +1,4 @@
+body {font:16px/1.5 system-ui,sans-serif;max-width:780px;margin:30px auto;padding:0 20px;}
+fieldset {margin:20px 0;padding:15px;} legend {font-weight:bold;} .field {display:flex;gap:12px;margin:12px 0;align-items:start;}
+.field label {width:210px;} input:not([type=checkbox]),textarea,select {font:inherit;flex:1;min-height:30px;padding:4px;}
+textarea {min-height:80px;} iframe {height:100px;width:100%;} button {font:inherit;padding:8px 12px;}

@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "personal": {
+    "name": {
+      "zh": "测试同学",
+      "en": "Fictional Student",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    },
+    "phone": {
+      "zh": "10000000000",
+      "en": "10000000000",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    },
+    "email": {
+      "zh": "student@example.invalid",
+      "en": "student@example.invalid",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    },
+    "location": {
+      "zh": "测试城",
+      "en": "Demo City",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    },
+    "desiredCity": {
+      "zh": "杭州",
+      "en": "Hangzhou",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    }
+  },
+  "education": [
+    {
+      "id": "edu-bachelor",
+      "school": {
+        "zh": "虚构工科大学",
+        "en": "Fictional Engineering University",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "degree": {
+        "zh": "学士",
+        "en": "Bachelor",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "major": {
+        "zh": "机电工程",
+        "en": "Mechatronics",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "startDate": {
+        "zh": "2021-09",
+        "en": "2021-09",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "endDate": {
+        "zh": "2026-06",
+        "en": "2026-06",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      }
+    },
+    {
+      "id": "edu-master",
+      "school": {
+        "zh": "虚构研究大学",
+        "en": "Fictional Research University",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "degree": {
+        "zh": "硕士",
+        "en": "Master",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "major": {
+        "zh": "创新设计与技术",
+        "en": "Innovative Design and Technology",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "startDate": {
+        "zh": "2026-09",
+        "en": "2026-09",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "endDate": {
+        "zh": "2027-08",
+        "en": "2027-08",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      }
+    }
+  ],
+  "experience": [],
+  "projects": [
+    {
+      "id": "project-demo",
+      "title": {
+        "zh": "虚构温控器演示",
+        "en": "Fictional Temperature Controller",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      },
+      "description": {
+        "zh": "采集虚构传感器数据并控制测试风扇，仅用于表单验收。",
+        "en": "Test sensor collection and fan control. Fictional fixture only.",
+        "source": "虚构测试数据（非真实简历）",
+        "confirmed": true
+      }
+    }
+  ],
+  "skills": {
+    "programming": {
+      "zh": "C++、Python",
+      "en": "C++, Python",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    },
+    "description": {
+      "zh": "嵌入式与机器人演示技能",
+      "en": "Embedded and robotics demo skills",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    }
+  },
+  "links": {
+    "github": {
+      "zh": "https://example.invalid/demo",
+      "en": "https://example.invalid/demo",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    }
+  },
+  "resumeMetadata": {
+    "fileName": null,
+    "language": null
+  },
+  "customAnswers": {
+    "hobby": {
+      "zh": "虚构爱好：模型制作",
+      "en": "Fictional hobby: model building",
+      "source": "虚构测试数据（非真实简历）",
+      "confirmed": true
+    }
+  }
+}
