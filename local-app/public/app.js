@@ -97,7 +97,7 @@ async function perform(action, payload = {}) {
     if (action === 'demo') {profileDraft = null; settingsDraft = null; profileDirty = settingsDirty = false; selectedResumeFile = null; drafts.clear();}
     if (action === 'answer') {drafts.delete(`answer-${payload.taskId}`); drafts.delete(`save-answer-${payload.taskId}`);}
     if (action === 'add') drafts.delete('add-url');
-    const messages = {demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并执行，进度以实际浏览器回报为准。', discover:'已请求读取岗位列表，进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
+    const messages = {demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', discover:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
     toast(messages[action] || '操作已保存。');
     await refresh(true);
     return result;
@@ -157,7 +157,7 @@ function header() {
   const mode = $('#mode-badge'); mode.textContent = modeLabel(state.settings.mode); mode.className = `badge ${state.settings.mode === 'demo' ? 'good' : 'warning'}`;
   const actions = [];
   if (view === 'overview' || view === 'queue') {
-    actions.push(actionButton('发现岗位', 'discover', {}, '', !state.connection.connected || Boolean(state.readiness.length)));
+    actions.push(actionButton('发现并投递', 'discover', {}, '', !state.connection.connected || Boolean(state.readiness.length)));
     actions.push(state.running && !state.paused ? actionButton('暂停全部', 'pause') : actionButton('开始投递', 'run', {}, 'primary', !state.connection.connected || Boolean(state.readiness.length)));
   }
   if (view === 'sites') actions.push(actionButton('打开投递浏览器', 'browser-open', {}, 'primary'));
@@ -220,7 +220,7 @@ function renderOverview() {
     card('安全的本地演示',el('div',{},p('准备明确标注的虚构资料和本地测试站。仅供尚未创建任务的初始环境使用；不会清空已有任务。此操作会替换当前资料与筛选设置。','details-note'),button('准备虚构演示资料',()=>{if (window.confirm('将使用虚构演示资料替换当前资料、简历及筛选设置；仅向本地测试站提交，不清除已有任务。继续吗？')) return perform('demo');},'',state.running||state.tasks.length>0))));
 }
 function taskTable(tasks) {
-  if (!tasks.length) return empty('还没有岗位记录','发现岗位或手动加入链接后，真实状态会在这里同步。');
+  if (!tasks.length) return empty('还没有岗位记录','选择“发现并投递”会读取岗位列表并自动申请符合条件的岗位；也可以先手动加入链接。');
   const headings=['岗位与公司','城市 / 来源','状态','最近进展',''];
   return el('div',{class:'table-wrap'},el('table',{},el('thead',{},el('tr',{},headings.map(text=>el('th',{scope:'col',text})))),el('tbody',{},tasks.map(task=>el('tr',{},el('td',{},el('div',{class:'job-title',text:task.title}),el('div',{class:'job-sub',text:task.company}),badge(modeLabel(task.mode))),el('td',{},task.location||'待核实',el('div',{class:'job-sub',text:task.source})),el('td',{},statusBadge(task)),el('td',{},el('div',{text:task.steps.at(-1)?.label || '等待执行'}),el('div',{class:'job-sub',text:fmtDate(task.updatedAt||task.discoveredAt)})),el('td',{},button('查看详情',()=>showTask(task.id),'text')))))));
 }
