@@ -34,7 +34,9 @@
 - [虚拟显示诊断](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38894779413)，提交 `6075491264adfd0399bf44155d15b373b6197516`：Xvfb 下有界面启动仍 SIGTRAP，不能归因于 headless。
 - [官方系统依赖及固定Ubuntu诊断](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38894935938)，提交 `e17a37bc887084d047c0be06483f4521f9c79843`：Chromium `--version` 检查通过、依赖安装成功，实际加载扩展仍启动 SIGTRAP。日志中的 cpufreq 路径缺失不能单独证明根因。
 
-完整日志及artifact存储域名目前受环境网络规则限制，已保存精确域名要求；Checks API 的结构化错误注解可读取，以上失败由实际 job/step 和注解确认。当前正在将裸 Chromium 启动与加载扩展启动分开诊断；没有跳过浏览器测试、删断言或将失败改成成功。
+- [裸浏览器对照诊断](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38895132484)，提交 `716d3a0dee46e5ff3825523b5f3172c24c662802`：Google Chrome for Testing **145.0.7632.6** 的 `--version` 成功；实际扩展有界面启动 SIGTRAP 后，顺序启动**不带插件的裸 Chromium**也 SIGTRAP。该运行的源码/单元/Node/系统依赖和浏览器下载步骤均通过。因此当前阻碍已定位到浏览器与托管执行环境组合，尚不能进一步归因于某个系统调用或 Chromium 缺陷，也不能认定产品流程通过。需要在能够实际启动该浏览器的托管环境继续10段验证；不要让用户电脑代跑或以模拟浏览器替代。
+
+完整日志及artifact存储域名目前受环境网络规则限制，已保存精确域名要求；Checks API 的结构化错误注解可读取，以上失败由实际 job/step 和注解确认。没有跳过浏览器测试、删断言或将失败改成成功。当前10段真实扩展检查尚未执行通过，PR保持WIP，属于未完成验收项目。
 
 ## 后续验收与配合
 
