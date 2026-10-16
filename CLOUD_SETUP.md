@@ -38,7 +38,7 @@ CLOUD_BROWSER_CHECK=generic node scripts/cloud-check.mjs browser
 
 ## 继续开发的位置
 
-完成仓库连接后，在 Codex 的云端工作入口选择该私有仓库和分支，并记录真实云端任务入口、提交及运行结果。Windows 启停脚本只保留为将来本机验收入口，Linux 云端不调用 PowerShell、Win32_Process 或 node.exe。不能因为 GitHub 已有代码就声称本机对话已变成云端任务。Codex Cloud 连接操作由迁移负责人按当前实际可用界面核实。
+完成仓库连接后，在 Codex 的云端工作入口选择该仓库和分支，并记录真实云端任务入口、提交及运行结果。Windows 启停脚本只保留为将来本机验收入口，Linux 云端不调用 PowerShell、Win32_Process 或 node.exe。不能因为 GitHub 已有代码就声称本机对话已变成云端任务。Codex Cloud 连接操作由迁移负责人按当前实际可用界面核实。
 
 真实 Windows 插件安装、可见执行浏览器、本人登录与真实网站行为仍待按需本机验收。真实投递运行地点没有随开发迁移自动改变。
 
