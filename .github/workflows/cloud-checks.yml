@@ -64,7 +64,12 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
         env:
           CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
-        run: node scripts/cloud-check.mjs browser
+        run: |
+          if [ "$CLOUD_BROWSER_CHECK" = workflow ]; then
+            xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
+          else
+            node scripts/cloud-check.mjs browser
+          fi
       - name: Preserve fictional workflow evidence, including failures
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.browser == 'workflow' }}
         uses: actions/upload-artifact@v6

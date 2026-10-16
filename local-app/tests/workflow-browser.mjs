@@ -45,7 +45,7 @@ const task=(snapshot,jobId)=>snapshot.tasks.find(item=>item.jobId===jobId);
 const requests=(snapshot,tenant,jobId)=>snapshot.submitRequests.filter(item=>item.tenant===tenant&&item.jobId===jobId);
 async function start() {app=await createApp({dataDir,testMode:true,testKey});assert.equal(app.url,BASE);}
 async function launch() {
-  context=await chromium.launchPersistentContext(profileDir,browserOptions({channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension')]}));
+  context=await chromium.launchPersistentContext(profileDir,browserOptions({headless:false,channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension'),'--disable-breakpad','--disable-crash-reporter']}));
   evidence.environment.browser=context.browser().version();
   context.on('page',page=>page.on('pageerror',error=>pageErrors.push(error.message)));
   dashboard=context.pages()[0]||await context.newPage();dashboard.on('pageerror',error=>pageErrors.push(error.message));
@@ -218,7 +218,10 @@ try {
   evidence.status='FAIL';evidence.error=error.message;process.exitCode=1;console.error(error.stack);
   // Keep the concrete failure visible through the Checks API as well as log storage.
   // This suite contains fictional data only; do not emit browser storage or API keys.
-  const annotation=String(error.stack||error.message).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A');
+  // Launch command lines are very long; preserve the exit signal and stack tail
+  // within GitHub's annotation limit rather than truncating them away.
+  const detail=String(error.stack||error.message).split('\n').filter(line=>line.length<800).join('\n').slice(-3800);
+  const annotation=detail.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A');
   console.error('::error title=Fictional workflow browser regression::'+annotation);
 }
 finally {
