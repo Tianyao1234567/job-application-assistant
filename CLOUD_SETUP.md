@@ -4,7 +4,7 @@
 
 ## 自动检查
 
-`.github/workflows/cloud-checks.yml` 使用 GitHub 托管的 `ubuntu-latest`、Node.js 24，每个仓库同一时刻仅一个工作流运行，后来的运行取消旧运行，单次最长 10 分钟。没有 self-hosted runner、测试矩阵、真实账号、生产会话或用户资料。仓库令牌只有读取代码权限，不持久化到 checkout。
+`.github/workflows/cloud-checks.yml` 使用 GitHub 托管的 `ubuntu-24.04`、Node.js 24，每个仓库同一时刻仅一个工作流运行，后来的运行取消旧运行，单次最长 10 分钟。没有 self-hosted runner、测试矩阵、真实账号、生产会话或用户资料。仓库令牌只有读取代码权限，不持久化到 checkout。
 
 push 和 PR 默认仅执行以下必要检查，不安装测试依赖、不下载浏览器：
 
@@ -44,10 +44,12 @@ node local-app/server.mjs --data-dir .runtime/dev-data
 ```sh
 cd autofill-extension
 npm ci --ignore-scripts --no-audit --no-fund
-node node_modules/playwright/cli.js install chromium --no-shell
+node node_modules/playwright/cli.js install --with-deps chromium --no-shell
 cd ..
 CLOUD_BROWSER_CHECK=generic node scripts/cloud-check.mjs browser
 ```
+
+选择 `workflow` 时在托管 runner 的虚拟显示运行：`xvfb-run --auto-servernum env CLOUD_BROWSER_CHECK=workflow node scripts/cloud-check.mjs browser`。这项实际加载扩展，使用有界面 Chromium；其他旧单项维持原有模式。浏览器独立启动失败时先定位运行环境，不能把未进入的产品检查报为通过。
 
 最后一个命令仅允许在 Linux Actions 环境执行，`generic` 可以替换为其他单项。项目生成的缓存、临时文件、下载、测试浏览器配置位于 checkout 内 `.runtime/`；旧回归结果 JSON 位于 `test-results-001/`，新 `workflow` 结果为 `.runtime/tests/evidence/workflow-browser.json`。这些内容不提交回仓库。`workflow` 仅上传这份经过字段限制的虚构结果 JSON，保留7天；不上传配对密钥、资料正文、会话、截图或整目录产物。
 

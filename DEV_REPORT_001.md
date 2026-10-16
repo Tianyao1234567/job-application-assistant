@@ -1,6 +1,6 @@
 # DEV-0015 · 本地闭环开发阶段报告
 
-日期：2026-10-16（北京时间）。状态：WIP，阶段成果待产品经理验收。基线 `a6e9f1b5fd374659892dfbdba3cb417f42e89b85`；分支 `dev/local-workflow-foundation`。首个实现提交与真实 Actions 链接将在同一 PR/Issue 中补充，不能把此处的测试计划视为已执行。
+日期：2026-10-16（北京时间）。状态：WIP，阶段成果待产品经理验收，真实扩展启动仍未通过。基线 `a6e9f1b5fd374659892dfbdba3cb417f42e89b85`；分支 `dev/local-workflow-foundation`；[PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4)。首个实现提交 `76748d4f2fc940564fcadbe356f238fc63bec2d4`。不能把以下测试计划视为已执行通过。
 
 ## 本阶段实现
 
@@ -13,7 +13,7 @@
 
 ## 当前真实验证与边界
 
-执行地点：Codex Cloud `/workspace/job-application-assistant`，Linux x86_64、Node.js 24.19.0。没有使用用户电脑安装依赖或运行测试。原有扩展单元、模型/服务/fixture/执行器 Node 回归均已实际执行；最终数量与精确提交将随 CI 结果补充。
+执行地点：Codex Cloud `/workspace/job-application-assistant`，Linux x86_64、Node.js 24.19.0。没有使用用户电脑安装依赖或运行测试。39 个源码/JSON 检查、原有扩展单元 20/20、模型/服务/fixture/执行器 Node 回归 54/54 均已实际执行通过，失败/跳过为0。对应实现提交 `76748d4f2fc940564fcadbe356f238fc63bec2d4` 的[托管基础检查](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38864810663)和[PR基础检查](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38864852417)也实际成功。
 
 已实际启动后台及招聘测试站，检查后台 HTML、静态 app/schema/style、未配对 state 返回 401，以及 beta 岗位列表 HTTP 成功。停止服务后保留状态，重启持久化由服务与模型回归覆盖。配对 key、运行数据库、依赖、浏览器 profile 和上传文件都留在 ignored `.runtime/`，不提交。
 
@@ -22,10 +22,19 @@
 | 源码/JSON、已有扩展单元 | Cloud 实际执行；不代替产品闭环 |
 | 模型、HTTP 鉴权、真实 multipart fixture | Node 回归实际执行；包含受控时间的计划/额度和提交未知恢复 |
 | 执行器异步边界 | Node VM 加载实际 runner/adapter/通用填写引擎；它模拟 Chrome API，单独列出，不能冒称真实扩展 |
-| 后台真实网页与加载扩展 | 已编写10段 GitHub Actions `workflow` 回归；此报告初稿时尚未执行，结果随后补充 |
+| 后台真实网页与加载扩展 | 已执行 GitHub Actions `workflow`，但测试浏览器启动以 SIGTRAP 退出；10段产品流程未通过，不能认定闭环可用，见下方失败证据 |
 | 旧 generic/ui-mocked/extension 浏览器套件 | 本阶段尚未运行，不能挪用旧结果 |
 | 真实招聘网站、真实个人资料/登录/投递 | 未实现或未验证；无真实申请成功结论 |
 | Windows 工具栏、原有 CMD/PowerShell 入口 | 保留源码，未在 Windows 验证 |
+
+## 已观察到的浏览器失败
+
+- [首轮真实扩展运行](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38864908406)，提交 `6e972e167040a3089efe1acc83008ad82be65854`：源码、20旧单元、54新Node、依赖和浏览器下载成功；真实扩展步骤失败。用户收到的是这次自动通知，不是用户电脑上的错误。
+- [结构化错误诊断](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38894636021)，提交 `039c56511a076035fa80316af69143f7baff8133`：Chromium 在 launchPersistentContext 中提前退出。
+- [虚拟显示诊断](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38894779413)，提交 `6075491264adfd0399bf44155d15b373b6197516`：Xvfb 下有界面启动仍 SIGTRAP，不能归因于 headless。
+- [官方系统依赖及固定Ubuntu诊断](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38894935938)，提交 `e17a37bc887084d047c0be06483f4521f9c79843`：Chromium `--version` 检查通过、依赖安装成功，实际加载扩展仍启动 SIGTRAP。日志中的 cpufreq 路径缺失不能单独证明根因。
+
+完整日志及artifact存储域名目前受环境网络规则限制，已保存精确域名要求；Checks API 的结构化错误注解可读取，以上失败由实际 job/step 和注解确认。当前正在将裸 Chromium 启动与加载扩展启动分开诊断；没有跳过浏览器测试、删断言或将失败改成成功。
 
 ## 后续验收与配合
 
