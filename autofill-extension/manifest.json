@@ -10,5 +10,5 @@
   "background": {"service_worker": "background.js", "type": "module"},
   "action": {"default_popup": "popup/index.html", "default_title": "求职填表助手"},
   "options_page": "options/index.html",
-  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321"}
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321 http://127.0.0.1:17322"}
 }

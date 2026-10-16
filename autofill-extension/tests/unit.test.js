@@ -73,7 +73,7 @@ test('扩展仅授权本机站点；原通用填写内容代码保持无提交�
   const root=new URL('../',import.meta.url),manifest=JSON.parse(fs.readFileSync(new URL('manifest.json',root),'utf8'));
   assert.deepEqual(manifest.permissions,['activeTab','scripting','storage','alarms']);assert.equal(manifest.manifest_version,3);
   assert.deepEqual(manifest.host_permissions,['http://127.0.0.1/*']);
-  assert.equal(manifest.content_security_policy.extension_pages,"script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321");
+  assert.equal(manifest.content_security_policy.extension_pages,"script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321 http://127.0.0.1:17322");
   assert.deepEqual(manifest.content_scripts,[{matches:['http://127.0.0.1/*'],js:['bridge/dashboard.js'],run_at:'document_idle',all_frames:false}]);
   for(const file of ['background.js','popup/index.html','options/index.html','workspace/index.html','content/guard.js','content/scan.js','content/fill.js','bridge/dashboard.js','runner/index.html','runner/runner.js','runner/local-adapter.js']) assert.ok(fs.existsSync(new URL(file,root)),file);
   for(const file of ['content/guard.js','content/scan.js','content/fill.js','workspace/workspace.js']){const code=fs.readFileSync(new URL(file,root),'utf8');assert.doesNotMatch(code,/\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|requestSubmit)\s*\(|\.submit\s*\(|KeyboardEvent\s*\(|\.innerHTML\s*=/);}
