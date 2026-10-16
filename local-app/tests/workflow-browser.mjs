@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {createHash,randomBytes} from 'node:crypto';
 import {createRequire} from 'node:module';
+import {spawnSync} from 'node:child_process';
 import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoot} from '../../autofill-extension/tests/runtime.mjs';
 
 // Browser installation and execution belong to the explicitly selected hosted job.
@@ -45,6 +46,10 @@ const task=(snapshot,jobId)=>snapshot.tasks.find(item=>item.jobId===jobId);
 const requests=(snapshot,tenant,jobId)=>snapshot.submitRequests.filter(item=>item.tenant===tenant&&item.jobId===jobId);
 async function start() {app=await createApp({dataDir,testMode:true,testKey});assert.equal(app.url,BASE);}
 async function launch() {
+  const binary=chromium.executablePath();
+  const version=spawnSync(binary,['--version'],{encoding:'utf8',timeout:10_000});
+  evidence.environment.browserBinary={version:version.stdout?.trim(),exitCode:version.status,signal:version.signal,diagnostic:version.stderr?.trim().slice(-1000)};
+  assert.equal(version.status,0,'Installed Chromium --version failed: '+JSON.stringify(evidence.environment.browserBinary));
   context=await chromium.launchPersistentContext(profileDir,browserOptions({headless:false,channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension'),'--disable-breakpad','--disable-crash-reporter']}));
   evidence.environment.browser=context.browser().version();
   context.on('page',page=>page.on('pageerror',error=>pageErrors.push(error.message)));

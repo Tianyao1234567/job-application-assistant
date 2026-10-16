@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   source-and-unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       TEMP: ${{ github.workspace }}/.runtime/tmp
@@ -59,7 +59,7 @@ jobs:
       - name: Download one controlled browser on the hosted runner only
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
         working-directory: autofill-extension
-        run: node node_modules/playwright/cli.js install chromium --no-shell
+        run: node node_modules/playwright/cli.js install --with-deps chromium --no-shell
       - name: Run the single selected browser regression
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
         env:
