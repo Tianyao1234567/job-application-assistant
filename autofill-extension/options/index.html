@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>个人资料管理</title><link rel="stylesheet" href="../shared/style.css"></head><body>
+<h1>个人资料管理</h1><p>中文与英文分开填写。只确认真实内容；未确认字段不会进入填写候选。</p><p class="notice">资料保存在本机扩展存储中，并非加密保险箱。不要存密码、验证码、证件号码或身份令牌。未知日期留空，年月不会补日。</p>
+<div class="bar"><label>导入 JSON <input id="import" type="file" accept=".json,application/json"></label><button id="save" class="primary" type="button">保存资料</button><button id="export" type="button">导出 JSON</button><button id="clear" type="button">清空资料及站点映射</button></div>
+<p id="status" role="status"></p><div id="editor"></div>
+<details class="card"><summary>完整 JSON / 自定义普通答案</summary><p class="muted">高级编辑支持 customAnswers。此类答案只能手动映射，不能绕过敏感字段保护。使用 {"zh":null,"en":null,"source":"用户填写","confirmed":false}；数据结构见示例。</p><textarea id="raw" style="min-height:300px;font-family:monospace" spellcheck="false" aria-label="完整资料 JSON"></textarea><button id="rawSave" type="button">校验并保存此 JSON</button></details>
+<script type="module" src="options.js"></script></body></html>

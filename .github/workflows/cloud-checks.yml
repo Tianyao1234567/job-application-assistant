@@ -1,0 +1,64 @@
+name: Cloud checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: Optional single cloud browser regression
+        type: choice
+        default: none
+        options:
+          - none
+          - generic
+          - ui-mocked
+          - extension
+
+permissions:
+  contents: read
+
+# One hosted job for this project; a newer request cancels the older run.
+concurrency:
+  group: cloud-checks-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TEMP: ${{ github.workspace }}/.runtime/tmp
+      TMP: ${{ github.workspace }}/.runtime/tmp
+      TMPDIR: ${{ github.workspace }}/.runtime/tmp
+      npm_config_cache: ${{ github.workspace }}/.runtime/cache
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.runtime/browsers
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Create checkout-local runtime directories
+        run: mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
+      - name: Check source syntax and JSON
+        run: node scripts/cloud-check.mjs
+      - name: Necessary schema and protection unit regressions
+        working-directory: autofill-extension
+        run: npm test
+      - name: Install locked test packages only for a manual browser request
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
+        working-directory: autofill-extension
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Download one controlled browser on the hosted runner only
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
+        working-directory: autofill-extension
+        run: node node_modules/playwright/cli.js install chromium --no-shell
+      - name: Run the single selected browser regression
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
+        env:
+          CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
+        run: node scripts/cloud-check.mjs browser

@@ -1,0 +1,322 @@
+{
+  "schema": 1,
+  "snapshot": "v0.2.0 work in progress; missing server, fixture and dashboard interaction",
+  "visibility": "public source permitted",
+  "files": [
+    {
+      "path": ".github/workflows/cloud-checks.yml",
+      "bytes": 2298,
+      "sha256": "c2229dfa53fd2b4424bcd36e0cc6653e19992c86302272d508664902d2fd1ba4"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 792,
+      "sha256": "c08939295c99317919aee15a2f18e336f2fd303425b5db0dbc4909e9531be8bf"
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 2500,
+      "sha256": "c081894b616300bff5cb2eaeaf8fb79c241f8c7548d78c372657e5d55200524a"
+    },
+    {
+      "path": "autofill-extension/adapters/status.js",
+      "bytes": 298,
+      "sha256": "da8c4c3036af60ef50054358ffbebc19f7a66e9fc4a5265db03dc6b24f572342"
+    },
+    {
+      "path": "autofill-extension/background.js",
+      "bytes": 3057,
+      "sha256": "b0074aec5be3b8a66ff2634178d285a48cf467143aa017f5746beb2248c552b6"
+    },
+    {
+      "path": "autofill-extension/bridge/dashboard.js",
+      "bytes": 781,
+      "sha256": "16d758cc5ddeef5aff6280910fff51a0f8d8dced78c7c7449f07db624a621ac2"
+    },
+    {
+      "path": "autofill-extension/content/fill.js",
+      "bytes": 5414,
+      "sha256": "04db71cd08432f9e9dd9aa97ac3e3932bbd877bd4fa28bf6ceac688a9f3978ca"
+    },
+    {
+      "path": "autofill-extension/content/guard.js",
+      "bytes": 3549,
+      "sha256": "d49cb6745b18953b354d679ee945c39d550a83f3a28100a1c9d887d0bd2f026a"
+    },
+    {
+      "path": "autofill-extension/content/scan.js",
+      "bytes": 4555,
+      "sha256": "0f0c6583c7d9cb38a800b5f73a764ab5adeecf99c54c39776386f69607ec077c"
+    },
+    {
+      "path": "autofill-extension/fixtures/controlled.html",
+      "bytes": 846,
+      "sha256": "71f801fa9c789fd30cfe14377a184f0ae5f14c1361ff00a826d61ebd16c42b6d"
+    },
+    {
+      "path": "autofill-extension/fixtures/controlled.js",
+      "bytes": 990,
+      "sha256": "9fcb51f13d04a605b494a08d3f627dc62badf2f784d8fc7bffb6ca487acc5624"
+    },
+    {
+      "path": "autofill-extension/fixtures/fixture.css",
+      "bytes": 445,
+      "sha256": "d086589967ed17d8763e2fb2b7caab0c055c4ac47ba2c81adc592eda6d23d85a"
+    },
+    {
+      "path": "autofill-extension/fixtures/fixture.js",
+      "bytes": 984,
+      "sha256": "4b906075d70e9e2e5d2243c14abf5045b6e7d5f452c3025cfd73254425f8edf0"
+    },
+    {
+      "path": "autofill-extension/fixtures/frame.html",
+      "bytes": 182,
+      "sha256": "a25d6391a2660fd1e9d51905b732bfa15afe28cbec045762f7d5ac338fcc6c5c"
+    },
+    {
+      "path": "autofill-extension/fixtures/generic.html",
+      "bytes": 5072,
+      "sha256": "09f2bddad8fefc4e58ec273cb009076ff8cb591669acbd4aeac676f56cf3dd76"
+    },
+    {
+      "path": "autofill-extension/manifest.json",
+      "bytes": 848,
+      "sha256": "095f1c4e26dc033c6c79189630ece8127a15160c6b75569cdf66077083dc20fe"
+    },
+    {
+      "path": "autofill-extension/options/index.html",
+      "bytes": 1470,
+      "sha256": "34f93bff0b22d9d78475cfbd87dfe7174a5a8201db7670812662de9d1113514d"
+    },
+    {
+      "path": "autofill-extension/options/options.js",
+      "bytes": 5039,
+      "sha256": "aad87baa26a5362bd7659cc685224e4aa42cedff6bef5eacdb716848e27191bd"
+    },
+    {
+      "path": "autofill-extension/package-lock.json",
+      "bytes": 14498,
+      "sha256": "f1307918ba6f0abf6732a4c7bfdadf65e3cca9c726841a174b4bc49446958972"
+    },
+    {
+      "path": "autofill-extension/package.json",
+      "bytes": 422,
+      "sha256": "ffb7e8aeb0b46c70e06ee003e6fc35dd4d437b7d771b583b5495bbd40cbd46b7"
+    },
+    {
+      "path": "autofill-extension/popup/index.html",
+      "bytes": 836,
+      "sha256": "32aa2e21870151fa2151a81ad67366eed0440d29a628e8666b1ff8d50531b09c"
+    },
+    {
+      "path": "autofill-extension/popup/popup.js",
+      "bytes": 813,
+      "sha256": "8c28a8780e8dfc0fc30de569244ff2f170f77f389d30e0101f1199ed3d1dc07e"
+    },
+    {
+      "path": "autofill-extension/profile.example.json",
+      "bytes": 4197,
+      "sha256": "bbed6202552eb72b3924d3b90ac3253f1588207d3d0b61d9975c93519df2b2bd"
+    },
+    {
+      "path": "autofill-extension/runner/index.html",
+      "bytes": 712,
+      "sha256": "79a6312e105e85b0ea57fe03c0e46fee7d4fcc92d13264db83fd596e4022dde7"
+    },
+    {
+      "path": "autofill-extension/runner/local-adapter.js",
+      "bytes": 11272,
+      "sha256": "b76b009e567893b1a89afe12a047ae9e9d68b7ef39d492ded51231a135f1ca28"
+    },
+    {
+      "path": "autofill-extension/runner/runner.js",
+      "bytes": 13865,
+      "sha256": "f588e425fd9ffd9bca72fedf6b50d808a74eb72e9792e0c7eb775cf11ef73ae2"
+    },
+    {
+      "path": "autofill-extension/shared/match.js",
+      "bytes": 5815,
+      "sha256": "b49c613a34b75d959a1189f97aa45f10be1f83af8f5faa3f0cb07e9f5302eacd"
+    },
+    {
+      "path": "autofill-extension/shared/schema.js",
+      "bytes": 6179,
+      "sha256": "617b2f2df7064a1191f2548ad0e914f03e973d62539fc66d3b5be822b50b751c"
+    },
+    {
+      "path": "autofill-extension/shared/storage.js",
+      "bytes": 1021,
+      "sha256": "46fc12707140e32ee242a8ab498663ecc8921bac9df4f440d8dfd08057072312"
+    },
+    {
+      "path": "autofill-extension/shared/style.css",
+      "bytes": 2037,
+      "sha256": "c08fe1e6718949d89144dcc85de7daf09ed64898547e4db20611b897b83ce3dd"
+    },
+    {
+      "path": "autofill-extension/shared/ui.js",
+      "bytes": 659,
+      "sha256": "058ee8aa6481e359c3d2ffe32597dc140fcf82fc1d43304502bc095efcceb7d5"
+    },
+    {
+      "path": "autofill-extension/tests/browser.mjs",
+      "bytes": 7946,
+      "sha256": "1683293af1dd1c6fabd92b78bfacb3530ee9f197b5ab38c5f1566d28ee7c5172"
+    },
+    {
+      "path": "autofill-extension/tests/extension.mjs",
+      "bytes": 3186,
+      "sha256": "cfbd4e31d5acef8b82dbd334ef216fac02ea898a03b2238792ac6dccc7774326"
+    },
+    {
+      "path": "autofill-extension/tests/runtime.mjs",
+      "bytes": 1970,
+      "sha256": "cbffb6c7d253f9316dc76dc8ff28f0f5a2ba337865dffdca266f5a95ecc687b2"
+    },
+    {
+      "path": "autofill-extension/tests/server.mjs",
+      "bytes": 1556,
+      "sha256": "9f67ee1a519e4a9936b3fd0882f3aab0c5dc7111b1e3b919030b8003521e68c0"
+    },
+    {
+      "path": "autofill-extension/tests/ui.mjs",
+      "bytes": 5564,
+      "sha256": "4234f2554d48c15d04ee3af13c06a2aaccd45b465b299ac73606bf77bb7af657"
+    },
+    {
+      "path": "autofill-extension/tests/unit.test.js",
+      "bytes": 9100,
+      "sha256": "62d5185d9c216484c928b9b6e9ffac383b9ef3e3b94fc262bb0441411f8ab4ba"
+    },
+    {
+      "path": "autofill-extension/workspace/index.html",
+      "bytes": 1924,
+      "sha256": "f9496996e361d0be7cf60d37ef4c527193c34c6607963bb75f616d540b35645d"
+    },
+    {
+      "path": "autofill-extension/workspace/workspace.js",
+      "bytes": 8728,
+      "sha256": "6a6c348d609eb68243e2cec27dc58df38fcbd59fe6e81cfd9d2deca3c3bf08bf"
+    },
+    {
+      "path": "CLOUD_HANDOFF.md",
+      "bytes": 1652,
+      "sha256": "1fba5a86275bfef722d1d2eaf27d2a24119912b7190d68cf7b12ec877f978486"
+    },
+    {
+      "path": "CLOUD_SETUP.md",
+      "bytes": 3598,
+      "sha256": "6e83b29d0d646ddddb9dea306747a9226f6f97117c0bcb46bcc3d8b71eb731ec"
+    },
+    {
+      "path": "DEVELOPMENT_SNAPSHOT.md",
+      "bytes": 1146,
+      "sha256": "3e6f5d2037bf01db51670e487fb52dfc50faa9d05481ac2c404f9078abeef30a"
+    },
+    {
+      "path": "GITHUB_MIGRATION_STATUS.md",
+      "bytes": 1579,
+      "sha256": "fbc01ceaf154dcacc4b15cc8daf9ada05270ab0e619053e5a19258d21729d88f"
+    },
+    {
+      "path": "local-app/CONTRACT.md",
+      "bytes": 8253,
+      "sha256": "e1c9992ec9f275e9d3598a5051fdff24e80a0e79693f2a8c102ee534471582c0"
+    },
+    {
+      "path": "local-app/model.mjs",
+      "bytes": 30405,
+      "sha256": "155e0acd415a1495bea6b4ac0f1b691b33cca47d313b749660ac74fce2bb3e97"
+    },
+    {
+      "path": "local-app/paths.mjs",
+      "bytes": 1331,
+      "sha256": "5f8b3dcb04dc201cbf74fabc7b4b95e9f3efb494f8eb119aac1d6207b664f93a"
+    },
+    {
+      "path": "local-app/public/index.html",
+      "bytes": 3182,
+      "sha256": "3fc51fdb8118a23f8e0077c346c9b4fad0ea494a21204215e3ae367765836e55"
+    },
+    {
+      "path": "local-app/public/style.css",
+      "bytes": 20235,
+      "sha256": "54441190643733bece64be4d3bfb6b78ec709926c999fe4244efb2d10cddb471"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1225,
+      "sha256": "f8a9814e593ab32fd4e4bc9237e96c18065085d7b0adda93541103d3f36a80ae"
+    },
+    {
+      "path": "scripts/browser.mjs",
+      "bytes": 1854,
+      "sha256": "f24bd83542a43c16bbf6797e78fdd17aa02e4a83e07de4d065826e1b6c4b89e6"
+    },
+    {
+      "path": "scripts/cloud-check.mjs",
+      "bytes": 2370,
+      "sha256": "de88986c3445efc9b5920c22e3dff38d38abd61c6f6ec786dd65ada922fa6c5a"
+    },
+    {
+      "path": "scripts/open-browser.ps1",
+      "bytes": 845,
+      "sha256": "c8ad56d1ad28e053043a4c3f1d344d5b4caa0e9745d524da798d1a50e070845f"
+    },
+    {
+      "path": "scripts/runtime.ps1",
+      "bytes": 1794,
+      "sha256": "7ffbff765be5cbd1539388e148916083bc25349bed545be3c19666b450d87413"
+    },
+    {
+      "path": "scripts/setup.ps1",
+      "bytes": 783,
+      "sha256": "b573017ef0a81bc46c55fe31ebee032f0129f6e8c6c9fee591818628d9a240fa"
+    },
+    {
+      "path": "scripts/start.ps1",
+      "bytes": 728,
+      "sha256": "8507461026205abb8a3e15f87bd6906f6f784fd3eb6d0c309c661ccfaaae6cc7"
+    },
+    {
+      "path": "scripts/stop.ps1",
+      "bytes": 1395,
+      "sha256": "388b7e20af053f1d4492a1abd477e088b532f3b1def3b4fb6e21d27528748647"
+    },
+    {
+      "path": "SPEC.md",
+      "bytes": 2845,
+      "sha256": "542e84fc93d44038ec75137acb6fcdcfe8eb9cfcaf9cad5a2e259ea8a3d0ede9"
+    },
+    {
+      "path": "停止.cmd",
+      "bytes": 112,
+      "sha256": "4a971abcb5715df5469ff8d9372f03c8571172900f795c8d486c27a37e69c0ec"
+    },
+    {
+      "path": "启动.cmd",
+      "bytes": 113,
+      "sha256": "7ce800f1ffb5c18f56424df6c74f5a8d285775ed7bf282c8e028aca785e4c30f"
+    },
+    {
+      "path": "安装运行环境.cmd",
+      "bytes": 113,
+      "sha256": "bbf4190df2258a234bb850dcf10061610d8ad6d24cfd9f70e4390afeeb593450"
+    },
+    {
+      "path": "打开投递浏览器.cmd",
+      "bytes": 120,
+      "sha256": "2660b26446ea01bb090df53fda411fe49d1348d3dcc46bc597d5caf4cd7e40ae"
+    }
+  ],
+  "exclusions": [
+    "personal data",
+    "local collaboration history",
+    "historical handoff and task originals",
+    "authorization troubleshooting",
+    "runtime and dependencies",
+    "test outputs",
+    "old archives"
+  ],
+  "note": "This inventory excludes itself; local source paths and private history are not published."
+}
