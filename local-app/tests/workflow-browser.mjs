@@ -50,7 +50,21 @@ async function launch() {
   const version=spawnSync(binary,['--version'],{encoding:'utf8',timeout:10_000});
   evidence.environment.browserBinary={version:version.stdout?.trim(),exitCode:version.status,signal:version.signal,diagnostic:version.stderr?.trim().slice(-1000)};
   assert.equal(version.status,0,'Installed Chromium --version failed: '+JSON.stringify(evidence.environment.browserBinary));
-  context=await chromium.launchPersistentContext(profileDir,browserOptions({headless:false,channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension'),'--disable-breakpad','--disable-crash-reporter']}));
+  try {
+    context=await chromium.launchPersistentContext(profileDir,browserOptions({headless:false,channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension'),'--disable-breakpad','--disable-crash-reporter']}));
+  } catch(error) {
+    // The extension browser has exited. A sequential bare-browser diagnostic
+    // distinguishes a browser/runner failure from an extension launch failure.
+    let diagnostic;
+    try {
+      const bare=await chromium.launch(browserOptions({channel:'chromium'}));
+      try {diagnostic={bareBrowser:'PASS',version:bare.version()};}finally{await bare.close();}
+    } catch(bareError) {diagnostic={bareBrowser:'FAIL',error:String(bareError.message).split('\n').filter(line=>line.length<800).join('\n').slice(-2200)};}
+    evidence.startupDiagnostic={...evidence.environment.browserBinary,...diagnostic};
+    const annotation=JSON.stringify(evidence.startupDiagnostic).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A');
+    console.error('::notice title=Chromium startup isolation::'+annotation);
+    throw error;
+  }
   evidence.environment.browser=context.browser().version();
   context.on('page',page=>page.on('pageerror',error=>pageErrors.push(error.message)));
   dashboard=context.pages()[0]||await context.newPage();dashboard.on('pageerror',error=>pageErrors.push(error.message));
