@@ -14,6 +14,7 @@ on:
           - generic
           - ui-mocked
           - extension
+          - workflow
 
 permissions:
   contents: read
@@ -49,6 +50,8 @@ jobs:
       - name: Necessary schema and protection unit regressions
         working-directory: autofill-extension
         run: npm test
+      - name: Local application state, authentication, and actual fixture HTTP regressions
+        run: node --test local-app/tests/*.test.mjs
       - name: Install locked test packages only for a manual browser request
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
         working-directory: autofill-extension
@@ -62,3 +65,11 @@ jobs:
         env:
           CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
         run: node scripts/cloud-check.mjs browser
+      - name: Preserve fictional workflow evidence, including failures
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.browser == 'workflow' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-workflow-evidence
+          path: .runtime/tests/evidence/workflow-browser.json
+          if-no-files-found: warn
+          retention-days: 7

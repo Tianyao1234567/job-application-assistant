@@ -9,17 +9,17 @@ process.env.TEMP=process.env.TMP=process.env.TMPDIR=path.join(runtime,'tmp');
 process.env.npm_config_cache=path.join(runtime,'cache');
 process.env.PLAYWRIGHT_BROWSERS_PATH=path.join(runtime,'browsers');
 await fs.mkdir(process.env.TEMP,{recursive:true});
-function run(args){
-  const result=spawnSync(process.execPath,args,{cwd:root,stdio:'inherit',env:process.env,timeout:120_000});
+function run(args,timeout=120_000){
+  const result=spawnSync(process.execPath,args,{cwd:root,stdio:'inherit',env:process.env,timeout});
   if(result.error) throw result.error;
   if(result.status!==0) process.exit(result.status || 1);
 }
 if(process.argv[2]==='browser'){
   if(process.env.GITHUB_ACTIONS!=='true' || process.platform!=='linux') throw new Error('Browser regression is limited to the Linux hosted Actions job.');
-  const selected={generic:'browser.mjs','ui-mocked':'ui.mjs',extension:'extension.mjs'}[process.env.CLOUD_BROWSER_CHECK];
-  if(!selected) throw new Error('Choose one existing browser regression.');
-  // One child, one browser; this does not certify a complete application journey.
-  run([path.join('autofill-extension','tests',selected)]);
+  const selected={generic:'autofill-extension/tests/browser.mjs','ui-mocked':'autofill-extension/tests/ui.mjs',extension:'autofill-extension/tests/extension.mjs',workflow:'local-app/tests/workflow-browser.mjs'}[process.env.CLOUD_BROWSER_CHECK];
+  if(!selected) throw new Error('Choose one supported browser regression.');
+  // One child and one browser at a time. Only workflow covers the integrated local journey.
+  run([selected],process.env.CLOUD_BROWSER_CHECK==='workflow'?240_000:120_000);
 }else{
   const excluded=new Set(['node_modules','.runtime','.git','test-results','test-results-001','playwright-report','coverage']);
   let checked=0;
