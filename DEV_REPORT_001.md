@@ -1,5 +1,7 @@
 # DEV-0015 · 本地闭环开发阶段报告
 
+本文保留前阶段实现与失败证据，后续修正和当前验证状态见 [DEV_REPORT_002.md](DEV_REPORT_002.md)。
+
 日期：2026-10-16（北京时间）。状态：WIP，阶段成果待产品经理验收，真实扩展启动仍未通过。基线 `a6e9f1b5fd374659892dfbdba3cb417f42e89b85`；分支 `dev/local-workflow-foundation`；[PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4)。首个实现提交 `76748d4f2fc940564fcadbe356f238fc63bec2d4`。不能把以下测试计划视为已执行通过。
 
 ## 本阶段实现

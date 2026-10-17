@@ -21,3 +21,5 @@
 进一步核对 Chromium 145.0.7632.6 的 `process_singleton_posix.cc`：启动会在临时目录创建 Unix socket，`SetupSocket` 对超过长度上限的路径执行 CHECK。原容器 checkout 的 TMPDIR 为69字节，按源码两种构建前缀拼接后为110/114字节，超过Linux `sockaddr_un.sun_path` 的108字节容量。宿主原路径更长。因此不能把此前“裸浏览器也失败”直接解释为外部平台能力不足；我们配置的临时路径是需要验证的具体原因。
 
 修正方向是把同一份CI checkout额外挂载到容器内短路径 `/workspace`，所有运行数据仍在该checkout的 `.runtime/`；不外移用户数据、不借外部临时目录规避仓库约束。将增加按UTF-8字节计算的启动预检，超过限制时显示明确错误。真实修复效果以接下来的Actions结果为准。
+
+[短路径修正验证](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39068037200)，提交 `c00a45c6877c6d94912d788bac1a2e1170db50e7`：基础作业成功，41项源码检查、20项扩展单元与89项Node回归通过；官方镜像准备及浏览器启动成功，不再复现SIGTRAP。真实扩展测试进入下一阶段后在配对等待超时，尚未证明后续填写/提交流程通过。正在检查真实worker、配对消息和桥接响应，并修正用户先点击连接、内容脚本稍后就绪时可能丢失配对意图的问题；不放宽来源校验。

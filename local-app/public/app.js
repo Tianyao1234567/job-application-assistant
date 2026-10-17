@@ -16,6 +16,9 @@ let lastSignature = '';
 let renderedView = '';
 let taskDialogId = null;
 let extensionReady = false;
+let pairingIntent = null;
+let pairingTimer;
+let pairingRequested = false;
 let composing = false;
 let fetching = false;
 let profileDraft = null;
@@ -162,17 +165,38 @@ async function perform(action, payload = {}) {
 window.addEventListener('unhandledrejection', event => {event.preventDefault(); toast(event.reason?.message || '操作未完成，请检查本机服务。', true);});
 function connect() {
   if (!key) return toast('后台配对信息缺失，请从本机服务重新打开工作台。', true);
+  if (pairingIntent) return;
+  pairingRequested = true;
+  // At most one initial message and one replay after a late content-script listener.
+  pairingIntent = {readyReplaySent:extensionReady};
+  pairingTimer = setTimeout(() => {
+    pairingIntent = null;updateConnectButton();
+    toast('未收到插件配对回执，请核对插件执行端状态后再点击连接。',true);
+  },15000);
   window.postMessage({channel:'job-local', type:'connect', key}, location.origin);
+  updateConnectButton();
   toast(extensionReady ? '已发送配对请求，等待执行端实际连接。' : '已发送配对请求。如果插件未加载，请按总览中的说明加载扩展。');
+}
+function updateConnectButton() {
+  const node=$('#connect-button');node.disabled=Boolean(pairingIntent);
+  node.textContent=pairingIntent?'等待插件配对…':state?.connection.connected?'重新连接':'连接插件';
 }
 $('#connect-button').addEventListener('click', connect);
 window.addEventListener('message', event => {
-  if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'job-local' || event.data?.type !== 'extension-ready') return;
-  extensionReady = true;
-  if (new URLSearchParams(location.search).get('autoconnect') === '1') connect();
-  render(true);
+  if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'job-local') return;
+  if(event.data.type==='extension-ready'){
+    extensionReady = true;
+    if(pairingIntent&&!pairingIntent.readyReplaySent){
+      pairingIntent.readyReplaySent=true;
+      window.postMessage({channel:'job-local',type:'connect',key},location.origin);
+    }
+    render(true);
+  }else if(event.data.type==='connected'&&pairingIntent&&typeof event.data.ok==='boolean'){
+    clearTimeout(pairingTimer);pairingIntent=null;updateConnectButton();
+    toast(event.data.ok?'插件已接受配对，等待后台确认实际执行端心跳。':'插件配对失败，请确认扩展已启用，再点击连接重试。',!event.data.ok);
+  }
 });
-if (new URLSearchParams(location.search).get('autoconnect') === '1') setTimeout(connect, 100);
+if (new URLSearchParams(location.search).get('autoconnect') === '1') setTimeout(() => {if(!pairingRequested)connect();}, 100);
 
 function updateHealthButtons() {
   document.querySelectorAll('[data-health]').forEach(node => {node.disabled = healthBusy;node.textContent = healthBusy ? '正在自检…' : '一键自检';});
@@ -251,7 +275,7 @@ function header() {
   const connection = $('#connection-status');
   connection.replaceChildren(el('span', {class:'status-dot'}), document.createTextNode(state.connection.connected ? '插件执行端已连接' : '插件执行端未连接'));
   connection.classList.toggle('online', state.connection.connected);
-  $('#connect-button').textContent = state.connection.connected ? '重新连接' : '连接插件';
+  updateConnectButton();
   const mode = $('#mode-badge'); mode.textContent = modeLabel(state.settings.mode); mode.className = `badge ${state.settings.mode === 'demo' ? 'good' : 'warning'}`;
   const actions = [];
   if (view === 'overview' || view === 'queue') {

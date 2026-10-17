@@ -16,10 +16,46 @@ const {chromium}=require('playwright');
 const {createApp}=await import('../server.mjs');
 const BASE='http://127.0.0.1:17321',FIXTURE='http://127.0.0.1:17322';
 const isolated=await testDirectory('workflow'),dataDir=path.join(isolated,'data'),profileDir=path.join(isolated,'browser-profile');
-const testKey=randomBytes(24).toString('base64url'),results=[],pageErrors=[];
+const testKey=randomBytes(24).toString('base64url'),results=[],pageErrors=[],consoleErrors=[],bridgeEvents=[];
 const evidence={startedAt:new Date().toISOString(),environment:{platform:process.platform,architecture:process.arch,os:os.release(),node:process.version,githubActions:process.env.GITHUB_ACTIONS==='true',runId:process.env.GITHUB_RUN_ID||null,runAttempt:process.env.GITHUB_RUN_ATTEMPT||null,commit:process.env.GITHUB_SHA||null,containerImage:process.env.CLOUD_PLAYWRIGHT_IMAGE||null},scope:'Real loaded extension, dashboard HTTP API, actual fixture DOM and native multipart requests; fictional data only.',limitations:['No real recruiting website or personal account tested.','No Windows production browser or toolbar acceptance.','Controlled-time and missed-day schedule decisions are covered by the separate Node tests; this journey also checks a due schedule respects manual pause.'],results};
 let app,context,dashboard,key,releaseApply;
+const watchedPages=new WeakSet();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function safeDiagnostic(value) {
+  let text=String(value);for(const secret of [key,testKey])if(secret)text=text.replaceAll(secret,'[redacted]');
+  return text.replace(/[A-Za-z0-9_-]{32,256}/g,'[opaque]');
+}
+function notice(title,value) {
+  let detail=safeDiagnostic(JSON.stringify(value));
+  if(detail.length>3800)detail=JSON.stringify({truncated:true,detail:detail.slice(0,3550)});
+  console.error('::notice title='+title+'::'+detail.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
+}
+function urlType(url) {
+  try {const parsed=new URL(url);if(parsed.origin===BASE)return 'dashboard';if(parsed.origin===FIXTURE)return 'fixture';if(parsed.protocol==='chrome-extension:')return parsed.pathname==='/runner/index.html'?'runner':'extension';return parsed.protocol==='about:'?'blank':'other';}catch{return 'unknown';}
+}
+function observePage(page) {
+  if(watchedPages.has(page))return;watchedPages.add(page);
+  page.on('pageerror',error=>pageErrors.push(safeDiagnostic(error.message).slice(0,600)));
+  page.on('console',message=>{if(message.type()==='error'&&consoleErrors.length<30)consoleErrors.push({page:urlType(page.url()),message:safeDiagnostic(message.text()).slice(0,600)});});
+}
+function recordBridge(source,url,headers,status=null) {
+  let route;try {const parsed=new URL(url);if(parsed.origin!==BASE)return;route=parsed.pathname;}catch{return;}
+  if(!['/api/bridge/poll','/api/bridge/heartbeat','/api/bridge/authorize','/api/bridge/result'].includes(route)||bridgeEvents.length>=100)return;
+  const origin=headers.origin||'';
+  bridgeEvents.push({source,route,status,originPresent:!!origin,extensionOrigin:/^chrome-extension:\/\/[a-p]{32}$/.test(origin),hasKey:!!headers['x-local-key']});
+}
+async function pairingDiagnostic(worker) {
+  const snapshot={workerPresent:!!worker,metaKeyPresent:!!key,extensionMessages:null,storage:null,runners:[],dashboardToast:null,pageErrors:pageErrors.slice(-3),consoleErrors:consoleErrors.slice(-3),bridgeEvents:bridgeEvents.slice(-10)};
+  if(worker)try {snapshot.storage=await worker.evaluate(async()=>{const {localBridge,runnerTabId}=await chrome.storage.local.get(['localBridge','runnerTabId']);return {keyPresent:typeof localBridge?.key==='string'&&localBridge.key.length>0,profilePresent:typeof localBridge?.profileId==='string'&&localBridge.profileId.length>0,runnerTabPresent:Number.isInteger(runnerTabId)};});}catch{snapshot.storage={readFailed:true};}
+  if(dashboard&&!dashboard.isClosed())try {
+    snapshot.extensionMessages=await dashboard.evaluate(()=>({readySeen:globalThis.__jobLocalTestEvents?.some(event=>event.type==='extension-ready')===true,connectedSeen:globalThis.__jobLocalTestEvents?.some(event=>event.type==='connected')===true,connectedOK:globalThis.__jobLocalTestEvents?.some(event=>event.type==='connected'&&event.ok===true)===true}));
+    snapshot.dashboardToast=safeDiagnostic(await dashboard.locator('#toast').textContent()).slice(0,250);
+  }catch{snapshot.dashboardReadFailed=true;}
+  for(const page of context?.pages()||[])if(urlType(page.url())==='runner') {
+    try {snapshot.runners.push({urlType:'runner',status:safeDiagnostic(await page.locator('#status').textContent({timeout:1000})).slice(0,200)});}catch{snapshot.runners.push({urlType:'runner',statusReadFailed:true});}
+  }
+  (evidence.pairingDiagnostics||=[]).push(snapshot);notice('Real extension pairing diagnosis',snapshot);
+}
 async function until(name,read,predicate,timeout=45_000) {
   const deadline=Date.now()+timeout;
   while(Date.now()<deadline) {const value=await read();if(predicate(value))return value;await delay(150);}
@@ -27,7 +63,7 @@ async function until(name,read,predicate,timeout=45_000) {
 }
 async function check(name,fn) {
   const started=Date.now();
-  try {await fn();results.push({name,status:'PASS',durationMs:Date.now()-started});console.log('PASS '+name);}
+  try {await fn();const result={name,status:'PASS',durationMs:Date.now()-started};results.push(result);console.log('PASS '+name);notice('Fictional workflow stage passed',result);}
   catch(error){results.push({name,status:'FAIL',error:error.message,durationMs:Date.now()-started});throw error;}
 }
 async function api(route='/state',body,{allowFailure=false}={}) {
@@ -44,7 +80,13 @@ async function fixture(route='/state',body) {
 }
 const task=(snapshot,jobId)=>snapshot.tasks.find(item=>item.jobId===jobId);
 const requests=(snapshot,tenant,jobId)=>snapshot.submitRequests.filter(item=>item.tenant===tenant&&item.jobId===jobId);
-async function start() {app=await createApp({dataDir,testMode:true,testKey});assert.equal(app.url,BASE);}
+async function start() {
+  app=await createApp({dataDir,testMode:true,testKey});assert.equal(app.url,BASE);
+  app.server.on('request',(request,response)=>{
+    const url=BASE+request.url;recordBridge('server-request',url,request.headers);
+    response.once('finish',()=>recordBridge('server-response',url,request.headers,response.statusCode));
+  });
+}
 async function launch() {
   if(process.env.CLOUD_PLAYWRIGHT_IMAGE) {
     const proof=JSON.parse(await fs.readFile(path.join(evidenceRoot,'container-browser.json'),'utf8'));
@@ -80,17 +122,29 @@ async function launch() {
     throw error;
   }
   evidence.environment.browser=context.browser().version();
-  context.on('page',page=>page.on('pageerror',error=>pageErrors.push(error.message)));
-  dashboard=context.pages()[0]||await context.newPage();dashboard.on('pageerror',error=>pageErrors.push(error.message));
-  await dashboard.goto(BASE);await dashboard.locator('meta[name="local-key"]').waitFor({state:'attached'});
-  key=await dashboard.locator('meta[name="local-key"]').getAttribute('content');
-  assert.match(key,/^[A-Za-z0-9_-]{32,256}$/);
-  // This is the real dashboard button, content script, service worker and runner pairing.
-  await dashboard.locator('#connect-button').click();
-  await until('actual extension pairing',state,value=>value.connection.connected&&value.connection.profileId);
-  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:10_000});
-  assert.match(worker.url(),/^chrome-extension:\/\/[a-p]{32}\//);
-  evidence.environment.extensionId=new URL(worker.url()).host;
+  context.on('page',observePage);for(const page of context.pages())observePage(page);
+  context.on('request',request=>recordBridge('browser-request',request.url(),request.headers()));
+  context.on('response',response=>recordBridge('browser-response',response.url(),response.request().headers(),response.status()));
+  let worker;
+  try {
+    worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:10_000});
+    assert.match(worker.url(),/^chrome-extension:\/\/[a-p]{32}\//);
+    evidence.environment.extensionId=new URL(worker.url()).host;
+    dashboard=context.pages()[0]||await context.newPage();observePage(dashboard);
+    // Install a passive document-start observer before the real content script emits ready.
+    await dashboard.addInitScript(()=>{
+      globalThis.__jobLocalTestEvents=[];
+      window.addEventListener('message',event=>{
+        if(event.source===window&&event.origin==='http://127.0.0.1:17321'&&event.data?.channel==='job-local'&&['extension-ready','connected'].includes(event.data.type))globalThis.__jobLocalTestEvents.push({type:event.data.type,ok:event.data.ok===true});
+      });
+    });
+    await dashboard.goto(BASE);await dashboard.locator('meta[name="local-key"]').waitFor({state:'attached'});
+    key=await dashboard.locator('meta[name="local-key"]').getAttribute('content');assert.match(key,/^[A-Za-z0-9_-]{32,256}$/);
+    await dashboard.waitForFunction(()=>globalThis.__jobLocalTestEvents?.some(event=>event.type==='extension-ready'),{},{timeout:10_000});
+    // This remains the actual dashboard button -> content script -> service worker pairing.
+    await dashboard.locator('#connect-button').click();
+    await until('actual extension pairing',state,value=>value.connection.connected&&value.connection.profileId);
+  }catch(error){await pairingDiagnostic(worker);throw error;}
 }
 async function loginAlpha() {
   // A normal fictional native login in the exact same persistent execution profile.
