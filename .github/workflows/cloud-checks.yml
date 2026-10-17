@@ -19,7 +19,7 @@ on:
 permissions:
   contents: read
 
-# One hosted job for this project; a newer request cancels the older run.
+# One workflow run for this project. needs below also serializes its two jobs.
 concurrency:
   group: cloud-checks-${{ github.repository }}
   cancel-in-progress: true
@@ -52,29 +52,50 @@ jobs:
         run: npm test
       - name: Local application state, authentication, and actual fixture HTTP regressions
         run: node --test local-app/tests/*.test.mjs
-      - name: Install locked test packages only for a manual browser request
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
+  browser:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
+    # https://github.com/microsoft/playwright/blob/v1.58.2/utils/docker/Dockerfile.noble
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
+    env:
+      TEMP: ${{ github.workspace }}/.runtime/tmp
+      TMP: ${{ github.workspace }}/.runtime/tmp
+      TMPDIR: ${{ github.workspace }}/.runtime/tmp
+      npm_config_cache: ${{ github.workspace }}/.runtime/cache
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.runtime/browsers
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+      CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Create checkout-local runtime directories
+        run: mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
+      - name: Install only the locked project test packages
         working-directory: autofill-extension
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Download one controlled browser on the hosted runner only
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
-        working-directory: autofill-extension
-        run: node node_modules/playwright/cli.js install --with-deps chromium --no-shell
+      - name: Verify and copy the image Chromium into checkout-local runtime
+        run: node scripts/cloud-check.mjs container-browser
       - name: Run the single selected browser regression
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
-        env:
-          CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
-        run: |
-          if [ "$CLOUD_BROWSER_CHECK" = workflow ]; then
-            xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
-          else
-            node scripts/cloud-check.mjs browser
-          fi
+        run: xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
       - name: Preserve fictional workflow evidence, including failures
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.browser == 'workflow' }}
+        if: ${{ always() && inputs.browser == 'workflow' }}
         uses: actions/upload-artifact@v6
         with:
           name: fictional-workflow-evidence
-          path: .runtime/tests/evidence/workflow-browser.json
+          path: .runtime/tests/evidence/*browser*.json
           if-no-files-found: warn
           retention-days: 7

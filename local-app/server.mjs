@@ -59,7 +59,87 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
   browserOpen} = {}) {
   const paths = initializePaths(dataDir), store = new Store(paths, now ? {now} : {});
   const key = localKey(paths.data);
-  let fixture, timer, browserProcess, closing;
+  let fixture, timer, browserProcess, closing, fixtureProbe, fixtureProbeCookie;
+  async function fixtureHealth() {
+    const label = '虚构本地招聘测试站';
+    if (!fixture) return {id: 'fixture', status: 'warning', label,
+      detail: '本次后台未启动虚构本地招聘测试站，未进行响应检查。',
+      action: '使用默认启动入口启动本地测试站后，再运行自检。'};
+    // Concurrent checks share one request and retain its synthetic session cookie.
+    // This cookie is never used to infer the extension browser's login state.
+    if (fixtureProbe) return fixtureProbe;
+    const pending = (async () => {
+      try {
+        const response = await fetch(fixture.url + '/site/beta/session', {
+          signal: AbortSignal.timeout(1500), redirect: 'error', cache: 'no-store',
+          headers: fixtureProbeCookie ? {Cookie: fixtureProbeCookie} : {}
+        });
+        const cookie = /^fixture_beta=[a-f0-9]{48}(?=;|$)/.exec(response.headers.get('set-cookie') || '')?.[0];
+        if (cookie) fixtureProbeCookie = cookie;
+        if (!response.ok || !/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') || '')) throw new Error('Invalid fixture response');
+        const body = await response.json();
+        if (body?.login?.tenant !== 'beta' || typeof body.login.account !== 'string' ||
+          !['ready', 'login', 'expired', 'verification', 'unknown', 'account'].includes(body.login.status)) throw new Error('Invalid fixture session');
+        return {id: 'fixture', status: 'pass', label,
+          detail: '虚构本地招聘测试站已实际响应。此检查不确认投递浏览器登录，也不证明真实网站投递能力。'};
+      } catch {
+        return {id: 'fixture', status: 'fail', label,
+          detail: '虚构本地招聘测试站未在限定时间内返回有效响应。此检查未访问真实招聘网站。',
+          action: '检查本地测试站是否正常启动，然后重试自检。'};
+      }
+    })();
+    fixtureProbe = pending;
+    try { return await pending; }
+    finally { if (fixtureProbe === pending) fixtureProbe = null; }
+  }
+  async function health() {
+    const state = store.snapshot(), connected = state.connection.connected && !!state.connection.profileId;
+    const checks = [{id: 'backend', status: 'pass', label: '本地管理后台',
+      detail: '后台已响应。自检只读取状态，不会启动任务、填写或提交申请。'},
+    await fixtureHealth(),
+    connected ? {id: 'extension', status: 'pass', label: '插件与投递浏览器',
+      detail: '已收到当前投递浏览器的插件心跳。心跳只代表连接正常，不代表网站已经登录。'} :
+      {id: 'extension', status: 'warning', label: '插件与投递浏览器',
+        detail: '尚未收到当前投递浏览器的有效插件心跳，或连接已超时。',
+        action: '保持投递浏览器和执行端运行，在工作台连接插件后再检查。'},
+    state.readiness.length ? {id: 'configuration', status: 'warning', label: '资料、简历与运行配置',
+      detail: state.readiness.join('；') + '。', action: '前往资料与简历、规则与计划补齐上述项目。'} :
+      {id: 'configuration', status: 'pass', label: '资料、简历与运行配置',
+        detail: '当前运行模式所需配置已齐备；是否可执行仍以插件与网站检查为准。'}];
+    if (state.manualPaused) checks.push({id: 'execution', status: 'warning', label: '执行与每日计划',
+      detail: '你已全局暂停。每日计划不会触发新的自动动作，自检不会解除暂停。',
+      action: '准备就绪后明确点击继续，恢复执行与每日计划。'});
+    else if (state.running && !state.paused) checks.push({id: 'execution', status: 'pass', label: '执行与每日计划',
+      detail: '后台记录为运行中；实际进展与结果以任务步骤和可靠回执为准。'});
+    else if (state.settings.scheduleEnabled) checks.push({id: 'execution', status: 'pass', label: '执行与每日计划',
+      detail: '每日计划已开启，等待计划检查。后台、插件和投递浏览器须保持运行，到时仍需通过配置与网站检查。'});
+    else checks.push({id: 'execution', status: 'warning', label: '执行与每日计划',
+      detail: '当前未运行，每日计划也未开启。自检不会开始执行。',
+      action: '准备就绪后启动执行，或在规则与计划中开启每日计划。'});
+    for (const site of state.sites.filter(site => site.enabled && !site.skipped)) {
+      const check = {id: 'site:' + site.id, label: '网站登录记录 · ' + site.name,
+        status: 'warning', action: '前往网站准备，在投递浏览器中处理后重新检查。'};
+      if (site.adapter !== 'local-v1') {
+        check.detail = '此网站尚待适配，不能可靠判断登录。自检不会访问真实招聘网站。';
+      } else if (!connected) {
+        check.detail = '插件未连接，不能确认此网站在当前投递浏览器中的登录状态。';
+      } else if (site.login?.profileId !== state.connection.profileId || !site.login?.checkedAt) {
+        check.detail = '缺少属于当前投递浏览器的登录检查记录；其他浏览器或旧记录不能作为就绪依据。';
+      } else if (site.login.status === 'account' || site.login.status === 'ready' &&
+        (site.login.account !== site.expectedAccount || site.login.tenant !== site.tenant)) {
+        check.status = 'fail'; check.detail = '已记录的申请账号或公司范围不符，请在当前投递浏览器核对。';
+      } else if (site.login.status === 'ready') {
+        check.status = 'pass';
+        check.detail = '已记录属于当前投递浏览器的账号与公司范围检查。自检不会重新读取网站页面，执行前仍需核对。';
+        delete check.action;
+      } else {
+        const labels = {login: '需要登录', expired: '登录已失效', verification: '需要人工验证', unknown: '账号状态待核实'};
+        check.detail = (labels[site.login.status] || labels.unknown) + '。这是已有检查记录，自检不会代替网站登录检查。';
+      }
+      checks.push(check);
+    }
+    return {checkedAt: state.now, checks};
+  }
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -98,6 +178,9 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
         const state = store.snapshot();
         if (state.resume) delete state.resume.file;
         json(res, 200, state); return;
+      }
+      if (!bridge && req.method === 'GET' && url.pathname === '/api/health') {
+        json(res, 200, await health()); return;
       }
       if (req.method !== 'POST') throw new RequestError(405, '不支持的请求方法');
       // Browser mutations always carry Origin. Script/test callers must supply it explicitly.

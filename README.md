@@ -6,6 +6,7 @@
 
 - [产品规格](SPEC.md)
 - [开发进度与缺项](DEVELOPMENT_SNAPSHOT.md)
+- [可靠性与自检优化报告](DEV_REPORT_002.md)
 - [协作规范](AGENTS.md)
 - [云端检查配置](CLOUD_SETUP.md)
 - [云端接续任务](CLOUD_HANDOFF.md)

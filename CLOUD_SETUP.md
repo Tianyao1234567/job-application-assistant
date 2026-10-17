@@ -4,7 +4,7 @@
 
 ## 自动检查
 
-`.github/workflows/cloud-checks.yml` 使用 GitHub 托管的 `ubuntu-24.04`、Node.js 24，每个仓库同一时刻仅一个工作流运行，后来的运行取消旧运行，单次最长 10 分钟。没有 self-hosted runner、测试矩阵、真实账号、生产会话或用户资料。仓库令牌只有读取代码权限，不持久化到 checkout。
+`.github/workflows/cloud-checks.yml` 使用 GitHub 托管的 `ubuntu-24.04`、Node.js 24，每个仓库同一时刻仅一个工作流运行，后来的运行取消旧运行；每个作业最长 10 分钟，基础检查与按需浏览器作业依次执行。没有 self-hosted runner、测试矩阵、真实账号、生产会话或用户资料。仓库令牌只有读取代码权限，不持久化到 checkout。
 
 push 和 PR 默认仅执行以下必要检查，不安装测试依赖、不下载浏览器：
 
@@ -32,26 +32,22 @@ node local-app/server.mjs --data-dir .runtime/dev-data
 
 ## 按需的一项浏览器回归
 
-仅在 GitHub 的 Actions 页面手动选择 `Cloud checks` → `Run workflow`，将 `browser` 从 `none` 改为一项。工作流先完成默认检查，再从锁文件安装 Playwright 1.58.2 等现有测试依赖，仅在云端下载完整 Chromium，按选择执行一个脚本，不并行运行：
+仅在 GitHub 的 Actions 页面手动选择 `Cloud checks` → `Run workflow`，将 `browser` 从 `none` 改为一项。工作流先完成默认检查，再启动官方 Playwright 1.58.2 Noble 镜像中的浏览器作业，从锁文件安装测试包。镜像固定为已核对的 amd64 digest `sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0`，只在手动浏览器请求时拉取；普通 push/PR 不拉镜像。镜像已有 Chromium 与系统依赖，不重复下载或 apt 安装。按选择执行一个脚本，不并行运行：
 
 - `generic`：真实 DOM 通用填写、原值保护和结构变化回归，不是安装扩展验收。
 - `ui-mocked`：实际页面、模拟 Chrome API 的旧管理界面回归。
 - `extension`：实际加载扩展、旧资料导入导出和独立测试配置重启。它不覆盖新本地后台完整投递，也不证明真实招聘站兼容。
 - `workflow`：实际后台按钮配对、真实加载扩展、本地虚构岗位、多段填写、真实 multipart 附件、补答、暂停接管、会话失效及未知结果重启核对；它不证明真实招聘网站兼容或 Windows 安装通过。
 
-浏览器步骤的云端命令为：
+可以通过已授权的 GitHub CLI 调度开发分支，例如：
 
 ```sh
-cd autofill-extension
-npm ci --ignore-scripts --no-audit --no-fund
-node node_modules/playwright/cli.js install --with-deps chromium --no-shell
-cd ..
-CLOUD_BROWSER_CHECK=generic node scripts/cloud-check.mjs browser
+gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant --ref dev/local-workflow-foundation -f browser=workflow
 ```
 
-选择 `workflow` 时在托管 runner 的虚拟显示运行：`xvfb-run --auto-servernum env CLOUD_BROWSER_CHECK=workflow node scripts/cloud-check.mjs browser`。这项实际加载扩展，使用有界面 Chromium；其他旧单项维持原有模式。浏览器独立启动失败时先定位运行环境，不能把未进入的产品检查报为通过。
+容器作业先执行 `node scripts/cloud-check.mjs container-browser`，校验包版本、镜像环境与 Chromium revision，只把镜像的 Chromium 复制到 checkout 的 `.runtime/browsers`，逐文件核对 SHA-256 和执行权限，拒绝外逸符号链接。它保存复制校验证据。随后在虚拟显示中运行 `xvfb-run --auto-servernum node scripts/cloud-check.mjs browser`，具体单项由作业的 `CLOUD_BROWSER_CHECK` 指定。`workflow` 实际加载扩展，使用有界面 Chromium；其他旧单项维持原有模式。浏览器独立启动失败时先定位运行环境，不能把未进入的产品检查报为通过。
 
-最后一个命令仅允许在 Linux Actions 环境执行，`generic` 可以替换为其他单项。项目生成的缓存、临时文件、下载、测试浏览器配置位于 checkout 内 `.runtime/`；旧回归结果 JSON 位于 `test-results-001/`，新 `workflow` 结果为 `.runtime/tests/evidence/workflow-browser.json`。这些内容不提交回仓库。`workflow` 仅上传这份经过字段限制的虚构结果 JSON，保留7天；不上传配对密钥、资料正文、会话、截图或整目录产物。
+浏览器执行仅允许在 Linux Actions 环境。项目生成的缓存、临时文件、测试浏览器配置位于 checkout 内 `.runtime/`；旧回归结果 JSON 位于 `test-results-001/`，新 `workflow` 结果为 `.runtime/tests/evidence/workflow-browser.json`，镜像复制证明为同目录 `container-browser.json`。这些内容不提交回仓库。`workflow` 仅上传这两份经过字段限制的结果 JSON，保留7天；不上传配对密钥、资料正文、会话、截图或整目录产物。
 
 ## 继续开发的位置
 

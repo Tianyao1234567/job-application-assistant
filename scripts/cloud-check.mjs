@@ -14,7 +14,10 @@ function run(args,timeout=120_000){
   if(result.error) throw result.error;
   if(result.status!==0) process.exit(result.status || 1);
 }
-if(process.argv[2]==='browser'){
+if(process.argv[2]==='container-browser'){
+  const {prepareContainerChromium}=await import('../autofill-extension/tests/runtime.mjs');
+  await prepareContainerChromium();
+}else if(process.argv[2]==='browser'){
   if(process.env.GITHUB_ACTIONS!=='true' || process.platform!=='linux') throw new Error('Browser regression is limited to the Linux hosted Actions job.');
   const selected={generic:'autofill-extension/tests/browser.mjs','ui-mocked':'autofill-extension/tests/ui.mjs',extension:'autofill-extension/tests/extension.mjs',workflow:'local-app/tests/workflow-browser.mjs'}[process.env.CLOUD_BROWSER_CHECK];
   if(!selected) throw new Error('Choose one supported browser regression.');

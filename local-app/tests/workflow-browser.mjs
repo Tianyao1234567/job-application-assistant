@@ -17,7 +17,7 @@ const {createApp}=await import('../server.mjs');
 const BASE='http://127.0.0.1:17321',FIXTURE='http://127.0.0.1:17322';
 const isolated=await testDirectory('workflow'),dataDir=path.join(isolated,'data'),profileDir=path.join(isolated,'browser-profile');
 const testKey=randomBytes(24).toString('base64url'),results=[],pageErrors=[];
-const evidence={startedAt:new Date().toISOString(),environment:{platform:process.platform,architecture:process.arch,os:os.release(),node:process.version,githubActions:process.env.GITHUB_ACTIONS==='true',runId:process.env.GITHUB_RUN_ID||null,runAttempt:process.env.GITHUB_RUN_ATTEMPT||null,commit:process.env.GITHUB_SHA||null},scope:'Real loaded extension, dashboard HTTP API, actual fixture DOM and native multipart requests; fictional data only.',limitations:['No real recruiting website or personal account tested.','No Windows production browser or toolbar acceptance.','Controlled-time schedule decisions are covered by the separate Node tests.'],results};
+const evidence={startedAt:new Date().toISOString(),environment:{platform:process.platform,architecture:process.arch,os:os.release(),node:process.version,githubActions:process.env.GITHUB_ACTIONS==='true',runId:process.env.GITHUB_RUN_ID||null,runAttempt:process.env.GITHUB_RUN_ATTEMPT||null,commit:process.env.GITHUB_SHA||null,containerImage:process.env.CLOUD_PLAYWRIGHT_IMAGE||null},scope:'Real loaded extension, dashboard HTTP API, actual fixture DOM and native multipart requests; fictional data only.',limitations:['No real recruiting website or personal account tested.','No Windows production browser or toolbar acceptance.','Controlled-time and missed-day schedule decisions are covered by the separate Node tests; this journey also checks a due schedule respects manual pause.'],results};
 let app,context,dashboard,key,releaseApply;
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(name,read,predicate,timeout=45_000) {
@@ -46,12 +46,17 @@ const task=(snapshot,jobId)=>snapshot.tasks.find(item=>item.jobId===jobId);
 const requests=(snapshot,tenant,jobId)=>snapshot.submitRequests.filter(item=>item.tenant===tenant&&item.jobId===jobId);
 async function start() {app=await createApp({dataDir,testMode:true,testKey});assert.equal(app.url,BASE);}
 async function launch() {
+  if(process.env.CLOUD_PLAYWRIGHT_IMAGE) {
+    const proof=JSON.parse(await fs.readFile(path.join(evidenceRoot,'container-browser.json'),'utf8'));
+    assert.equal(proof.image,process.env.CLOUD_PLAYWRIGHT_IMAGE);assert.equal(proof.playwright,'1.58.2');assert.equal(proof.copiedAndVerified,true);
+    evidence.environment.imageBrowser=proof;
+  }
   const binary=chromium.executablePath();
   const version=spawnSync(binary,['--version'],{encoding:'utf8',timeout:10_000});
   evidence.environment.browserBinary={version:version.stdout?.trim(),exitCode:version.status,signal:version.signal,diagnostic:version.stderr?.trim().slice(-1000)};
   assert.equal(version.status,0,'Installed Chromium --version failed: '+JSON.stringify(evidence.environment.browserBinary));
   try {
-    context=await chromium.launchPersistentContext(profileDir,browserOptions({headless:false,channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension'),'--disable-breakpad','--disable-crash-reporter']}));
+    context=await chromium.launchPersistentContext(profileDir,browserOptions({headless:false,channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension')]}));
   } catch(error) {
     // The extension browser has exited. A sequential bare-browser diagnostic
     // distinguishes a browser/runner failure from an extension launch failure.
@@ -119,6 +124,15 @@ async function workflow() {
     assert.equal(await dashboard.getByLabel('选择本机简历文件',{exact:true}).evaluate(node=>node.files[0]?.name),'fictional-unsaved.txt');
     assert.equal((await state()).profile.version,initial.profile.version);assert.equal((await state()).resume.version,resume.version);
     await dashboard.locator('nav [data-view="overview"]').click();
+    const before=await state(),healthResponse=dashboard.waitForResponse(response=>response.url()===BASE+'/api/health'&&response.request().method()==='GET');
+    await dashboard.locator('#health-button').click();
+    const health=await (await healthResponse).json();assert.ok(Number.isFinite(Date.parse(health.checkedAt)));
+    assert.ok(health.checks.length>=5);assert.ok(health.checks.every(item=>['pass','warning','fail'].includes(item.status)));
+    for(const id of ['backend','fixture','extension'])assert.equal(health.checks.find(item=>item.id===id)?.status,'pass');
+    await dashboard.locator('#health-dialog').waitFor();
+    await until('actual self-check rendered',()=>dashboard.locator('#health-dialog .health-check').count(),count=>count===health.checks.length);
+    const after=await state();assert.equal(after.tasks.length,before.tasks.length);assert.equal(after.paused,before.paused);assert.equal(after.running,before.running);
+    await dashboard.keyboard.press('Escape');
   });
   let reachedApply;const reached=new Promise(resolve=>{reachedApply=resolve;});
   const release=new Promise(resolve=>{releaseApply=resolve;});let gated=false,betaPage;
@@ -145,18 +159,37 @@ async function workflow() {
   await check('全局暂停阻止后续写入；接管已有值受保护，明确恢复原任务',async()=>{
     await action('pause');releaseApply();
     const paused=await until('paused inspection invalidated without advancing',state,value=>value.paused&&!app.store.command&&task(value,'web-001')?.phase==='inspect'&&task(value,'web-001')?.status==='queued');
+    assert.equal(paused.manualPaused,true);
     betaTask=task(paused,'web-001');
     await betaPage.locator('[data-application-form]').waitFor();
     assert.equal(await betaPage.locator('[name="personal.name"]').inputValue(),'');
     assert.equal(await betaPage.locator('input[type="file"]').evaluate(node=>node.files.length),0);
+    // Midnight is due on the actual current day. A manual hold must neither run
+    // nor consume that daily trigger; the Node clock tests cover multiple days.
+    await api('/settings',{settings:{...initial.settings,scheduleEnabled:true,time:'00:00'},sites:paused.sites});
+    await delay(1250);
+    const scheduled=await state();
+    assert.equal(scheduled.paused,true);assert.equal(scheduled.manualPaused,true);
+    assert.deepEqual(scheduled.lastSchedule,paused.lastSchedule);assert.equal(scheduled.nextRun,null);
+    assert.equal(scheduled.running,false);assert.equal(task(scheduled,'web-001').status,'queued');
+    await dashboard.getByText('手动暂停，计划不会自动恢复',{exact:true}).waitFor();
+    await api('/settings',{settings:initial.settings,sites:scheduled.sites});
     await betaPage.locator('[name="personal.name"]').fill('用户接管的虚构姓名');
     await delay(800);assert.equal((await fixture()).submitRequests.length,0);
     await action('resume');
     await until('original value blocks automatic overwrite',state,value=>task(value,'web-001')?.status==='waiting_user');
     assert.equal(await betaPage.locator('[name="personal.name"]').inputValue(),'用户接管的虚构姓名');
     assert.equal((await fixture()).submitRequests.length,0);
+    await dashboard.locator('nav [data-view="queue"]').click();
+    const betaRow=dashboard.locator('tbody tr').filter({hasText:betaTask.title});
+    await betaRow.getByRole('button',{name:'查看详情',exact:true}).click();
+    await dashboard.locator('#task-dialog').getByRole('button',{name:'跳过此任务',exact:true}).click();
+    const skipped=await until('same beta task skipped',state,value=>task(value,'web-001')?.status==='skipped');
+    assert.equal(task(skipped,'web-001').id,betaTask.id);assert.equal(task(skipped,'web-001').canResume,true);
+    assert.equal(requests(await fixture(),'beta','web-001').length,0);
     await betaPage.locator('[name="personal.name"]').fill('');
-    await action('task-resume',{taskId:betaTask.id});
+    await dashboard.locator('#task-dialog').getByRole('button',{name:'重新检查并排队',exact:true}).click();
+    await dashboard.keyboard.press('Escape');
   });
   await check('其他站点等待时 beta 真正填写多段经历、上传并只提交一次',async()=>{
     const snapshot=await until('beta reliable receipt',state,value=>task(value,'web-001')?.status==='submitted');
@@ -199,9 +232,15 @@ async function workflow() {
     const before=await state();await action('task-resume',{taskId:task(before,'cpp-002').id});
     const snapshot=await until('persisted unknown submission',state,value=>task(value,'cpp-002')?.status==='unknown');
     unknownTask=task(snapshot,'cpp-002');assert.equal(unknownTask.phase,'verify');
+    assert.equal(unknownTask.canResume,false);assert.equal(unknownTask.canVerify,true);
     await verifyReceipt('alpha','cpp-002',resume);
     const forbidden=await action('task-resume',{taskId:unknownTask.id},{allowFailure:true});
     assert.equal(forbidden.ok,false);assert.equal(forbidden.status,400);
+    await dashboard.locator('nav [data-view="queue"]').click();
+    await dashboard.locator('tbody tr').filter({hasText:unknownTask.title}).getByRole('button',{name:'查看详情',exact:true}).click();
+    const detail=dashboard.locator('#task-dialog');await detail.getByRole('button',{name:'核对接收记录',exact:true}).waitFor();
+    assert.equal(await detail.getByRole('button',{name:/重新检查并(继续|排队)/}).count(),0);
+    await dashboard.keyboard.press('Escape');
     await action('verify',{taskId:unknownTask.id});
     await until('expired-session verification was actually processed',state,value=>task(value,'cpp-002').steps.some(step=>step.label==='核对接收结果'));
     assert.equal(task(await state(),'cpp-002').status,'unknown');assert.equal(requests(await fixture(),'alpha','cpp-002').length,1);

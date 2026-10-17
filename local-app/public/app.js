@@ -5,7 +5,12 @@ const $ = selector => document.querySelector(selector);
 const key = $('meta[name="local-key"]')?.content || '';
 const content = $('#view-content');
 const dialog = $('#task-dialog');
+const healthDialog = $('#health-dialog');
 const drafts = new Map();
+const pendingActions = new Set();
+const pendingForms = new Set();
+const READ_TIMEOUT_MS = 8000;
+const WRITE_TIMEOUT_MS = 20000;
 let state = null;
 let lastSignature = '';
 let renderedView = '';
@@ -19,6 +24,9 @@ let settingsDraft = null;
 let settingsDirty = false;
 let selectedResumeFile = null;
 let toastTimer;
+let healthBusy = false;
+let healthResult = null;
+let healthError = '';
 const views = {
   overview: ['总览', '把精力留给下一次机会', '查看投递进度，处理需要你参与的环节。'],
   queue: ['岗位队列', '每一个机会，都有迹可循', '查看真实执行步骤；暂停、补答和核对都保留原任务。'],
@@ -33,6 +41,7 @@ const loginLabels = {ready:'页面检查已就绪', login:'需要登录', expire
 const modeLabel = mode => mode === 'real' ? '真实模式' : '本地演示';
 const currentView = () => Object.hasOwn(views, location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
 const fmtDate = value => value ? new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(value)) : '尚无记录';
+const nextPlanLabel = () => state.manualPaused ? '已手动暂停，等待你继续' : state.nextRun ? fmtDate(state.nextRun) : state.settings.scheduleEnabled ? '等待当日计划检查' : '尚未启用';
 const clone = value => structuredClone(value);
 const openIssues = () => state?.issues.filter(issue => issue.status === 'open') || [];
 const activeTasks = () => state?.tasks.filter(task => !['submitted','skipped','cancelled'].includes(task.status)) || [];
@@ -61,7 +70,11 @@ function button(text, handler, style = '', disabled = false) {
   return el('button', {type:'button', class:`button ${style}`, disabled, onClick:handler, text});
 }
 function actionButton(text, action, payload = {}, style = '', disabled = false) {
-  return button(text, () => perform(action, payload), style, disabled);
+  const token = actionToken(action, payload);
+  const node = button(text, () => perform(action, payload), style, disabled || pendingActions.has(token));
+  node.dataset.actionToken = token;
+  node.dataset.actionDisabled = String(disabled);
+  return node;
 }
 function card(title, body, extra = null, subtitle = '') {
   return el('section', {class:'card'}, el('div', {class:'card-header'}, el('div', {}, el('h2', {text:title}), subtitle ? p(subtitle, 'subtitle') : null), extra), el('div', {class:'card-body'}, body));
@@ -85,13 +98,54 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => {node.hidden = true;}, error ? 8000 : 4500);
 }
 async function api(path, body) {
-  const response = await fetch(path, {method:body === undefined ? 'GET' : 'POST', credentials:'same-origin', cache:'no-store', headers:{'X-Local-Key':key, ...(body === undefined ? {} : {'Content-Type':'application/json'})}, ...(body === undefined ? {} : {body:JSON.stringify(body)})});
-  let data;
-  try {data = await response.json();} catch {throw new Error('后台返回内容无法读取，请检查本机服务是否正在运行。');}
-  if (!response.ok || data?.ok === false) throw new Error(data?.error || `操作未完成（${response.status}），请重试。`);
-  return data;
+  const readOnly = body === undefined;
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(readOnly ? '读取本机后台超时，将继续尝试同步。' : '操作等待超时，结果尚未确认；请先核对后台状态，再决定是否再次操作。'));
+      controller.abort();
+    }, readOnly ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
+  });
+  const request = (async () => {
+    let response;
+    try {
+      response = await fetch(path, {method:readOnly ? 'GET' : 'POST', signal:controller.signal, credentials:'same-origin', cache:'no-store', headers:{'X-Local-Key':key, ...(readOnly ? {} : {'Content-Type':'application/json'})}, ...(readOnly ? {} : {body:JSON.stringify(body)})});
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      throw new Error(readOnly ? '无法连接本机后台，将继续尝试同步。' : '连接中断，操作结果尚未确认；请先核对后台状态，系统不会自动重试此操作。');
+    }
+    let data;
+    try {data = await response.json();} catch (error) {
+      if (controller.signal.aborted) throw error;
+      throw new Error(readOnly ? '后台返回内容无法读取，请检查本机服务。' : '无法读取操作回执，结果尚未确认；请先核对后台状态。');
+    }
+    if (!response.ok || data?.ok === false) throw new Error(data?.error || `操作未完成（${response.status}），请检查后台状态。`);
+    return data;
+  })();
+  try {return await Promise.race([request, timeout]);}
+  finally {clearTimeout(timer);}
 }
+const actionToken = (action, payload = {}) => `${action}:${payload.taskId || payload.siteId || ''}`;
+function markActionPending(token, busy) {
+  document.querySelectorAll('[data-action-token]').forEach(node => {
+    if (node.dataset.actionToken !== token) return;
+    node.disabled = busy || node.dataset.actionDisabled === 'true';
+  });
+}
+async function submitOnce(form, token, operation) {
+  if (pendingForms.has(token)) return;
+  pendingForms.add(token);form.setAttribute('aria-busy','true');
+  const mark = busy => document.querySelectorAll('[data-form-token]').forEach(node => {if(node.dataset.formToken===token)node.disabled=busy;});
+  mark(true);
+  try {await operation();}
+  finally {pendingForms.delete(token);form.removeAttribute('aria-busy');mark(false);}
+}
+function submitButton(text, token) {return el('button',{type:'submit',class:'button primary','data-form-token':token,disabled:pendingForms.has(token),text});}
 async function perform(action, payload = {}) {
+  const token = actionToken(action, payload);
+  if (pendingActions.has(token)) return;
+  pendingActions.add(token);markActionPending(token,true);
   try {
     const result = await api('/api/action', {action,...payload});
     if (action === 'demo') {profileDraft = null; settingsDraft = null; profileDirty = settingsDirty = false; selectedResumeFile = null; drafts.clear();}
@@ -102,6 +156,7 @@ async function perform(action, payload = {}) {
     await refresh(true);
     return result;
   } catch (error) {toast(error.message, true); throw error;}
+  finally {pendingActions.delete(token);markActionPending(token,false);}
 }
 // Catch click-handler errors once; forms handle and display their own validation errors.
 window.addEventListener('unhandledrejection', event => {event.preventDefault(); toast(event.reason?.message || '操作未完成，请检查本机服务。', true);});
@@ -118,6 +173,49 @@ window.addEventListener('message', event => {
   render(true);
 });
 if (new URLSearchParams(location.search).get('autoconnect') === '1') setTimeout(connect, 100);
+
+function updateHealthButtons() {
+  document.querySelectorAll('[data-health]').forEach(node => {node.disabled = healthBusy;node.textContent = healthBusy ? '正在自检…' : '一键自检';});
+}
+function healthFollowUp(check) {
+  if (check.status === 'pass') return null;
+  if (check.id === 'extension') return button('连接插件',connect,'small');
+  if (check.id === 'configuration') return el('div',{class:'actions'},link('确认资料与简历','#profile','button small'),link('检查规则与计划','#settings','button small'));
+  if (check.id?.startsWith('site:')) return link('前往网站准备','#sites','button small');
+  if (check.id === 'execution') return link('查看计划与暂停状态','#settings','button small');
+  return null;
+}
+function closeHealthForNavigation(event) {
+  if (event.target.closest('a[href^="#"]')) healthDialog.close();
+}
+function renderHealthDialog() {
+  const checks = healthResult?.checks || [];
+  const labels = {pass:'通过',warning:'需要留意',fail:'需要处理'};
+  const styles = {pass:'good',warning:'warning',fail:'bad'};
+  const body = el('div',{class:'dialog-body'},
+    banner('自检只读取状态，不会投递或解除暂停','插件心跳与网站登录项使用当前已记录的检查结果；要重新核实实际招聘页面，请前往“网站准备”。'),
+    healthBusy ? p('正在检查本机服务与已记录的执行准备，请稍候。','muted') : null,
+    healthError ? banner('本次自检未完成',healthError,'danger') : null,
+    healthResult ? p(`检查时间：${fmtDate(healthResult.checkedAt)} · 上海时间`,'subtle') : null,
+    checks.length ? el('ol',{class:'health-checks'},checks.map(check => el('li',{class:'health-check'},
+      el('div',{class:'health-check-heading'},el('strong',{text:check.label}),badge(labels[check.status],styles[check.status])),
+      p(check.detail),check.action ? p(`建议操作：${check.action}`,'health-action') : null,healthFollowUp(check)))) : null);
+  const retry = button(healthBusy?'正在自检…':'一键自检',runHealthCheck,'primary small',healthBusy);retry.dataset.health='true';
+  $('#health-dialog-content').replaceChildren(el('div',{class:'dialog-header'},el('div',{},el('h2',{id:'health-dialog-title',text:'本机运行自检'}),p('检查服务、执行端、配置与已记录的网站准备。')),el('button',{type:'button',class:'dialog-close','aria-label':'关闭自检结果',onClick:()=>healthDialog.close(),text:'×'})),body,el('div',{class:'health-dialog-actions'},retry,button('关闭',()=>healthDialog.close(),'small')));
+}
+async function runHealthCheck() {
+  if (healthBusy) return;
+  healthBusy=true;healthResult=null;healthError='';updateHealthButtons();renderHealthDialog();
+  if (!healthDialog.open) healthDialog.showModal();
+  try {
+    const result = await api('/api/health');
+    if (!result || !Array.isArray(result.checks) || !Number.isFinite(Date.parse(result.checkedAt)) || result.checks.some(check => !check || typeof check.id !== 'string' || !['pass','warning','fail'].includes(check.status) || typeof check.label !== 'string' || typeof check.detail !== 'string' || (check.action !== undefined && typeof check.action !== 'string'))) throw new Error('自检结果格式无法读取，请检查本机服务。');
+    healthResult=result;
+  } catch (error) {healthError=error.message;}
+  finally {healthBusy=false;renderHealthDialog();updateHealthButtons();}
+}
+$('#health-button').addEventListener('click',runHealthCheck);
+healthDialog.addEventListener('click',closeHealthForNavigation);
 
 function focusSnapshot(root) {
   const node = document.activeElement;
@@ -158,10 +256,11 @@ function header() {
   const actions = [];
   if (view === 'overview' || view === 'queue') {
     actions.push(actionButton('发现并投递', 'discover', {}, '', !state.connection.connected || Boolean(state.readiness.length)));
-    actions.push(state.running && !state.paused ? actionButton('暂停全部', 'pause') : actionButton('开始投递', 'run', {}, 'primary', !state.connection.connected || Boolean(state.readiness.length)));
+    actions.push(state.running && !state.paused ? actionButton('暂停全部', 'pause') : state.manualPaused ? actionButton('继续投递', 'resume', {}, 'primary', !state.connection.connected || Boolean(state.readiness.length)) : actionButton('开始投递', 'run', {}, 'primary', !state.connection.connected || Boolean(state.readiness.length)));
   }
   if (view === 'sites') actions.push(actionButton('打开投递浏览器', 'browser-open', {}, 'primary'));
   $('#page-actions').replaceChildren(...actions);
+  updateHealthButtons();
 }
 function render(force = false) {
   if (!state) return;
@@ -171,7 +270,7 @@ function render(force = false) {
   // Counters and connection status above still reflect the latest server state.
   const editing = content.contains(document.activeElement) && document.activeElement?.matches('input,textarea,select,[contenteditable="true"]');
   if (renderedView === view && (composing || (!force && editing))) return;
-  const signature = JSON.stringify([view, state.running,state.paused,state.settings,state.sites,state.tasks,state.issues,state.profile,state.resume,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
+  const signature = JSON.stringify([view, state.running,state.paused,state.manualPaused,state.settings,state.sites,state.tasks,state.issues,state.profile,state.resume,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
   if (!force && signature === lastSignature && renderedView === view) return;
   const focus = focusSnapshot(content);
   const renderer = {overview:renderOverview,queue:renderQueue,issues:renderIssues,sites:renderSites,profile:renderProfile,settings:renderSettings}[view];
@@ -202,9 +301,11 @@ function renderOverview() {
   const stats = state.stats[state.settings.mode];
   const stat = (label,value,foot,style='') => el('div', {class:`stat-card ${style}`}, el('div', {class:'stat-label',text:label}), el('div', {class:'stat-value',text:String(value)}), el('div', {class:'stat-foot',text:foot}));
   const running = state.tasks.find(task => ['running','submitting'].includes(task.status));
+  const executionLabel = state.manualPaused ? '手动暂停，计划不会自动恢复' : state.running && !state.paused ? '按实际步骤执行中' : state.settings.scheduleEnabled ? '等待每日计划' : state.paused ? '自动执行已暂停' : '等待开始';
   const execution = el('div', {},
-    el('div', {class:'hero-status'}, el('div', {class:'status-orb','aria-hidden':'true',text:state.paused?'Ⅱ':state.running?'↗':'◌'}), el('div', {}, el('h3', {text:state.paused?'自动执行已暂停':state.running?'按实际步骤执行中':'等待开始'}), p(running ? `${running.company} · ${running.title}` : state.connection.connected ? '执行端已连接，等待可运行任务。' : '先连接插件，才能操作实际招聘页面。'))),
-    el('div', {class:'execution-summary'}, meta('当前步骤', running ? phaseLabels[running.phase] || '等待页面回报' : '尚无正在执行的任务'), meta('投递浏览器', state.connection.connected?'实际执行端已连接':'未连接'), meta('下一次计划',state.nextRun?fmtDate(state.nextRun):'尚未启用'),meta('今日额度',`${stats.today} 已核实 / ${state.settings.dailyLimit} 每日上限`)),
+    el('div', {class:'hero-status'}, el('div', {class:'status-orb','aria-hidden':'true',text:state.paused?'Ⅱ':state.running?'↗':'◌'}), el('div', {}, el('h3', {text:executionLabel}), p(running ? `${running.company} · ${running.title}` : state.connection.connected ? '执行端已连接，等待可运行任务。' : '先连接插件，才能操作实际招聘页面。'))),
+    el('div', {class:'execution-summary'}, meta('当前步骤', running ? phaseLabels[running.phase] || '等待页面回报' : '尚无正在执行的任务'), meta('投递浏览器', state.connection.connected?'实际执行端已连接':'未连接'), meta('下一次计划',nextPlanLabel()),meta('今日额度',`${stats.today} 已核实 / ${state.settings.dailyLimit} 每日上限`)),
+    state.manualPaused ? p('手动暂停会持续保留。到达计划时间、重连或重启都不会解除；请确认准备后点击“继续投递”。','execution-note') : null,
     p('只有读取目标站可靠回执才记为已提交。提交结果未知时只核对，不会自动重投。','execution-note'),
     running ? button('查看当前任务',() => showTask(running.id),'text') : null);
   const issueList = openIssues().slice(0,3);
@@ -230,17 +331,17 @@ function renderQueue() {
   const tabs=el('div',{class:'filter-tabs'},Object.entries({all:'全部岗位',active:'排队与执行',waiting:'待处理',submitted:'已核实提交',skipped:'已跳过'}).map(([id,label])=>button(label,()=>{drafts.set('queue-filter',id);render(true);},`filter-tab ${filter===id?'active':''}`)));
   const form = el('form',{class:'inline-form','aria-label':'手动加入岗位'});
   const input=draftInput('add-url',{class:'form-input',type:'url',required:true,placeholder:'粘贴完整岗位详情或申请页链接','aria-label':'岗位链接'});
-  form.append(input,el('button',{type:'submit',class:'button',text:'加入队列'}));
-  form.addEventListener('submit',async event=>{event.preventDefault();try {await perform('add',{url:input.value});}catch(error){errorBox(form,error);}});
+  form.append(input,submitButton('加入队列','add'));
+  form.addEventListener('submit',async event=>{event.preventDefault();try {await submitOnce(form,'add',()=>perform('add',{url:input.value}));}catch(error){errorBox(form,error);}});
   const jobs=[...state.tasks].reverse().filter(groups[filter]||groups.all);
   return el('div',{},modeStrip(),card('手动加入岗位',el('div',{},form,p('链接会按网站、租户、岗位与申请账号去重。未适配网站保留待办，不自动执行。','details-note'))),el('section',{class:'card'},el('div',{class:'toolbar'},tabs,el('span',{class:'subtle',text:`${jobs.length} 条记录`})),taskTable(jobs)));
 }
 function taskActions(task) {
   const actions=[];
-  if (['unknown','submitted'].includes(task.status)) actions.push(actionButton('核对接收记录','verify',{taskId:task.id},'primary',!state.connection.connected));
+  if (task.canVerify === true) actions.push(actionButton('核对接收记录','verify',{taskId:task.id},'primary',!state.connection.connected));
   else if (task.status==='submitting') actions.push(el('span',{class:'badge warning',text:'提交已记录，等待回执；不可重新投递'}));
   else {
-    if (['paused','waiting_user','failed'].includes(task.status)) actions.push(actionButton('重新检查并继续','task-resume',{taskId:task.id},'primary'));
+    if (task.canResume === true) actions.push(actionButton(task.status==='skipped'?'重新检查并排队':'重新检查并继续','task-resume',{taskId:task.id},'primary'));
     if (['queued','running','waiting_answer','waiting_user'].includes(task.status)) actions.push(actionButton('暂停并接管','task-pause',{taskId:task.id}));
     if (!['skipped','cancelled'].includes(task.status)) actions.push(actionButton('跳过此任务','task-skip',{taskId:task.id},'danger'));
   }
@@ -273,8 +374,8 @@ function answerForm(issue,task) {
   form.append(el('div',{class:'question-block'},el('strong',{text:'网站原问题'}),p(question?.text||issue.detail),p(`限定用途：${question?.scope||'仅本任务'}`,'subtle')));
   const answer=draftInput(`answer-${task.id}`,{required:true,maxlength:5000,placeholder:'请填写你确认的答案；系统不会猜测个人经历或其他信息。','aria-label':'确认答案'},'',null,'textarea');
   const save=draftInput(`save-answer-${task.id}`,{type:'checkbox'},false);
-  form.append(field('你的确认答案',answer),checkLine('保存为本站相同原文、相同限定用途的确认答案',save),el('div',{class:'form-actions'},el('button',{type:'submit',class:'button primary',text:'确认答案并继续原任务'}),el('span',{class:'form-caption',text:'提交答案后先重新检查页面和已有接收记录。'})));
-  form.addEventListener('submit',async event=>{event.preventDefault();try {await perform('answer',{taskId:task.id,answer:answer.value,save:save.checked});}catch(error){errorBox(form,error);}});
+  form.append(field('你的确认答案',answer),checkLine('保存为本站相同原文、相同限定用途的确认答案',save),el('div',{class:'form-actions'},submitButton('确认答案并继续原任务',`answer-${task.id}`),el('span',{class:'form-caption',text:'提交答案后先重新检查页面和已有接收记录。'})));
+  form.addEventListener('submit',async event=>{event.preventDefault();try {await submitOnce(form,`answer-${task.id}`,()=>perform('answer',{taskId:task.id,answer:answer.value,save:save.checked}));}catch(error){errorBox(form,error);}});
   return form;
 }
 function renderIssues() {
@@ -355,13 +456,15 @@ function renderProfile() {
   modeSelect.value=mode.value;modeSelect.addEventListener('change',()=>{drafts.set('profile-mode',modeSelect.value);profileDirty=true;});
   form.append(field('资料用途',modeSelect),p('按项核对右侧确认框；修改内容会取消该项确认。只填写已确认字段，未确认内容不会发送到申请页。','details-note'),profileSection('personal','个人信息'),profileSection('education','教育经历',true),profileSection('experience','工作与实习经历',true),profileSection('projects','项目经历',true),profileSection('skills','技能'),profileSection('links','链接'));
   const allConfirmed=draftInput('profile-confirmed',{type:'checkbox',required:true},false);
-  form.append(checkLine('我已核对本次资料及用途；内容由我提供，未知内容未编造。',allConfirmed),el('div',{class:'form-actions'},el('button',{type:'submit',class:'button primary',text:'保存确认资料'}),el('span',{class:'form-caption',text:`当前版本 v${state.profile.version} · ${profileDirty?'有尚未保存的修改':'本地保存'}`})));
+  form.append(checkLine('我已核对本次资料及用途；内容由我提供，未知内容未编造。',allConfirmed),el('div',{class:'form-actions'},submitButton('保存确认资料','profile'),el('span',{class:'form-caption',text:`当前版本 v${state.profile.version} · ${profileDirty?'有尚未保存的修改':'本地保存'}`})));
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     try {
-      const data=cleanProfile(profileDraft);
-      await api('/api/profile',{data,mode:modeSelect.value,confirmed:allConfirmed.checked});
-      profileDirty=false;profileDraft=null;drafts.delete('profile-confirmed');toast('确认资料已保存为新版本。');await refresh(true);
+      await submitOnce(form,'profile',async()=>{
+        const data=cleanProfile(profileDraft);
+        await api('/api/profile',{data,mode:modeSelect.value,confirmed:allConfirmed.checked});
+        profileDirty=false;profileDraft=null;drafts.delete('profile-confirmed');toast('确认资料已保存为新版本。');await refresh(true);
+      });
     }catch(error){errorBox(form,error);}
   });
   const advanced=el('details',{open:drafts.get('profile-json-open')===true},el('summary',{text:'高级：查看与导入资料 JSON（可选）'}),p('常用资料请使用上方表单。导入只改变编辑草稿，仍需逐项确认并保存；不在此填写凭据。','details-note'));
@@ -376,13 +479,15 @@ function renderProfile() {
   fileInput.addEventListener('change',()=>{selectedResumeFile=fileInput.files[0]||null;selected.textContent=selectedResumeFile?`待上传：${selectedResumeFile.name} · ${selectedResumeFile.size} 字节`:'尚未选择文件';});
   const resumeMode=el('select',{'aria-label':'简历用途','data-focus':'resume-mode'},el('option',{value:'demo',text:'本地演示 · 虚构简历'}),el('option',{value:'real',text:'真实模式 · 本人简历'}));resumeMode.value=drafts.get('resume-mode')||state.resume?.mode||state.profile.mode;
   resumeMode.addEventListener('change',()=>drafts.set('resume-mode',resumeMode.value));
-  uploadForm.append(el('label',{class:'upload-zone'},el('strong',{text:'选择这台电脑上的简历'}),el('small',{text:'PDF / Word / 文本 · 最大 8 MB，不读取任意系统路径'}),fileInput),selected,field('简历用途',resumeMode),el('button',{type:'submit',class:'button primary',text:'保存所选简历'}));
+  uploadForm.append(el('label',{class:'upload-zone'},el('strong',{text:'选择这台电脑上的简历'}),el('small',{text:'PDF / Word / 文本 · 最大 8 MB，不读取任意系统路径'}),fileInput),selected,field('简历用途',resumeMode),submitButton('保存所选简历','resume'));
   uploadForm.addEventListener('submit',async event=>{
     event.preventDefault();
     try{
-      const file=selectedResumeFile;if(!file)throw new Error('请先选择简历文件。');if(!file.size||file.size>8*1024*1024)throw new Error('简历文件须非空且不超过 8 MB。');if(!/\.(pdf|docx?|txt)$/i.test(file.name))throw new Error('请选择 PDF、Word 或测试文本简历。');
-      const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let start=0;start<bytes.length;start+=32768)binary+=String.fromCharCode(...bytes.subarray(start,start+32768));
-      await api('/api/resume',{name:file.name,mime:file.type||'application/octet-stream',base64:btoa(binary),mode:resumeMode.value});selectedResumeFile=null;toast('所选简历已保存，摘要和版本已记录。');await refresh(true);
+      await submitOnce(uploadForm,'resume',async()=>{
+        const file=selectedResumeFile;if(!file)throw new Error('请先选择简历文件。');if(!file.size||file.size>8*1024*1024)throw new Error('简历文件须非空且不超过 8 MB。');if(!/\.(pdf|docx?|txt)$/i.test(file.name))throw new Error('请选择 PDF、Word 或测试文本简历。');
+        const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let start=0;start<bytes.length;start+=32768)binary+=String.fromCharCode(...bytes.subarray(start,start+32768));
+        await api('/api/resume',{name:file.name,mime:file.type||'application/octet-stream',base64:btoa(binary),mode:resumeMode.value});selectedResumeFile=null;toast('所选简历已保存，摘要和版本已记录。');await refresh(true);
+      });
     }catch(error){errorBox(uploadForm,error);}
   });
   const resume=state.resume;
@@ -404,6 +509,8 @@ function renderSettings() {
   if(!settingsDraft||!settingsDirty)settingsDraft={settings:clone(state.settings),sites:clone(state.sites)};
   const settings=settingsDraft.settings;
   const form=el('form',{'aria-label':'规则与计划设置'});
+  if(state.manualPaused)form.append(banner('手动暂停，计划不会自动恢复','保存时间和额度不会解除手动暂停。准备完成后点击“继续投递”才会恢复；重启、重连与到达计划时间均不会代替你继续。'));
+  else if(state.settings.scheduleEnabled&&(!state.running||state.paused))form.append(banner('等待每日计划','本机服务、浏览器与插件执行器需要持续运行；关机或停止组件后无法执行。','good'));
   const mode=el('select',{'data-focus':'settings-mode','aria-label':'运行模式'},el('option',{value:'demo',text:'本地演示 · 仅本地测试站'}),el('option',{value:'real',text:'真实模式 · 网站待适配'}));mode.value=settings.mode;
   mode.addEventListener('change',()=>{
     const previous=settings.mode;settings.mode=mode.value;settingsDirty=true;
@@ -417,21 +524,23 @@ function renderSettings() {
   const scheduled=el('input',{type:'checkbox',checked:settings.scheduleEnabled,'data-focus':'settings-scheduled',onChange:event=>{settings.scheduleEnabled=event.target.checked;settingsDirty=true;}});
   const time=el('input',{type:'time',required:true,value:settings.time,'data-focus':'settings-time',onInput:event=>{settings.time=event.target.value;settingsDirty=true;}});
   const limit=el('input',{type:'number',min:1,max:100,step:1,required:true,value:settings.dailyLimit,'data-focus':'settings-limit',onInput:event=>{settings.dailyLimit=Number(event.target.value);settingsDirty=true;}});
-  form.append(card('筛选规则',el('div',{},field('运行模式',mode,'切换到真实模式会清空演示关键词和城市，请重新填写并确认。'),field('岗位关键词',keywords,'多个关键词用中文逗号、英文逗号或换行分隔；与城市共同筛选。'),field('工作城市',cities,'请自行配置；真实模式不会自动使用示例条件。'))),card('每日计划与额度',el('div',{},checkLine('启用每日计划',scheduled),el('div',{class:'form-row'},field('每日开始时间（上海时间）',time),field('每日最多申请数',limit,'1 至 100；已进入提交阶段的任务占用当天额度。')),p('持续运行的本机服务按上海时间每天触发一次。重启或休眠后，仅在当日尚未触发时执行一次；错过往日计划不补多批。','schedule-note'),p('请保留本机服务、专用浏览器与插件执行器。关机、浏览器退出或服务停止后无法执行；恢复时先核对页面及已有申请。','schedule-note'),meta('下一次计划',state.nextRun?fmtDate(state.nextRun):'尚未启用'),state.lastSchedule?meta('最近计划记录',`${fmtDate(state.lastSchedule.at)} · ${state.lastSchedule.result}`):null)),
+  form.append(card('筛选规则',el('div',{},field('运行模式',mode,'切换到真实模式会清空演示关键词和城市，请重新填写并确认。'),field('岗位关键词',keywords,'多个关键词用中文逗号、英文逗号或换行分隔；与城市共同筛选。'),field('工作城市',cities,'请自行配置；真实模式不会自动使用示例条件。'))),card('每日计划与额度',el('div',{},checkLine('启用每日计划',scheduled),el('div',{class:'form-row'},field('每日开始时间（上海时间）',time),field('每日最多申请数',limit,'1 至 100；已进入提交阶段的任务占用当天额度。')),p('持续运行的本机服务按上海时间每天触发一次。重启或休眠后，仅在当日尚未触发时执行一次；错过往日计划不补多批。','schedule-note'),p('请保留本机服务、专用浏览器与插件执行器。关机、浏览器退出或服务停止后无法执行；恢复时先核对页面及已有申请。','schedule-note'),meta('下一次计划',nextPlanLabel()),state.lastSchedule?meta('最近计划记录',`${fmtDate(state.lastSchedule.at)} · ${state.lastSchedule.result}`):null)),
     card('招聘网站来源',el('div',{},el('div',{class:'settings-sites'},settingsDraft.sites.map(renderSettingsSite)),button('添加招聘网站',()=>{
       if(settingsDraft.sites.length>=30)return toast('最多配置 30 个网站。',true);
       settingsDraft.sites.push({id:`site-${crypto.randomUUID()}`,name:'',origin:'',listUrl:'',loginUrl:'',tenant:'default',expectedAccount:'',adapter:'unsupported',mode:'real',enabled:false,skipped:false});settingsDirty=true;render(true);
     },'small'),p('登录、验证码和注册由你在实际执行浏览器里亲自完成。这里不收集登录凭据。','details-note'))),
-    el('div',{class:'form-actions'},el('button',{type:'submit',class:'button primary',text:'保存规则与计划'}),el('span',{class:'form-caption',text:settingsDirty?'有尚未保存的修改':'设置保存在本机'})));
+    el('div',{class:'form-actions'},submitButton('保存规则与计划','settings'),el('span',{class:'form-caption',text:settingsDirty?'有尚未保存的修改':'设置保存在本机'})));
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     try{
-      await api('/api/settings',{settings:{...settings,visual:true},sites:settingsDraft.sites});settingsDirty=false;settingsDraft=null;drafts.delete('settings-keywords');drafts.delete('settings-cities');toast('规则、网站与计划已保存。');await refresh(true);
+      await submitOnce(form,'settings',async()=>{
+        await api('/api/settings',{settings:{...settings,visual:true},sites:settingsDraft.sites});settingsDirty=false;settingsDraft=null;drafts.delete('settings-keywords');drafts.delete('settings-cities');toast('规则、网站与计划已保存。');await refresh(true);
+      });
     }catch(error){errorBox(form,error);}
   });
   return el('div',{},modeStrip(),form);
 }
 function splitList(value) {return [...new Set(value.split(/[,，\n]/).map(item=>item.trim()).filter(Boolean))];}
 
-await refresh(true);
 setInterval(() => refresh(), 1000);
+await refresh(true);

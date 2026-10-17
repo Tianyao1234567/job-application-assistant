@@ -9,18 +9,22 @@ const client={clientId:'runner-one',profileId:'profile-one',extensionId:'a'.repe
 const second={clientId:'runner-two',profileId:'profile-two',extensionId:'a'.repeat(32)};
 const login=(account='demo',tenant='beta')=>({status:'ready',account,tenant});
 const field=zh=>({zh,en:null,source:'虚构云端测试',confirmed:true});
-function setup(t){
+function fresh(t){
   const base=path.join(ROOT,'.runtime','tests');fs.mkdirSync(base,{recursive:true});
   const data=fs.mkdtempSync(path.join(base,'model-'));
   t.after(()=>fs.rmSync(data,{recursive:true,force:true}));
   let now=Date.parse('2026-10-16T01:00:00Z');
   const paths={data};const store=new Store(paths,{now:()=>now});store.demo();
+  return {store,paths,advance:ms=>now+=ms,clock:()=>now};
+}
+function setup(t){
+  const env=fresh(t),{store}=env;
   store.heartbeat(client);store.loginResult(store.site('local-beta'),login());
   const task=store.manual(`${FIXTURE}/site/beta/jobs/web-001`).task;
   store.run(false);
   const send=(command,result)=>store.result({clientId:client.clientId,commandId:command.id,result});
   const take=()=>store.poll(client).command;
-  return {store,task,paths,take,send,advance:ms=>now+=ms,clock:()=>now};
+  return {...env,task,take,send};
 }
 function reachUpload(env,question=null){
   const inspected=env.take();assert.equal(inspected.op,'inspect');
@@ -254,4 +258,154 @@ test('未确认字段不会发往执行器，回执摘要不符不能记为已�
   const first=env.task.submittedAt;env.advance(86400000);
   env.store.action({action:'verify',taskId:env.task.id});env.send(env.take(),{ok:true,receipt:receipt(env.task),login:login()});
   assert.equal(env.task.submittedAt,first);assert.equal(env.store.snapshot().stats.demo.today,0);
+});
+
+test('未手动暂停的新数据可以等待计划，重启后只触发当日一次',t=>{
+  const env=fresh(t);env.store.setSettings(settings(env.store,{scheduleEnabled:true,time:'09:01'}));
+  assert.equal(env.store.state.paused,true);assert.equal(env.store.state.manualPaused,false);
+  assert.equal(env.store.snapshot().nextRun,'2026-10-16T01:01:00.000Z');
+  const restored=new Store(env.paths,{now:env.clock});restored.tick();
+  assert.equal(restored.state.running,false);assert.equal(restored.state.lastSchedule,null);
+  env.advance(60000);restored.tick();
+  assert.equal(restored.state.running,true);assert.equal(restored.state.paused,false);
+  assert.equal(restored.state.manualPaused,false);assert.equal(restored.queue.length,2);
+  const checkpoint=structuredClone(restored.state.lastSchedule);restored.tick();
+  assert.deepEqual(restored.state.lastSchedule,checkpoint);assert.equal(restored.queue.length,2);
+  env.advance(5*86400000);
+  const afterGap=new Store(env.paths,{now:env.clock});afterGap.tick();
+  assert.equal(afterGap.state.lastSchedule.day,'2026-10-21');assert.equal(afterGap.queue.length,2);
+  afterGap.tick();assert.equal(afterGap.queue.length,2);
+});
+
+for(const action of ['pause','stop'])test(`${action} 持久阻止到点计划，改设置与跨日重启不会解除`,t=>{
+  const env=setup(t);env.store.setSettings(settings(env.store,{scheduleEnabled:true,time:'09:01'}));
+  const inspect=env.take();env.store.action({action});
+  assert.equal(env.store.state.manualPaused,true);assert.equal(env.store.snapshot().nextRun,null);
+  assert.equal(env.store.authorize({clientId:client.clientId,commandId:inspect.id}).allowed,false);
+  env.advance(60000);env.store.tick();
+  assert.equal(env.store.state.lastSchedule,null);assert.equal(env.store.state.running,false);
+  assert.throws(()=>env.store.run(true,{scheduled:true}),/全局暂停/);
+  assert.equal(env.send(inspect,{ok:true,layout:'fixture-layout'}).ok,false);
+  const restored=new Store(env.paths,{now:env.clock});
+  assert.equal(restored.state.manualPaused,true);assert.equal(restored.poll(client).command,null);
+  restored.setSettings(settings(restored,{scheduleEnabled:false}));
+  restored.setSettings(settings(restored,{scheduleEnabled:true,time:'08:00'}));
+  env.advance(3*86400000);restored.tick();
+  assert.equal(restored.state.manualPaused,true);assert.equal(restored.state.paused,true);
+  assert.equal(restored.state.running,false);assert.equal(restored.state.lastSchedule,null);
+  assert.equal(restored.snapshot().nextRun,null);
+  const disk=JSON.parse(fs.readFileSync(restored.file,'utf8'));assert.equal(disk.manualPaused,true);
+  restored.action({action:'resume'});assert.equal(restored.state.manualPaused,false);
+  restored.tick();assert.equal(restored.state.lastSchedule.day,'2026-10-19');
+  assert.equal(restored.state.running,true);assert.equal(restored.queue.length,2);
+});
+
+test('手动暂停保留上次计划记录；失败的继续不会解除暂停',t=>{
+  const env=setup(t);env.store.setSettings(settings(env.store,{scheduleEnabled:true,time:'09:00'}));
+  env.store.tick();const checkpoint=structuredClone(env.store.state.lastSchedule);
+  env.store.action({action:'pause'});env.advance(86400000);env.store.tick();
+  assert.deepEqual(env.store.state.lastSchedule,checkpoint);
+  env.store.setSettings(settings(env.store,{mode:'real'}));
+  assert.throws(()=>env.store.action({action:'resume'}),/不一致|尚待适配/);
+  assert.equal(env.store.state.manualPaused,true);assert.equal(env.store.state.paused,true);
+  const restored=new Store(env.paths,{now:env.clock});restored.tick();
+  assert.deepEqual(restored.state.lastSchedule,checkpoint);assert.equal(restored.state.manualPaused,true);
+});
+
+for(const legacyPaused of [true,false])test(`旧状态缺暂停来源时保守迁移：paused=${legacyPaused}`,t=>{
+  const env=setup(t);env.store.setSettings(settings(env.store,{scheduleEnabled:true,time:'09:01'}));
+  // Write the previous schema's actual fields; no task, settings or evidence is cleared.
+  const legacy=JSON.parse(fs.readFileSync(env.store.file,'utf8'));
+  delete legacy.manualPaused;legacy.paused=legacyPaused;legacy.running=!legacyPaused;
+  fs.writeFileSync(env.store.file,JSON.stringify(legacy));env.advance(60000);
+  const restored=new Store(env.paths,{now:env.clock});restored.tick();
+  assert.equal(restored.state.manualPaused,legacyPaused);
+  assert.equal(restored.state.running,!legacyPaused);
+  assert.equal(restored.state.lastSchedule?.day||null,legacyPaused?null:'2026-10-16');
+  assert.equal(restored.state.tasks[0].id,env.task.id);assert.equal(restored.state.profile.version,1);
+  assert.equal(JSON.parse(fs.readFileSync(restored.file,'utf8')).manualPaused,legacyPaused);
+});
+
+test('从未执行的跳过任务恢复同ID并重新inspect，不绕过去重',t=>{
+  const env=setup(t);env.store.action({action:'task-skip',taskId:env.task.id});
+  assert.equal(env.store.snapshot().tasks[0].canResume,true);
+  assert.equal(env.store.snapshot().tasks[0].canVerify,false);
+  assert.equal(env.store.manual(env.task.url+'?source=again').task.id,env.task.id);
+  env.store.action({action:'task-resume',taskId:env.task.id});
+  assert.equal(env.task.status,'queued');assert.equal(env.task.phase,'inspect');
+  assert.equal(env.task.profileVersion,null);assert.equal(env.task.resumeVersion,null);
+  assert.equal(env.store.state.tasks.length,1);assert.equal(env.take().task.id,env.task.id);
+});
+
+test('跳过与恢复期间的迟到结果失效，已锁资料和附件版本不被后续编辑替换',t=>{
+  const env=setup(t),upload=reachUpload(env),locked=structuredClone(env.task);
+  env.store.action({action:'task-skip',taskId:env.task.id});
+  const edited=structuredClone(env.store.state.profile.data);edited.personal.name=field('后来编辑的虚构申请人');
+  env.store.setProfile({data:edited,mode:'demo',confirmed:true});
+  env.store.setResume({name:'fictional-replacement.txt',mime:'text/plain',base64:Buffer.from('replacement fictional bytes').toString('base64'),mode:'demo'});
+  env.store.action({action:'task-resume',taskId:env.task.id});
+  assert.equal(uploaded(env,upload).ignored,true);assert.equal(env.task.phase,'inspect');
+  const inspect=env.take();assert.equal(inspect.op,'inspect');assert.equal(inspect.task.id,locked.id);
+  assert.equal(env.task.dedupeKey,locked.dedupeKey);assert.equal(env.task.profileVersion,locked.profileVersion);
+  assert.equal(env.task.resumeVersion,locked.resumeVersion);assert.deepEqual(env.task.resumeSnapshot,locked.resumeSnapshot);
+  env.send(inspect,{ok:true,layout:'fixture-layout',login:login()});
+  const fill=env.take();assert.equal(fill.payload.entries.find(e=>e.key==='personal.name').value,locked.profileSnapshot.data.personal.name.zh);
+  assert.equal(env.store.state.tasks.length,1);
+});
+
+test('跳过任务跨重启恢复仍保留版本，单项恢复不会解除全局手动暂停',t=>{
+  const env=setup(t);reachUpload(env);env.store.action({action:'task-skip',taskId:env.task.id});
+  env.store.action({action:'pause'});const locked=structuredClone(env.task);
+  const restored=new Store(env.paths,{now:env.clock});restored.action({action:'task-resume',taskId:locked.id});
+  const task=restored.task(locked.id);assert.equal(task.status,'queued');assert.equal(task.phase,'inspect');
+  assert.equal(restored.state.manualPaused,true);assert.equal(restored.poll(client).command,null);
+  assert.equal(task.profileVersion,locked.profileVersion);assert.equal(task.resumeVersion,locked.resumeVersion);
+  assert.equal(task.dedupeKey,locked.dedupeKey);assert.equal(restored.state.tasks.length,1);
+  restored.action({action:'resume'});const check=restored.poll(client).command;assert.equal(check.op,'check');
+  restored.result({clientId:client.clientId,commandId:check.id,result:{ok:true,login:login()}});
+  const inspect=restored.poll(client).command;assert.equal(inspect.op,'inspect');assert.equal(inspect.task.id,locked.id);
+});
+
+const boundaryCases=[
+  ['新持久标志',task=>task.submissionStarted=true],
+  ['历史submitDay',task=>task.submitDay='2026-10-15'],
+  ['未知submitDay值',task=>task.submitDay=null],
+  ['历史submittedAt',task=>task.submittedAt='2026-10-15T01:00:00Z'],
+  ['旧回执',task=>task.result={receiptId:'fictional-existing-receipt'}],
+  ['核对阶段',task=>task.phase='verify'],
+  ['完成阶段',task=>task.phase='done'],
+  ['提交历史步骤',task=>task.steps.push({at:'2026-10-15T01:00:00Z',label:'提交阶段已记录',detail:'旧版本已保存边界'})],
+  ['历史未知结果待办',(task,store)=>store.state.issues.push({id:'old-unknown',taskId:task.id,kind:'unknown',status:'resolved'})]
+];
+for(const [label,mark] of boundaryCases)test(`旧skipped任务的${label}禁止恢复，重启后仍只能核对`,t=>{
+  const env=setup(t);const inspect=env.take();env.send(inspect,{ok:true,layout:'fixture-layout'});
+  env.store.action({action:'task-skip',taskId:env.task.id});mark(env.task,env.store);env.store.save();
+  assert.equal(env.store.snapshot().tasks[0].canResume,false);assert.equal(env.store.snapshot().tasks[0].canVerify,true);
+  assert.throws(()=>env.store.action({action:'task-resume',taskId:env.task.id}),/提交阶段/);
+  assert.throws(()=>env.store.action({action:'task-skip',taskId:env.task.id}),/保留提交记录/);
+  const restored=new Store(env.paths,{now:env.clock});const task=restored.task(env.task.id);
+  assert.equal(task.status,'skipped');assert.equal(task.submissionStarted,true);
+  assert.equal(restored.snapshot().tasks[0].canResume,false);
+  assert.throws(()=>restored.action({action:'task-resume',taskId:task.id}),/提交阶段/);
+  restored.action({action:'pause'});restored.action({action:'verify',taskId:task.id});
+  const verify=restored.poll(client).command;assert.equal(verify.op,'verify');
+  assert.equal(restored.authorize({clientId:client.clientId,commandId:verify.id}).allowed,true);
+  restored.result({clientId:client.clientId,commandId:verify.id,result:{ok:true,receipt:null,login:login()}});
+  assert.equal(task.status,'unknown');assert.equal(restored.poll(client).command,null);
+});
+
+test('真正派发提交时先保存不可撤销标志，之后即使旧状态变skipped也不能重投',t=>{
+  const env=setup(t);const submit=reachSubmit(env);
+  assert.equal(env.store.snapshot().tasks[0].canResume,false);assert.equal(env.store.snapshot().tasks[0].canVerify,false);
+  assert.equal(JSON.parse(fs.readFileSync(env.store.file,'utf8')).tasks[0].submissionStarted,true);
+  env.send(submit,{ok:false,kind:'unknown'});
+  // Model an old-version inconsistent status without erasing its real submission history.
+  env.task.status='skipped';env.store.save();
+  const restored=new Store(env.paths,{now:env.clock});const task=restored.task(env.task.id);
+  assert.throws(()=>restored.action({action:'task-resume',taskId:task.id}),/提交阶段/);
+  restored.action({action:'verify',taskId:task.id});const verify=restored.poll(client).command;
+  restored.result({clientId:client.clientId,commandId:verify.id,result:{ok:true,receipt:receipt(task),login:login()}});
+  assert.equal(task.status,'submitted');assert.equal(task.submissionStarted,true);
+  assert.throws(()=>restored.action({action:'task-resume',taskId:task.id}),/提交阶段/);
+  assert.equal(restored.state.tasks.length,1);
 });

@@ -13,6 +13,14 @@ const clone = x => structuredClone(x);
 const short = (x, max = 200) => typeof x === 'string' ? x.trim().slice(0, max) : '';
 const sameTarget = (a,b) => !!a&&!!b&&['origin','tenant','expectedAccount','adapter','mode'].every(key=>a[key]===b[key]);
 const sameClient = (a,b) => !!a&&!!b&&['clientId','profileId','extensionId'].every(key=>a[key]===b[key]);
+const resumable = new Set(['paused','waiting_user','failed','skipped']);
+const submissionSteps = new Set(['提交阶段已记录','提交回执未确认','已核对接收记录','核对接收结果']);
+function submissionBoundary(t) {
+  return t.submissionStarted===true||['submitting','submitted','unknown'].includes(t.status)||
+    Object.hasOwn(t,'submitDay')||Object.hasOwn(t,'submittedAt')||!!t.result?.receiptId||
+    ['verify','done'].includes(t.phase)||t.issue?.kind==='unknown'||
+    t.steps.some(step=>submissionSteps.has(step.label)||(step.label==='重启恢复'&&step.detail?.includes('提交阶段已持久保存')));
+}
 // Ordinary fixture questions only; the browser also applies the original field guard.
 const protectedQuestion = /password|passwd|passcode|\botp\b|token|cookie|captcha|verification.?code|密码|口令|验证码|校验码|登录|身份证|passport|salary|薪资|薪酬|work.?authori|work.?permit|工作许可|签证|visa|sponsor|性别|gender|consent|同意|隐私/i;
 export const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -50,8 +58,16 @@ export function scheduleDecision(settings, lastSchedule, now) {
 export class Store {
   constructor(paths,{now=()=>Date.now()}={}) {
     this.paths=paths;this.clock=now;this.file=insideRoot(path.join(paths.data,'state.json'));this.lastSeen=0;this.connection=null;this.queue=[];this.command=null;this.tickBusy=false;
-    this.state=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):{schema:2,version:VERSION,paused:true,running:false,settings:{mode:'demo',scheduleEnabled:false,time:'09:00',dailyLimit:3,keywords:[],cities:[],visual:true},sites:[],tasks:[],issues:[],profile:{version:0,data:emptyProfile(),mode:'demo'},resume:null,answers:[],lastSchedule:null};
-    for(const t of this.state.tasks){if(t.status==='submitting'){t.status='unknown';t.phase='verify';this.step(t,'重启恢复','提交阶段已持久保存；只允许核对接收记录');this.issue(t,'unknown','提交结果待核实','重启时提交结果不明，系统不会再次提交');}else if(t.status==='running'){t.status='queued';t.phase='inspect';this.step(t,'重启恢复','恢复原任务，先重新检查网页和已有接收记录');}}
+    this.state=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):{schema:2,version:VERSION,paused:true,running:false,manualPaused:false,settings:{mode:'demo',scheduleEnabled:false,time:'09:00',dailyLimit:3,keywords:[],cities:[],visual:true},sites:[],tasks:[],issues:[],profile:{version:0,data:emptyProfile(),mode:'demo'},resume:null,answers:[],lastSchedule:null};
+    // Legacy paused state has no provenance. Preserve it as a user hold rather
+    // than assuming that restarting or enabling a schedule grants permission.
+    if(typeof this.state.manualPaused!=='boolean')this.state.manualPaused=this.state.paused!==false;
+    if(this.state.manualPaused){this.state.paused=true;this.state.running=false;}
+    for(const t of this.state.tasks){
+      if(this.hasSubmissionBoundary(t))t.submissionStarted=true;
+      if(t.status==='submitting'||t.submissionStarted&&['queued','running','paused','waiting_user','failed'].includes(t.status)){t.status='unknown';t.phase='verify';this.step(t,'重启恢复','提交阶段已持久保存；只允许核对接收记录');this.issue(t,'unknown','提交结果待核实','重启时提交结果不明，系统不会再次提交');}
+      else if(t.status==='running'){t.status='queued';t.phase='inspect';this.step(t,'重启恢复','恢复原任务，先重新检查网页和已有接收记录');}
+    }
     this.save();
   }
   now(){return new Date(this.clock()).toISOString();}
@@ -67,8 +83,11 @@ export class Store {
   resolveTask(t){for(const issue of this.state.issues)if(issue.taskId===t.id&&issue.status==='open')issue.status='resolved';delete t.issue;}
   site(id){const site=this.state.sites.find(s=>s.id===id);if(!site)throw new Error('找不到这个网站');return site;}
   task(id){const t=this.state.tasks.find(t=>t.id===id);if(!t)throw new Error('找不到这个任务');return t;}
+  hasSubmissionBoundary(t){return submissionBoundary(t)||this.state.issues.some(i=>i.taskId===t.id&&i.kind==='unknown');}
+  canResumeTask(t){return resumable.has(t.status)&&!this.hasSubmissionBoundary(t);}
+  canVerifyTask(t){return t.status!=='submitting'&&this.hasSubmissionBoundary(t);}
   invalidateTask(t){t.revision=(t.revision||0)+1;if(!terminal.has(t.status)&&t.status!=='submitting')t.phase='inspect';}
-  pause(){this.state.paused=true;this.state.running=false;for(const t of this.state.tasks)if(['queued','running'].includes(t.status)){this.invalidateTask(t);t.status='queued';}}
+  pause(){this.state.paused=true;this.state.running=false;this.state.manualPaused=true;for(const t of this.state.tasks)if(['queued','running'].includes(t.status)){this.invalidateTask(t);t.status='queued';}}
   readiness(){
     const s=this.state,missing=[];
     if(!s.sites.some(site=>site.enabled&&!site.skipped))missing.push('请配置并启用至少一个招聘来源');
@@ -83,9 +102,9 @@ export class Store {
   }
   snapshot(){
     const s=clone(this.state),connected=this.clock()-this.lastSeen<6000&&this.lastSeen>0;
-    for(const t of s.tasks){delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;}
+    for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;}
     const decision=scheduleDecision(s.settings,s.lastSchedule,this.clock());
-    let nextRun=null;if(s.settings.scheduleEnabled){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
+    let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
     const stats={demo:{submitted:0,today:0},real:{submitted:0,today:0}};
     for(const t of s.tasks){if(t.status==='submitted'){stats[t.mode].submitted++;if(this.day(t.submittedAt)===decision.day)stats[t.mode].today++;}}
     return {...s,now:this.now(),connection:{connected,lastSeen:this.lastSeen?new Date(this.lastSeen).toISOString():null,profileId:this.connection?.profileId||null},nextRun,readiness:this.readiness(),stats};
@@ -154,9 +173,10 @@ export class Store {
     const m=parsed.pathname.match(new RegExp(`^/site/${site.tenant}/(?:jobs|apply)/([a-zA-Z0-9_-]+)$`));if(!m)throw new Error('请加入岗位详情或申请页链接');
     const result=this.add(site,{jobId:m[1],url:`${site.origin}/site/${site.tenant}/jobs/${m[1]}`,title:'待读取岗位',company:site.name,location:''},'手动加入');this.save();return result;
   }
-  run(discover=true){
+  run(discover=true,{scheduled=false}={}){
+    if(scheduled&&this.state.manualPaused)throw new Error('用户已全局暂停，请明确恢复后再执行每日计划');
     const missing=this.readiness();if(missing.length)throw new Error(missing.join('；'));
-    this.state.paused=false;this.state.running=true;
+    this.state.paused=false;this.state.running=true;this.state.manualPaused=false;
     if(discover)for(const site of this.state.sites.filter(s=>s.enabled&&!s.skipped&&s.mode===this.state.settings.mode))if(site.adapter==='local-v1')this.enqueueControl('discover',site);
     this.save();
   }
@@ -171,11 +191,11 @@ export class Store {
       const t=this.task(body.taskId);
       if(action==='task-pause'&&!terminal.has(t.status)&&t.status!=='submitting'){this.invalidateTask(t);t.previousStatus=t.status;t.status='paused';t.pauseReason='用户暂停并接管';this.step(t,'用户暂停','停止后续自动动作；接管后可重新检查并恢复');}
       if(action==='task-resume'){
-        if(['unknown','submitting','submitted'].includes(t.status))throw new Error('提交阶段的任务只能核对结果，不可重新投递');
-        if(t.status==='paused'||t.status==='waiting_user'||t.status==='failed'){this.invalidateTask(t);t.status='queued';t.phase='inspect';this.resolveTask(t);delete t.pauseReason;this.step(t,'用户继续','重新检查同一个岗位、表单和已有接收记录');}
+        if(this.hasSubmissionBoundary(t))throw new Error('已记录过提交阶段的任务只能核对结果，不可重新投递');
+        if(this.canResumeTask(t)){this.invalidateTask(t);t.status='queued';t.phase='inspect';this.resolveTask(t);delete t.pauseReason;this.step(t,'用户继续','重新检查同一个岗位、表单和已有接收记录');}
       }
-      if(action==='task-skip'){if(['submitting','unknown','submitted'].includes(t.status))throw new Error('请保留提交记录并核对结果');this.invalidateTask(t);t.status='skipped';this.resolveTask(t);this.step(t,'暂时跳过','用户保留了此任务记录');}
-      if(action==='verify'){if(!['unknown','submitted'].includes(t.status))throw new Error('只有已提交或结果待核实的任务可核对');this.queue.push({id:uid(),op:'verify',siteId:t.siteId,taskId:t.id,payload:{},control:true});}
+      if(action==='task-skip'){if(this.hasSubmissionBoundary(t))throw new Error('请保留提交记录并核对结果');this.invalidateTask(t);t.status='skipped';this.resolveTask(t);this.step(t,'暂时跳过','用户保留了此任务记录');}
+      if(action==='verify'){if(!this.canVerifyTask(t))throw new Error('只有已提交或已有提交阶段记录的任务可核对');this.queue.push({id:uid(),op:'verify',siteId:t.siteId,taskId:t.id,payload:{},control:true});}
       if(action==='answer'){
         if(t.status!=='waiting_answer'||!t.question)throw new Error('此任务当前没有等待回答的普通问题');
         if(typeof body.answer!=='string'||!body.answer.trim()||body.answer.length>5000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(body.answer))throw new Error('请填写5000字以内的确认答案');
@@ -203,7 +223,7 @@ export class Store {
   }
   tick(){
     const decision=scheduleDecision(this.state.settings,this.state.lastSchedule,this.clock());
-    if(decision.due){this.state.lastSchedule={day:decision.day,at:this.now(),result:'已触发一次；错过的往日批次不补跑'};try{this.run(true);}catch(e){this.state.lastSchedule.result='设置未就绪：'+e.message;}this.save();}
+    if(decision.due&&!this.state.manualPaused){this.state.lastSchedule={day:decision.day,at:this.now(),result:'已触发一次；错过的往日批次不补跑'};try{this.run(true,{scheduled:true});}catch(e){this.state.lastSchedule.result='设置未就绪：'+e.message;}this.save();}
     this.expireCommand();
   }
   expireCommand(){
@@ -230,7 +250,7 @@ export class Store {
           if(c.op==='fill')c.payload={entries:flattenProfile(t.profileSnapshot.data).filter(e=>e.confirmed),layout:t.layout};
           if(c.op==='upload'){const f=t.resumeSnapshot;c.payload={file:{name:f.name,mime:f.mime,size:f.size,sha256:f.sha256,base64:fs.readFileSync(insideRoot(f.file)).toString('base64')},layout:t.layout};}
           if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,layout:t.layout};
-          if(c.op==='submit'){c.payload={layout:t.layout};t.status='submitting';t.submitDay=this.day();this.step(t,'提交阶段已记录','先保存提交边界，再允许明确的提交操作；结果不明不重试');}
+          if(c.op==='submit'){c.payload={layout:t.layout};t.status='submitting';t.submissionStarted=true;t.submitDay=this.day();this.step(t,'提交阶段已记录','先保存提交边界，再允许明确的提交操作；结果不明不重试');}
         }
       }
     }
@@ -243,7 +263,7 @@ export class Store {
   authorize({clientId,commandId}){
     this.expireCommand();
     const c=this.command;if(!c||c.id!==commandId||c.clientId!==clientId||!sameClient(c,this.connection))return {allowed:false};
-    if(c.op==='verify')return {allowed:!!c.taskId&&['unknown','submitted'].includes(this.task(c.taskId).status)};
+    if(c.op==='verify')return {allowed:!!c.taskId&&this.canVerifyTask(this.task(c.taskId))};
     if(!c.taskId){const site=this.site(c.siteId);return {allowed:c.op==='open'||c.op==='check'||(!this.state.paused&&site.enabled&&!site.skipped&&site.mode===this.state.settings.mode)};}
     const t=this.task(c.taskId),site=this.site(t.siteId);
     return {allowed:(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo'};
@@ -269,7 +289,7 @@ export class Store {
   validQuestion(t,q){const site=this.site(t.siteId);return q?.key==='motivation'&&typeof q.text==='string'&&q.text.trim()&&q.text.length<=2000&&!protectedQuestion.test(q.text)&&q.scope===`local-v1:${site.tenant}:${t.jobId}:motivation:v1`;}
   receipt(t,r){
     if(!r||typeof r.id!=='string'||!r.id||r.jobId!==t.jobId||r.account!==this.site(t.siteId).expectedAccount||r.fileName!==t.resumeSnapshot?.name||Number(r.fileSize)!==t.resumeSnapshot?.size||r.sha256!==t.resumeSnapshot?.sha256)return false;
-    t.status='submitted';t.phase='done';t.result={receiptId:r.id,jobId:r.jobId,fileName:r.fileName,fileSize:Number(r.fileSize),sha256:r.sha256,evidence:'来自目标测试站的实际接收记录，文件名称、大小和摘要与任务版本一致'};t.submittedAt ||= this.now();this.resolveTask(t);this.step(t,'已核对接收记录',`回执 ${r.id} · 附件 ${r.fileSize} 字节 · 摘要一致`);return true;
+    t.status='submitted';t.phase='done';t.submissionStarted=true;t.result={receiptId:r.id,jobId:r.jobId,fileName:r.fileName,fileSize:Number(r.fileSize),sha256:r.sha256,evidence:'来自目标测试站的实际接收记录，文件名称、大小和摘要与任务版本一致'};t.submittedAt ||= this.now();this.resolveTask(t);this.step(t,'已核对接收记录',`回执 ${r.id} · 附件 ${r.fileSize} 字节 · 摘要一致`);return true;
   }
   result({clientId,commandId,result:r}){
     this.expireCommand();
