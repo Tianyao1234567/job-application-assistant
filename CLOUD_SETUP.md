@@ -47,6 +47,8 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 
 容器作业先执行 `node scripts/cloud-check.mjs container-browser`，校验包版本、镜像环境与 Chromium revision，只把镜像的 Chromium 复制到 checkout 的 `.runtime/browsers`，逐文件核对 SHA-256 和执行权限，拒绝外逸符号链接。它保存复制校验证据。随后在虚拟显示中运行 `xvfb-run --auto-servernum node scripts/cloud-check.mjs browser`，具体单项由作业的 `CLOUD_BROWSER_CHECK` 指定。`workflow` 实际加载扩展，使用有界面 Chromium；其他旧单项维持原有模式。浏览器独立启动失败时先定位运行环境，不能把未进入的产品检查报为通过。
 
+同一份checkout额外挂载到容器短路径 `/workspace`，作业验证它与原工作区是同一目录。脚本从该路径解析项目根，临时文件仍在仓库的 `.runtime/tmp`。这是为避免 Chromium 的临时 Unix socket 路径达到 Linux 的108字节限制；启动预检按UTF-8字节计算，并在超限时给出明确错误。不要将临时目录改成长的默认 runner 路径，也不要把运行数据挪到用户目录或生产profile。
+
 浏览器执行仅允许在 Linux Actions 环境。项目生成的缓存、临时文件、测试浏览器配置位于 checkout 内 `.runtime/`；旧回归结果 JSON 位于 `test-results-001/`，新 `workflow` 结果为 `.runtime/tests/evidence/workflow-browser.json`，镜像复制证明为同目录 `container-browser.json`。这些内容不提交回仓库。`workflow` 仅上传这两份经过字段限制的结果 JSON，保留7天；不上传配对密钥、资料正文、会话、截图或整目录产物。
 
 ## 继续开发的位置

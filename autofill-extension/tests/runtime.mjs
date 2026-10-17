@@ -28,7 +28,23 @@ export async function removeTestDirectory(directory){
   if(!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Only isolated test directories may be removed');
   await fs.rm(resolved,{recursive:true,force:true});
 }
+export function linuxBrowserSocketBudget(directory) {
+  if(typeof directory!=='string'||!path.posix.isAbsolute(directory)||directory.includes('\0'))throw new Error('Chromium temporary directory must be an absolute Linux path');
+  // Chromium 145 source: CreateUniqueTempDir("") -> GetTempTemplate("", false)
+  // -> FormatTemporaryFileName("XXXXXX", false), followed by SingletonSocket.
+  // https://github.com/chromium/chromium/blob/145.0.7632.6/base/files/file_util_posix.cc#L867
+  const brandBytes=Object.fromEntries(['com.google.Chrome','org.chromium.Chromium'].map(brand=>[brand,Buffer.byteLength(path.posix.join(directory,brand+'.XXXXXX','SingletonSocket'))]));
+  return {brandBytes,maximumBytes:Math.max(...Object.values(brandBytes)),limitBytes:108};
+}
+export function assertLinuxBrowserTempDirectory(directory=process.env.TMPDIR) {
+  const budget=linuxBrowserSocketBudget(directory);
+  // process_singleton_posix.cc:286 rejects length >= sizeof(sockaddr_un.sun_path).
+  // Its caller uses CHECK(), which terminates the browser rather than returning an error.
+  if(budget.maximumBytes>=budget.limitBytes)throw new Error(`Chromium temporary socket path would require up to ${budget.maximumBytes} UTF-8 bytes (Linux requires fewer than ${budget.limitBytes}); shorten the checkout path or use a short bind mount of the same checkout before starting a browser.`);
+  return budget;
+}
 export function browserOptions(extra={}){
+  if(process.platform==='linux')assertLinuxBrowserTempDirectory();
   return {headless:true,channel:'chromium',downloadsPath:path.join(runtimeRoot,'downloads'),artifactsDir:path.join(testsRoot,'artifacts'),
     env:{...process.env},...(process.env.CHROME_EXECUTABLE?{executablePath:insideRoot(process.env.CHROME_EXECUTABLE)}:{}),...extra};
 }
@@ -70,7 +86,8 @@ export async function prepareContainerChromium() {
   if(await fs.realpath(target)!==target)throw new Error('Copied browser root must not be a symbolic link');
   const copied=await browserManifest(target);
   if(JSON.stringify(trusted)!==JSON.stringify(copied))throw new Error('Image-to-workspace browser copy failed byte and executable-permission verification');
-  const proof={image,playwright:playwright.version,chromium:chromium.browserVersion,revision:chromium.revision,files:copied.length,bytes:copied.reduce((sum,file)=>sum+file.size,0),manifestSha256:createHash('sha256').update(JSON.stringify(copied)).digest('hex'),copiedAndVerified:true};
+  const tempSockets=assertLinuxBrowserTempDirectory();
+  const proof={image,playwright:playwright.version,chromium:chromium.browserVersion,revision:chromium.revision,files:copied.length,bytes:copied.reduce((sum,file)=>sum+file.size,0),manifestSha256:createHash('sha256').update(JSON.stringify(copied)).digest('hex'),copiedAndVerified:true,tempSocketBytes:tempSockets.maximumBytes,tempSocketBrandBytes:tempSockets.brandBytes};
   await fs.writeFile(path.join(evidenceRoot,'container-browser.json'),JSON.stringify(proof,null,2));
   console.log('Verified official image Chromium '+proof.chromium+': '+proof.files+' files copied inside .runtime; no browser download or OS package installation.');
   return proof;

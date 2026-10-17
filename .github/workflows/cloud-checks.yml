@@ -62,15 +62,20 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
       options: --init --ipc=host
+      # The runner evaluates this host path before creating the job container.
+      # A second bind of the same checkout keeps Chromium's Unix sockets short.
+      volumes:
+        - ${{ github.workspace }}:/workspace
     defaults:
       run:
         shell: bash
+        working-directory: /workspace
     env:
-      TEMP: ${{ github.workspace }}/.runtime/tmp
-      TMP: ${{ github.workspace }}/.runtime/tmp
-      TMPDIR: ${{ github.workspace }}/.runtime/tmp
-      npm_config_cache: ${{ github.workspace }}/.runtime/cache
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.runtime/browsers
+      TEMP: /workspace/.runtime/tmp
+      TMP: /workspace/.runtime/tmp
+      TMPDIR: /workspace/.runtime/tmp
+      npm_config_cache: /workspace/.runtime/cache
+      PLAYWRIGHT_BROWSERS_PATH: /workspace/.runtime/browsers
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
       CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
@@ -83,9 +88,11 @@ jobs:
           node-version: '24'
           package-manager-cache: false
       - name: Create checkout-local runtime directories
-        run: mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
+        run: |
+          test /workspace -ef "$GITHUB_WORKSPACE"
+          mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
       - name: Install only the locked project test packages
-        working-directory: autofill-extension
+        working-directory: /workspace/autofill-extension
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify and copy the image Chromium into checkout-local runtime
         run: node scripts/cloud-check.mjs container-browser
@@ -96,6 +103,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: fictional-workflow-evidence
-          path: .runtime/tests/evidence/*browser*.json
+          path: /workspace/.runtime/tests/evidence/*browser*.json
           if-no-files-found: warn
           retention-days: 7
