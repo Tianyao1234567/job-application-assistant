@@ -68,6 +68,15 @@ async function launch() {
     evidence.startupDiagnostic={...evidence.environment.browserBinary,...diagnostic};
     const annotation=JSON.stringify(evidence.startupDiagnostic).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A');
     console.error('::notice title=Chromium startup isolation::'+annotation);
+    if(diagnostic.bareBrowser==='FAIL'){
+      // Use a fixed blank document and a fresh isolated profile. This checks
+      // whether the executable can render without Playwright's default flags.
+      const minimal=spawnSync(binary,['--headless','--no-sandbox','--disable-dev-shm-usage','--user-data-dir='+path.join(isolated,'minimal-browser'),'--dump-dom','about:blank'],{encoding:'utf8',timeout:10_000,maxBuffer:1024*1024});
+      const detail={exitCode:minimal.status,signal:minimal.signal,errorCode:minimal.error?.code||null,renderedBlank:minimal.status===0&&/<html[\s>]/i.test(minimal.stdout||''),diagnostic:(minimal.stderr||'').split('\n').filter(line=>line.length<800).join('\n').slice(-1800)};
+      evidence.startupDiagnostic.directBinary=detail;
+      const directAnnotation=JSON.stringify(detail).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A');
+      console.error('::notice title=Direct Chromium blank-page isolation::'+directAnnotation);
+    }
     throw error;
   }
   evidence.environment.browser=context.browser().version();
