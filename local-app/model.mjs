@@ -189,6 +189,7 @@ export class Store {
     else if(action==='add')result=this.manual(body.url);
     else if(['task-pause','task-resume','task-skip','verify','answer'].includes(action)){
       const t=this.task(body.taskId);
+      if(action==='task-pause'&&terminal.has(t.status))throw new Error(this.hasSubmissionBoundary(t)?'任务已进入只核对结果阶段，不能确认可撤回提交；不会再次投递':'任务当前已结束，请先核对状态');
       if(action==='task-pause'&&t.status==='submitting'){
         const authorized=!!t.submitAuthorizedAt;
         t.status='unknown';t.phase='verify';t.submissionStarted=true;

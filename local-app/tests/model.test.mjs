@@ -435,3 +435,10 @@ test('独立预检失败在提交边界前暂停，同任务可重新检查',t=>
   env.send(preflight,{ok:false,kind:'manual',message:'附件不符'});assert.equal(env.task.status,'waiting_user');
   env.store.action({action:'task-resume',taskId:env.task.id});assert.equal(env.take().op,'inspect');
 });
+
+test('迟到的暂停请求不能对已未知或已提交任务伪报暂停成功',t=>{
+  const env=setup(t),submit=reachSubmit(env);env.send(submit,{ok:false,kind:'unknown'});
+  assert.throws(()=>env.store.action({action:'task-pause',taskId:env.task.id}),/不能确认可撤回/);
+  env.store.action({action:'verify',taskId:env.task.id});env.send(env.take(),{ok:true,receipt:receipt(env.task)});
+  assert.throws(()=>env.store.action({action:'task-pause',taskId:env.task.id}),/不能确认可撤回/);
+});
