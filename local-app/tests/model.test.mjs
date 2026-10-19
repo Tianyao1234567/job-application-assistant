@@ -34,7 +34,7 @@ function reachUpload(env,question=null){
   const upload=env.take();assert.equal(upload.op,'upload');return upload;
 }
 function uploaded(env,command){const f=command.payload.file;return env.send(command,{ok:true,layout:'fixture-layout',fileName:f.name,fileSize:f.size,sha256:f.sha256});}
-function reachSubmit(env){uploaded(env,reachUpload(env));const submit=env.take();assert.equal(submit.op,'submit');return submit;}
+function reachSubmit(env){uploaded(env,reachUpload(env));const preflight=env.take();assert.equal(preflight.op,'preflight');env.send(preflight,{ok:true});const submit=env.take();assert.equal(submit.op,'submit');return submit;}
 function receipt(task,extra={}){const f=task.resumeSnapshot;return {id:'fictional-receipt',jobId:task.jobId,account:'demo',fileName:f.name,fileSize:f.size,sha256:f.sha256,...extra};}
 function settings(store,change={},sites=store.state.sites){return {settings:{...store.state.settings,...change},sites:structuredClone(sites)};}
 const question=task=>({key:'motivation',text:'请说明你对该测试岗位的兴趣。',scope:`local-v1:beta:${task.jobId}:motivation:v1`});
@@ -252,7 +252,7 @@ test('未确认字段不会发往执行器，回执摘要不符不能记为已�
   env.store.setProfile({data:profile,mode:'demo',confirmed:true});
   env.send(env.take(),{ok:true,layout:'fixture-layout'});const fill=env.take();
   assert.equal(fill.payload.entries.some(e=>e.key==='personal.location'),false);
-  env.send(fill,{ok:true,filled:2,layout:'fixture-layout'});uploaded(env,env.take());const submit=env.take();
+  env.send(fill,{ok:true,filled:2,layout:'fixture-layout'});uploaded(env,env.take());const preflight=env.take();env.send(preflight,{ok:true});const submit=env.take();
   env.send(submit,{ok:true,receipt:receipt(env.task,{sha256:'0'.repeat(64)})});assert.equal(env.task.status,'unknown');
   env.store.action({action:'verify',taskId:env.task.id});env.send(env.take(),{ok:true,receipt:receipt(env.task),login:login()});
   const first=env.task.submittedAt;env.advance(86400000);
@@ -408,4 +408,30 @@ test('真正派发提交时先保存不可撤销标志，之后即使旧状态�
   assert.equal(task.status,'submitted');assert.equal(task.submissionStarted,true);
   assert.throws(()=>restored.action({action:'task-resume',taskId:task.id}),/提交阶段/);
   assert.equal(restored.state.tasks.length,1);
+});
+
+test('未适配链接完整保留query/hash，仅同一完整链接去重',t=>{
+  const {store}=fresh(t);
+  store.state.sites.push({id:'unknown-site',name:'Fictional site',origin:'https://jobs.example.test',tenant:'default',expectedAccount:'fictional',adapter:'unsupported',mode:'real',enabled:true});
+  const urls=['https://jobs.example.test/job?id=1','https://jobs.example.test/job?id=2','https://jobs.example.test/#/job/1','https://jobs.example.test/#/job/2'];
+  const tasks=urls.map(url=>store.manual(url).task);
+  assert.equal(new Set(tasks.map(t=>t.id)).size,4);
+  assert.deepEqual(tasks.map(t=>t.url),urls);
+  for(const task of tasks){assert.equal(store.manual(task.url).task.id,task.id);assert.equal(task.status,'waiting_user');}
+});
+for(const authorized of [false,true])test(`提交阶段单项暂停：最终授权已发出=${authorized}`,t=>{
+  const env=setup(t),submit=reachSubmit(env),request={clientId:client.clientId,commandId:submit.id};
+  assert.deepEqual(submit.payload.file,{name:env.task.resumeSnapshot.name,size:env.task.resumeSnapshot.size,sha256:env.task.resumeSnapshot.sha256});
+  if(authorized)assert.equal(env.store.authorize(request).allowed,true);
+  const result=env.store.action({action:'task-pause',taskId:env.task.id});
+  assert.equal(result.pauseOutcome,authorized?'authorization-already-issued':'authorization-revoked');
+  assert.equal(result.verificationOnly,true);assert.equal(env.store.authorize(request).allowed,false);
+  assert.equal(env.task.status,'unknown');assert.equal(env.task.submissionStarted,true);
+  assert.throws(()=>env.store.action({action:'task-resume',taskId:env.task.id}));
+});
+test('独立预检失败在提交边界前暂停，同任务可重新检查',t=>{
+  const env=setup(t);uploaded(env,reachUpload(env));const preflight=env.take();assert.equal(preflight.op,'preflight');
+  assert.equal(env.task.submissionStarted,undefined);
+  env.send(preflight,{ok:false,kind:'manual',message:'附件不符'});assert.equal(env.task.status,'waiting_user');
+  env.store.action({action:'task-resume',taskId:env.task.id});assert.equal(env.take().op,'inspect');
 });

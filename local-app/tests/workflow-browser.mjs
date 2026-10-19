@@ -144,6 +144,15 @@ async function launch() {
     // This remains the actual dashboard button -> content script -> service worker pairing.
     await dashboard.locator('#connect-button').click();
     await until('actual extension pairing',state,value=>value.connection.connected&&value.connection.profileId);
+    const runner=context.pages().find(page=>urlType(page.url())==='runner');assert.ok(runner);
+    const repeated=await runner.evaluate(async()=>chrome.runtime.sendMessage({type:'local-runner-register',tabId:(await chrome.tabs.getCurrent()).id}));
+    assert.equal(repeated.ok,true,'same real runner can register twice');
+    const duplicate=await context.newPage();
+    try{
+      await duplicate.goto(runner.url());
+      await duplicate.getByText('已有一个执行端运行，此页不会重复处理任务。',{exact:true}).waitFor();
+      assert.equal((await state()).connection.connected,true);
+    }finally{await duplicate.close();}
   }catch(error){await pairingDiagnostic(worker);throw error;}
 }
 async function loginAlpha() {
@@ -304,8 +313,9 @@ async function workflow() {
     const detail=dashboard.locator('#task-dialog');await detail.getByRole('button',{name:'核对接收记录',exact:true}).waitFor();
     assert.equal(await detail.getByRole('button',{name:/重新检查并(继续|排队)/}).count(),0);
     await dashboard.keyboard.press('Escape');
+    const verificationCount=task(await state(),'cpp-002').steps.filter(step=>step.label==='核对接收结果').length;
     await action('verify',{taskId:unknownTask.id});
-    await until('expired-session verification was actually processed',state,value=>task(value,'cpp-002').steps.some(step=>step.label==='核对接收结果'));
+    await until('expired-session verification was actually processed',state,value=>task(value,'cpp-002').steps.filter(step=>step.label==='核对接收结果').length>verificationCount);
     assert.equal(task(await state(),'cpp-002').status,'unknown');assert.equal(requests(await fixture(),'alpha','cpp-002').length,1);
   });
   await check('关闭浏览器可见断线；服务和隔离持久 profile 重启保留版本与提交边界',async()=>{
@@ -329,6 +339,60 @@ async function workflow() {
     assert.deepEqual(pageErrors,[],'No dashboard, fixture, or extension page script errors');
     evidence.summary={actualMultipartRequests:actual.submitRequests.length,acceptedReceipts:actual.receipts.length,submittedTasks:recovered.stats.demo.submitted,profileVersion:recovered.profile.version,resumeVersion:recovered.resume.version};
     assert.equal(evidence.summary.submittedTasks,3);
+  });
+  await check('附件同名同大小内容被换在预检前拦截；最终授权等待再换仍为零POST',async()=>{
+    const target=task(await state(),'design-001');assert.ok(target);
+    let gated=false;
+    const sessionRoute=async route=>{
+      if(!gated && app.store.command?.taskId===target.id && app.store.command.op==='preflight'){
+        gated=true;
+        const page=context.pages().find(page=>page.url()===FIXTURE+'/site/beta/apply/design-001');assert.ok(page);
+        await page.locator('input[type="file"]').setInputFiles({name:resume.name,mimeType:'text/plain',buffer:Buffer.alloc(resume.size,65)});
+      }
+      await route.continue();
+    };
+    await context.route(FIXTURE+'/site/beta/session',sessionRoute);
+    await action('task-resume',{taskId:target.id});
+    await until('attachment preflight refusal',state,value=>gated&&task(value,'design-001')?.status==='waiting_user');
+    await context.unroute(FIXTURE+'/site/beta/session',sessionRoute);
+    assert.equal(requests(await fixture(),'beta','design-001').length,0);
+    assert.equal(app.store.task(target.id).submissionStarted,undefined);
+    const page=context.pages().find(page=>page.url()===FIXTURE+'/site/beta/apply/design-001');
+    await page.locator('input[type="file"]').setInputFiles([]);
+    let replaced=false;
+    const authorizationRoute=async route=>{
+      if(!replaced && app.store.command?.taskId===target.id && app.store.command.op==='submit'){
+        replaced=true;
+        // Same bytes but a different File identity must also invalidate a prepared click.
+        const bytes=await fs.readFile(app.store.task(target.id).resumeSnapshot.file);
+        await page.locator('input[type="file"]').setInputFiles({name:resume.name,mimeType:'text/plain',buffer:bytes});
+      }
+      await route.continue();
+    };
+    await context.route(BASE+'/api/bridge/authorize',authorizationRoute);
+    await action('task-resume',{taskId:target.id});
+    await until('attachment swap during final authorization',state,value=>replaced&&task(value,'design-001')?.status==='unknown');
+    await context.unroute(BASE+'/api/bridge/authorize',authorizationRoute);
+    assert.equal(requests(await fixture(),'beta','design-001').length,0);
+    assert.equal(task(await state(),'design-001').canResume,false);
+  });
+  await check('提交派发后单项暂停撤销最终授权，实际POST为零且历史不清除',async()=>{
+    const target=task(await state(),'sales-001');assert.ok(target);let paused=false;
+    const pauseRoute=async route=>{
+      if(!paused && app.store.command?.taskId===target.id && app.store.command.op==='submit'){
+        paused=true;const response=await action('task-pause',{taskId:target.id});
+        assert.equal(response.pauseOutcome,'authorization-revoked');assert.equal(response.verificationOnly,true);
+      }
+      await route.continue();
+    };
+    await context.route(BASE+'/api/bridge/authorize',pauseRoute);
+    await action('task-resume',{taskId:target.id});
+    await until('submit pause acknowledged by runner',state,value=>paused&&!app.store.command&&task(value,'sales-001')?.status==='unknown');
+    await context.unroute(BASE+'/api/bridge/authorize',pauseRoute);
+    assert.equal(requests(await fixture(),'alpha','sales-001').length,0);
+    assert.equal(task(await state(),'sales-001').canResume,false);
+    assert.equal(app.store.task(target.id).submissionStarted,true);
+
   });
 }
 let watchdog;

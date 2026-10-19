@@ -167,8 +167,8 @@ export class Store {
     if(parsed.username||parsed.password||!/^https?:$/.test(parsed.protocol))throw new Error('岗位链接格式不正确');
     const site=this.state.sites.find(s=>s.origin===parsed.origin&&(s.adapter!=='local-v1'||parsed.pathname.startsWith(`/site/${s.tenant}/`)));if(!site)throw new Error('请先在设置中配置该网站');
     if(site.adapter!=='local-v1'){
-      const stable=hash(Buffer.from(parsed.origin+parsed.pathname)).slice(0,24);const existing=this.state.tasks.find(t=>t.dedupeKey===`${site.origin}|${site.tenant}|${stable}|${site.expectedAccount}`);if(existing)return {task:existing,duplicate:true};
-      const t={id:uid(),jobId:stable,siteId:site.id,title:'待适配岗位',company:site.name,location:'',url:parsed.origin+parsed.pathname,source:'手动加入',discoveredAt:this.now(),filterReason:'未接入的网站；岗位稳定标识须由后续适配器核实',dedupeKey:`${site.origin}|${site.tenant}|${stable}|${site.expectedAccount}`,mode:'real',status:'waiting_user',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};this.step(t,'手动加入','网站待适配');this.state.tasks.push(t);this.issue(t,'adapter','网站待适配','不能可靠识别岗位身份或执行表单；不会自动投递');this.save();return {task:t,duplicate:false};
+      const stable=hash(Buffer.from(parsed.href)).slice(0,24);const existing=this.state.tasks.find(t=>t.dedupeKey===`${site.origin}|${site.tenant}|${stable}|${site.expectedAccount}`);if(existing)return {task:existing,duplicate:true};
+      const t={id:uid(),jobId:stable,siteId:site.id,title:'待适配岗位',company:site.name,location:'',url:parsed.href,source:'手动加入',discoveredAt:this.now(),filterReason:'未接入的网站；岗位稳定标识须由后续适配器核实',dedupeKey:`${site.origin}|${site.tenant}|${stable}|${site.expectedAccount}`,mode:'real',status:'waiting_user',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};this.step(t,'手动加入','网站待适配');this.state.tasks.push(t);this.issue(t,'adapter','网站待适配','不能可靠识别岗位身份或执行表单；不会自动投递');this.save();return {task:t,duplicate:false};
     }
     const m=parsed.pathname.match(new RegExp(`^/site/${site.tenant}/(?:jobs|apply)/([a-zA-Z0-9_-]+)$`));if(!m)throw new Error('请加入岗位详情或申请页链接');
     const result=this.add(site,{jobId:m[1],url:`${site.origin}/site/${site.tenant}/jobs/${m[1]}`,title:'待读取岗位',company:site.name,location:''},'手动加入');this.save();return result;
@@ -189,7 +189,15 @@ export class Store {
     else if(action==='add')result=this.manual(body.url);
     else if(['task-pause','task-resume','task-skip','verify','answer'].includes(action)){
       const t=this.task(body.taskId);
-      if(action==='task-pause'&&!terminal.has(t.status)&&t.status!=='submitting'){this.invalidateTask(t);t.previousStatus=t.status;t.status='paused';t.pauseReason='用户暂停并接管';this.step(t,'用户暂停','停止后续自动动作；接管后可重新检查并恢复');}
+      if(action==='task-pause'&&t.status==='submitting'){
+        const authorized=!!t.submitAuthorizedAt;
+        t.status='unknown';t.phase='verify';t.submissionStarted=true;
+        this.invalidateTask(t);
+        this.issue(t,'unknown','提交阶段已停止，结果待核实',authorized?'最终授权已经发出，无法保证撤回；仅允许核对结果':'已撤销后续提交授权；保留提交历史，仅允许核对结果');
+        this.step(t,'提交阶段暂停',authorized?'最终授权已发出；可能已经点击，禁止重投':'最终授权未发出，已阻止后续点击；禁止重投');
+        result={pauseOutcome:authorized?'authorization-already-issued':'authorization-revoked',verificationOnly:true};
+      }
+      else if(action==='task-pause'&&!terminal.has(t.status)){this.invalidateTask(t);t.previousStatus=t.status;t.status='paused';t.pauseReason='用户暂停并接管';this.step(t,'用户暂停','停止后续自动动作；接管后可重新检查并恢复');}
       if(action==='task-resume'){
         if(this.hasSubmissionBoundary(t))throw new Error('已记录过提交阶段的任务只能核对结果，不可重新投递');
         if(this.canResumeTask(t)){this.invalidateTask(t);t.status='queued';t.phase='inspect';this.resolveTask(t);delete t.pauseReason;this.step(t,'用户继续','重新检查同一个岗位、表单和已有接收记录');}
@@ -250,7 +258,8 @@ export class Store {
           if(c.op==='fill')c.payload={entries:flattenProfile(t.profileSnapshot.data).filter(e=>e.confirmed),layout:t.layout};
           if(c.op==='upload'){const f=t.resumeSnapshot;c.payload={file:{name:f.name,mime:f.mime,size:f.size,sha256:f.sha256,base64:fs.readFileSync(insideRoot(f.file)).toString('base64')},layout:t.layout};}
           if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,layout:t.layout};
-          if(c.op==='submit'){c.payload={layout:t.layout};t.status='submitting';t.submissionStarted=true;t.submitDay=this.day();this.step(t,'提交阶段已记录','先保存提交边界，再允许明确的提交操作；结果不明不重试');}
+          if(c.op==='preflight')c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};
+          if(c.op==='submit'){c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};t.status='submitting';t.submissionStarted=true;t.submitDay=this.day();this.step(t,'提交阶段已记录','先保存提交边界，再允许明确的提交操作；结果不明不重试');}
         }
       }
     }
@@ -266,7 +275,9 @@ export class Store {
     if(c.op==='verify')return {allowed:!!c.taskId&&this.canVerifyTask(this.task(c.taskId))};
     if(!c.taskId){const site=this.site(c.siteId);return {allowed:c.op==='open'||c.op==='check'||(!this.state.paused&&site.enabled&&!site.skipped&&site.mode===this.state.settings.mode)};}
     const t=this.task(c.taskId),site=this.site(t.siteId);
-    return {allowed:(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo'};
+    const allowed=(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo';
+    if(allowed&&c.op==='submit'){t.submitAuthorizedAt=this.now();this.save();}
+    return {allowed};
   }
   loginResult(site,login,profileId=this.connection?.profileId){
     const valid=['ready','login','expired','verification','unknown','account'];let status=valid.includes(login?.status)?login.status:'unknown';
@@ -329,8 +340,9 @@ export class Store {
         if(r.fileName!==t.resumeSnapshot.name||Number(r.fileSize)!==t.resumeSnapshot.size||r.sha256!==t.resumeSnapshot.sha256){t.status='waiting_user';this.issue(t,'manual','附件校验未通过','请核对所选简历和页面附件');}
         else{if(r.layout)t.layout=r.layout;this.step(t,'简历已附加',`${r.fileName} · ${r.fileSize} 字节；等待站点接收后核对摘要`);
           if(t.question&&!t.answer){t.status='waiting_answer';this.issue(t,'answer','需要补充一个答案',t.question.text,t.question);this.step(t,'等待补充答案',t.question.text);}
-          else t.phase=t.question?'answer':'submit';}
-      }else if(c.op==='answer'){if(r.layout)t.layout=r.layout;t.phase='submit';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
+          else t.phase=t.question?'answer':'preflight';}
+      }else if(c.op==='answer'){if(r.layout)t.layout=r.layout;t.phase='preflight';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
+      else if(c.op==='preflight'){t.phase='submit';this.step(t,'提交预检通过','登录、结构、附件和必填项通过；下一步先保存提交边界');}
       else if(c.op==='submit'){t.status='unknown';t.phase='verify';this.issue(t,'unknown','提交结果待核实','没有可靠回执，系统不会自动再次提交');}
     }
     this.save();return {ok:true};

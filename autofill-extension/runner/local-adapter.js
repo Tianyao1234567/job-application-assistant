@@ -98,6 +98,10 @@
     if(checked.form.dataset.localSubmissionAttempt)return fail('unknown','此表单已尝试提交，必须先核对回执。');
     return {ok:true,node:buttons[0]};
   }
+  function sameFile(prepared,checked) {
+    const target=uploadTarget(checked);
+    return target.ok && target.node===prepared.fileNode && target.node.files.length===1 && target.node.files[0]===prepared.verifiedFile;
+  }
   const digest=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(n=>n.toString(16).padStart(2,'0')).join('');
   api.prepare = async (method,expected,args) => {
     if(!['fillField','upload','answer','submit'].includes(method) || !Array.isArray(args))return fail('manual','不支持此页面操作。');
@@ -128,6 +132,15 @@
     }else{
       target=submitTarget(expected,checked);if(!target.ok)return stopped(target);
       if(target.receipt)return target;
+      const locked=args[1],upload=uploadTarget(checked);
+      if(!upload.ok)return stopped(upload);
+      const files=[...upload.node.files],file=files[0];
+      if(!locked || files.length!==1 || file.name!==locked.name || file.size!==locked.size || !/^[a-f0-9]{64}$/.test(locked.sha256 || ''))return stopped(fail('manual','提交前附件与任务锁定简历不符，请重新检查。'));
+      const hash=await digest(await file.arrayBuffer());
+      if(hash!==locked.sha256)return stopped(fail('manual','提交前附件内容与任务锁定简历不符，请重新检查。'));
+      Object.assign(prepared,{fileNode:upload.node,verifiedFile:file});
+      if(!sameFile(prepared,checked))return stopped(fail('manual','附件在预检期间已变化，已停止提交。'));
+      if(!checked.form.checkValidity())return stopped(fail('manual','表单必填项未通过校验，请人工检查。'));
     }
     prepared.node=target.node;
     // Catch replacements or edits during file hashing before accepting the preparation.
@@ -180,6 +193,7 @@
     const final=checkedForm(expected,prepared.layout),button=final.ok && submitTarget(expected,final);
     if(!final.ok)return stopped(final);
     if(final.form!==prepared.form || !button.ok || button.node!==prepared.node)return stopped(button?.ok?fail('structure','提交前申请表或入口已变化。'):button);
+    if(!sameFile(prepared,final))return stopped(fail('manual','附件在预检或授权等待期间已变化，已停止提交。'));
     checked.form.dataset.localSubmissionAttempt='started';
     target.node.click();
     return waitReceipt(expected);

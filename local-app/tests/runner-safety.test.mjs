@@ -30,6 +30,7 @@ function harness(options={}){
     matches(){return true;}
   }
   h.field=new Input('personal.name');h.answer=new Input('motivation');h.upload=new Input('resume','file');
+  h.upload._files=[new File([fileBytes],file.name)];
   h.answer.dataset={questionText:'Why this role?',questionScope:'local-v1:beta:web-001:motivation:v1'};
   const button={type:'submit',isConnected:true,click(){h.clicks++;h.receipt=!options.loseReceipt;}};
   const marker={dataset:{sessionStatus:'ready',account:'demo',tenant:'beta'}};
@@ -73,7 +74,7 @@ function harness(options={}){
   vm.runInContext(runnerSource.replace(/^import[^\n]+\n/,'').replace(/start\(\)\.catch\([\s\S]*$/,'globalThis.runCommand=execute;'),runner);
   vm.runInContext("bridge={key:'fictional-key',profileId:'isolated-test'};",runner);
   h.run=(op)=>runner.runCommand({id:'command-'+op,op,site:{adapter:'local-v1',origin:'http://127.0.0.1:17322',mode:'demo',tenant:'beta',expectedAccount:'demo'},
-    task:{id:'task',jobId:'web-001',mode:'demo'},payload:op==='fill'?{layout,entries:[{key:'personal.name',value:'Fictional Applicant',confirmed:true}]}:op==='upload'?{layout,file}:op==='answer'?{layout,key:'motivation',text:'Why this role?',scope:'local-v1:beta:web-001:motivation:v1',answer:'Fictional confirmed answer'}:{layout}});
+    task:{id:'task',jobId:'web-001',mode:'demo'},payload:op==='fill'?{layout,entries:[{key:'personal.name',value:'Fictional Applicant',confirmed:true}]}:op==='upload'?{layout,file}:op==='answer'?{layout,key:'motivation',text:'Why this role?',scope:'local-v1:beta:web-001:motivation:v1',answer:'Fictional confirmed answer'}:{layout,file}});
   h.page=page;
   return h;
 }
@@ -84,7 +85,7 @@ async function pauseWhile(op,gateName){
   const result=await pending;
   assert.equal(result.kind,'paused');assert.equal(h.writes,0);assert.equal(h.uploads,0);assert.equal(h.clicks,0);
   assert.equal(h.authorizations,1,'authorization must occur after the asynchronous prerequisite');
-  if(op==='submit')assert.deepEqual(h.storage.localSubmissionAttempts,{},'safe denial releases only the known-unattempted local marker');
+  if(op==='submit')assert.ok(h.storage.localSubmissionAttempts['beta:web-001:demo'],'submission history remains monotonic after safe denial');
 }
 for(const op of ['fill','upload','answer','submit'])test(`pause during ${op} session fetch prevents the subsequent DOM mutation`,()=>pauseWhile(op,'sessionGate'));
 test('pause while hashing the resume prevents file assignment',()=>pauseWhile('upload','hashGate'));
@@ -113,7 +114,7 @@ test('a failed final authorization request cannot mutate the page',async()=>{
   const h=harness({authFailure:true});await assert.rejects(h.run('fill'),error=>error.kind==='paused');assert.equal(h.writes,0);
 });
 test('an authorized upload assigns the verified File once',async()=>{
-  const h=harness();const result=await h.run('upload');assert.equal(result.ok,true);assert.equal(result.sha256,sha256);assert.equal(h.uploads,1);
+  const h=harness();h.upload._files=[];const result=await h.run('upload');assert.equal(result.ok,true);assert.equal(result.sha256,sha256);assert.equal(h.uploads,1);
   assert.equal(Buffer.from(await h.upload.files[0].arrayBuffer()).toString(),Buffer.from(fileBytes).toString());
 });
 test('submission persists its marker before a single click and refuses a repeated command',async()=>{
@@ -142,4 +143,17 @@ test('prepared tokens are one-use and commit performs its write before returning
   const prepared=await h.page.JobLocal.prepare('fillField',expected,[layout,'personal.name','Fictional Applicant']);
   const pending=h.page.JobLocal.commit(expected,prepared.token);assert.equal(h.writes,1,'no asynchronous suspension may precede the field write');
   assert.equal((await pending).ok,true);assert.equal(h.page.JobLocal.commit(expected,prepared.token).ok,false);assert.equal(h.writes,1);
+});
+
+test('submit rejects a same-name same-size resume with different bytes before any click',async()=>{
+  const h=harness();h.upload._files=[new File([new Uint8Array(file.size)],file.name)];
+  const result=await h.run('submit');assert.equal(result.ok,false);assert.equal(h.clicks,0);assert.equal(h.authorizations,0);
+});
+for(const stage of ['session','hash','authorization'])test(`submit stops attachment replacement during ${stage}`,async()=>{
+  const waiting=gate(),h=harness(stage==='session'?{sessionGate:waiting}:stage==='hash'?{hashGate:waiting}:{});
+  const replace=()=>{h.upload._files=[new File([stage==='session'?new Uint8Array(file.size):fileBytes],file.name)];};
+  if(stage==='authorization')h.afterAuthorize=replace;
+  const pending=h.run('submit');
+  if(stage!=='authorization'){await waiting.entered;replace();waiting.release();}
+  const result=await pending;assert.equal(result.ok,false);assert.equal(h.clicks,0);
 });

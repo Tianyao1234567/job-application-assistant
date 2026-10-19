@@ -20,7 +20,7 @@ node --test local-app/tests/*.test.mjs
 
 ## 云端启动开发服务
 
-使用现有 checkout，不需要另建 worktree。Node.js 24，在仓库根目录执行：
+使用现有 checkout，不需要另建 worktree。执行扩展需要 Chromium 116+（以精确扩展页面上下文注册，不增加宽泛 tabs 权限）。Node.js 24，在仓库根目录执行：
 
 ```sh
 node local-app/server.mjs --data-dir .runtime/dev-data

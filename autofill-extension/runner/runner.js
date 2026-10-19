@@ -182,6 +182,11 @@ async function execute(command) {
     if(typeof payload.answer!=='string' || !payload.answer.trim() || payload.answer.length>10000)throw new Stop('manual','请补充经确认的普通问题答案。');
     return {...await mutate(command,tab,expect,'answer',payload),tabId:tab.id,url:tab.url};
   }
+  if(command.op==='preflight'){
+    await inject(tab,expect);
+    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
+    return prepared.ok?{ok:true,tabId:tab.id,url:tab.url}:prepared;
+  }
   if(command.op==='submit'){
     const {localSubmissionAttempts={}}=await chrome.storage.local.get('localSubmissionAttempts');
     const dedupe=expect.tenant+':'+expect.jobId+':'+expect.expectedAccount;
@@ -190,20 +195,18 @@ async function execute(command) {
     if(!checked.ok || checked.receipt)return checked;
     if(checked.layout!==payload.layout)return fail('structure','提交前表单结构发生变化。');
     await inject(tab,expect);
-    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout]);
+    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
     if(!prepared.ok || !prepared.token)return prepared;
     // Persist before the single click. A lost response or renderer crash can only lead to verification.
     localSubmissionAttempts[dedupe]={commandId:command.id,taskId:command.task.id,at:Date.now()};
     await chrome.storage.local.set({localSubmissionAttempts});
     // Include storage latency in the preflight window: authorize only after it completes.
     try{await authorize(command);}catch(error){
-      delete localSubmissionAttempts[dedupe];await chrome.storage.local.set({localSubmissionAttempts});
       return {...fail(error.kind || 'paused',error.message),attempted:false,tabId:tab.id,url:tab.url};
     }
     let clicked;
     try{
       clicked=await commitMutation(tab,expect,prepared.token);
-      if(clicked && clicked.kind!=='unknown' && clicked.attempted===false){delete localSubmissionAttempts[dedupe];await chrome.storage.local.set({localSubmissionAttempts});}
       if(clicked?.ok || (clicked && clicked.kind!=='unknown'))return {...clicked,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
     }catch{}
     // A normal form navigation destroys the injected world. Only read the resulting browser page.
@@ -240,7 +243,7 @@ async function tick() {
 async function start() {
   const current=await chrome.tabs.getCurrent();
   const registered=await chrome.runtime.sendMessage({type:'local-runner-register',tabId:current.id});
-  if(!registered?.ok){stopped=true;status.textContent='已有一个执行端运行，此页不会重复处理任务。';return;}
+  if(!registered?.ok){stopped=true;status.textContent=registered?.reason==='runner-conflict'?'已有一个执行端运行，此页不会重复处理任务。':'执行端注册失败（'+(registered?.reason || 'no-response')+'），请从后台重新连接。';return;}
   const {localBridge}=await chrome.storage.local.get('localBridge');bridge=localBridge;
   // Heartbeats keep the connection visible while a real page action is still running.
   setInterval(()=>{if(bridge?.key&&!stopped)api('heartbeat',identity()).catch(()=>{});},4000);

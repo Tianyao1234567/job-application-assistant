@@ -7,6 +7,12 @@ chrome.runtime.onStartup.addListener(() => lockStorage());
 const DASHBOARD = 'http://127.0.0.1:17321';
 const runnerUrl = chrome.runtime.getURL('runner/index.html');
 let opening;
+let registering=Promise.resolve();
+// Own extension documents are not covered by the fixture host permission. Query
+// extension contexts instead of treating a redacted Tab.url as a conflicting runner.
+async function runnerContexts(tabId) {
+  return chrome.runtime.getContexts({contextTypes:['TAB'],documentUrls:[runnerUrl],...(Number.isInteger(tabId)?{tabIds:[tabId]}:{})});
+}
 async function ensureRunner() {
   if (opening) return opening;
   opening = (async () => {
@@ -14,10 +20,10 @@ async function ensureRunner() {
     if (!localBridge?.key) return;
     const {runnerTabId} = await chrome.storage.local.get('runnerTabId');
     if (Number.isInteger(runnerTabId)) {
-      try { const tab = await chrome.tabs.get(runnerTabId); if (tab.url === runnerUrl) return tab; } catch {}
+      try { const tab = await chrome.tabs.get(runnerTabId); if ((await runnerContexts(runnerTabId)).length === 1) return tab; } catch {}
     }
-    const tabs = await chrome.tabs.query({url:runnerUrl});
-    const tab = tabs[0] || await chrome.tabs.create({url:runnerUrl,active:false});
+    const contexts = await runnerContexts();
+    const tab = contexts.length ? await chrome.tabs.get(contexts[0].tabId) : await chrome.tabs.create({url:runnerUrl,active:false});
     await chrome.storage.local.set({runnerTabId:tab.id});
     return tab;
   })();
@@ -46,16 +52,19 @@ chrome.runtime.onMessage.addListener((message,sender,respond) => {
     })().catch(() => respond({ok:false}));
     return true;
   }
-  if (message?.type === 'local-runner-register' && sender.url === runnerUrl && Number.isInteger(message.tabId)) {
-    (async () => {
-      const current=await chrome.tabs.get(message.tabId);
-      if(current.url!==runnerUrl){respond({ok:false});return;}
-      const {runnerTabId} = await chrome.storage.local.get('runnerTabId');
-      if (Number.isInteger(runnerTabId) && runnerTabId !== message.tabId) {
-        try { const tab=await chrome.tabs.get(runnerTabId); if (tab.url === runnerUrl) {respond({ok:false});return;} } catch {}
+  if (message?.type === 'local-runner-register') {
+    if(sender.id!==chrome.runtime.id){respond({ok:false,reason:'sender-id-mismatch'});return;}
+    if(!sender.url){respond({ok:false,reason:'sender-url-unavailable'});return;}
+    if(sender.url!==runnerUrl){respond({ok:false,reason:'sender-url-mismatch'});return;}
+    if(!Number.isInteger(message.tabId)){respond({ok:false,reason:'invalid-tab-id'});return;}
+    registering=registering.catch(()=>{}).then(async()=>{
+      if((await runnerContexts(message.tabId)).length!==1){respond({ok:false,reason:'missing-runner-context'});return;}
+      const {runnerTabId}=await chrome.storage.local.get('runnerTabId');
+      if(Number.isInteger(runnerTabId) && runnerTabId!==message.tabId && (await runnerContexts(runnerTabId)).length){
+        respond({ok:false,reason:'runner-conflict'});return;
       }
-      await chrome.storage.local.set({runnerTabId:message.tabId}); respond({ok:true});
-    })().catch(() => respond({ok:false}));
+      await chrome.storage.local.set({runnerTabId:message.tabId});respond({ok:true,reason:'registered'});
+    }).catch(()=>respond({ok:false,reason:'registration-api-error'}));
     return true;
   }
 });

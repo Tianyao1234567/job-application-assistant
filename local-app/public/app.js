@@ -39,7 +39,7 @@ const views = {
   settings: ['设置与计划', '按自己的节奏出发', '配置岗位、城市、网站和每日额度。计划依赖本机组件持续运行。']
 };
 const taskLabels = {queued:'排队中', running:'正在执行', waiting_answer:'待补充答案', waiting_user:'待人工处理', paused:'已暂停', submitting:'正在提交 · 不可重投', submitted:'已核实提交', unknown:'结果待核实', failed:'执行失败', skipped:'已跳过', cancelled:'已取消'};
-const phaseLabels = {inspect:'检查岗位与申请表', fill:'填写确认资料', upload:'上传所选简历', answer:'填写确认答案', submit:'准备提交', verify:'核对接收记录', done:'已完成'};
+const phaseLabels = {inspect:'检查岗位与申请表', fill:'填写确认资料', upload:'上传所选简历', answer:'填写确认答案', preflight:'核对附件与提交条件', submit:'准备提交', verify:'核对接收记录', done:'已完成'};
 const loginLabels = {ready:'页面检查已就绪', login:'需要登录', expired:'登录已失效', verification:'需要人工验证', unknown:'尚待核实', account:'账号或范围不符'};
 const modeLabel = mode => mode === 'real' ? '真实模式' : '本地演示';
 const currentView = () => Object.hasOwn(views, location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
@@ -154,7 +154,7 @@ async function perform(action, payload = {}) {
     if (action === 'demo') {profileDraft = null; settingsDraft = null; profileDirty = settingsDirty = false; selectedResumeFile = null; drafts.clear();}
     if (action === 'answer') {drafts.delete(`answer-${payload.taskId}`); drafts.delete(`save-answer-${payload.taskId}`);}
     if (action === 'add') drafts.delete('add-url');
-    const messages = {demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', discover:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
+    const messages = {demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', discover:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':result.pauseOutcome==='authorization-already-issued'?'最终提交授权已发出，无法保证撤回；仅核对结果，不会重投。':result.pauseOutcome==='authorization-revoked'?'后续提交授权已撤销；提交历史保留，仅核对结果。':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
     toast(messages[action] || '操作已保存。');
     await refresh(true);
     return result;
