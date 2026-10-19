@@ -27,7 +27,7 @@
 
 ## 2026-10-20（北京时间）· DEV-0023 接续 PM-0005 / PM-0006
 
-状态：已完成下列代码修正和 Cloud Node/HTTP 验证；真实扩展仍待托管执行，产品待验收，PR #4 保持 WIP。代码提交 `736e11491bb10cbe0e2c83444bf830e7291dc09b`，接续远端 `90978cb3c86e86afa91a923e1078c209d0a50f7f`，没有从 main 重新开发。工作区 `/workspace/job-application-assistant`，Linux x86_64 / Node v24.19.0；首次只读 `pwd` 成功。环境发布、新任务快照恢复没有独立验证，不公开平台会话私链。
+状态：已完成下列代码修正和 Cloud Node/HTTP 验证；真实扩展仍待托管执行，产品待验收，PR #4 保持 WIP。代码提交 `89d35a44f831fd6ca83b92b096ceea305b281528`（包含首轮修复 `736e11491bb10cbe0e2c83444bf830e7291dc09b`），接续远端 `90978cb3c86e86afa91a923e1078c209d0a50f7f`，没有从 main 重新开发。工作区 `/workspace/job-application-assistant`，Linux x86_64 / Node v24.19.0；首次只读 `pwd` 成功。环境发布、新任务快照恢复没有独立验证，不公开平台会话私链。
 
 已实际读取 AGENTS.md、CLOUD_HANDOFF.md、SPEC.md、DEVELOPMENT_SNAPSHOT.md、local-app/CONTRACT.md 和 Issue #1 全部19条评论，包括 PM-0005、PM-0006；结束前再次核对最新两条仍是这两项 PM 要求。Git HTTPS 读取可用。GitHub API 在代理 CONNECT 阶段返回403，CLI的GraphQL及REST均不可用；匿名公开Issue网页可读，不代表 API 写权限可用。未索要令牌、未提取代理凭据。
 
@@ -35,14 +35,14 @@
 
 - 执行端：用 Chrome 116+ `runtime.getContexts` 的精确自身扩展文档和 tabId 判断存活，避免依赖可能被权限裁剪的 `Tab.url`；保持 sender扩展身份和精确URL校验。注册串行，覆盖首次、同tab幂等、过期tab、第二实例与并发注册。诊断区分来源id、来源URL缺失/不符、文档缺失、活实例冲突和API异常。没有新增 tabs 或宽泛主机权限。此诊断方向尚未由本轮真实浏览器证实，不能宣布注册已真实通过。
 - 附件：`preflight` / `submit`均携带任务锁定名称、大小和SHA-256。页面预检哈希实际File，最终同步点击前重新检查input和同一不可变File对象；会话、哈希或授权等待中被替换即停止。新增VM断言同名同大小内容不符、哈希期间换文件、授权等待换文件均为零点击；真实HTTP零POST断言已加入待运行浏览器脚本，尚未执行。
-- 暂停：submitting期间不再静默返回普通暂停成功。最终授权未发出时撤销后续授权；已发出时明确提示不可保证撤回。两种结果保留全部提交边界、进入只核对状态，后台和UI使用相同结果语义。单元测试覆盖暂停结果、后续授权拒绝和禁止恢复投递；真实扩展零POST场景已编写，未执行。
+- 暂停：submitting期间不再静默返回普通暂停成功。最终授权未发出时撤销后续授权；已发出时明确提示不可保证撤回。两种结果保留全部提交边界、进入只核对状态，后台和UI使用相同结果语义。若请求迟到时已是unknown/submitted，明确拒绝普通暂停确认，避免再次伪报成功。单元测试覆盖暂停结果、后续授权拒绝和禁止恢复投递；真实扩展零POST场景已编写，未执行。
 - 提交阶段：独立可恢复的preflight放在持久提交边界之前，检查登录、表单、附件和必填项。正式submit仍先记录边界和本地账本、再最终授权、唯一点击。安全中止不再删除本地提交账本；后端历史不清除，不因attempted:false重投。
 - 未适配链接：保留完整URL query/hash，仅同一完整href去重；稳定ID归一化仍由具体适配器负责。公开测试只用虚构域名。
 - 浏览器证据：只读核对等待改为比较本次操作前后的新增事件数量；保留既有短路径镜像方案，补真实重复注册/第二实例及附件、暂停零POST断言，不绕过UI配对、不写入配对storage。
 
 ### 本轮实际结果（与历史运行分开）
 
-执行 `node scripts/cloud-check.mjs`：42个源码/JSON文件通过。执行 `node --test autofill-extension/tests/unit.test.js local-app/tests/*.test.mjs`：124项通过，0失败、0取消、0跳过。测试使用虚构资料。没有下载依赖或浏览器，没有在用户电脑运行任何检查。
+执行 `node scripts/cloud-check.mjs`：42个源码/JSON文件通过。执行 `node --test autofill-extension/tests/unit.test.js local-app/tests/*.test.mjs`：125项通过，0失败、0取消、0跳过。测试使用虚构资料。没有下载依赖或浏览器，没有在用户电脑运行任何检查。
 
 真实启动 `node local-app/server.mjs --data-dir .runtime/onboarding-dev-data` 后，GET后台200、未配对API401、已鉴权health200且fixture检查pass、实际本地岗位列表200并含web-001。没有提交申请；检查后仅停止本轮启动的服务，未清理生产profile或用户文件。
 
