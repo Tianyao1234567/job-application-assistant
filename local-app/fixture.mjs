@@ -120,7 +120,7 @@ function field(name,label,required=false) {
   return `<div class="field"><label for="${escape(name)}">${escape(label)}</label>${input}</div>`;
 }
 function page(tenant,login,title,content) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(title)} · 本地虚构招聘站</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:850px;margin:24px auto;padding:0 20px}nav{display:flex;gap:18px}fieldset{margin:20px 0;padding:16px}label{display:block}input,select,textarea,button{font:inherit;padding:7px;max-width:100%;box-sizing:border-box}input:not([type=file]),textarea{width:100%}.field{margin:12px 0}textarea{min-height:85px}.notice{padding:12px;background:#eef3ff}a{color:#164fc0}.receipt{border:2px solid #287548;padding:16px}</style></head><body><p class="notice">本页面是虚构本地招聘测试站，只用于演示和受控测试。</p><nav><a href="/site/${tenant}/jobs">岗位列表</a><a href="/site/${tenant}/login">账号准备</a></nav><p data-session-status="${escape(login.status)}" data-account="${escape(login.account)}" data-tenant="${tenant}">当前会话：${escape(login.status)}${login.account?' · '+escape(login.account):''}</p><h1>${escape(title)}</h1>${content}</body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(title)} · 本地虚构招聘站</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:850px;margin:24px auto;padding:0 20px}nav{display:flex;gap:18px}fieldset{margin:20px 0;padding:16px}label{display:block}input,select,textarea,button{font:inherit;padding:7px;max-width:100%;box-sizing:border-box}input:not([type=file]),textarea{width:100%}.field{margin:12px 0}textarea{min-height:85px}.notice{padding:12px;background:#eef3ff}a{color:#164fc0}.receipt{border:2px solid #287548;padding:16px}</style></head><body><p class="notice">本页面是虚构本地招聘测试站，只用于演示和受控测试。</p><nav><a href="/site/${tenant}/jobs">岗位列表</a><a href="/site/${tenant}/login">账号准备</a></nav><p data-session-status="${escape(login.status)}" data-account="${escape(login.account)}" data-tenant="${escape(login.tenant)}">当前会话：${escape(login.status)}${login.account?' · '+escape(login.account):''}</p><h1>${escape(title)}</h1>${content}</body></html>`;
 }
 function receiptHtml(receipt) {
   return `<section class="receipt" data-receipt-id="${escape(receipt.id)}" data-tenant="${escape(receipt.tenant)}" data-job-id="${escape(receipt.jobId)}" data-account="${escape(receipt.account)}" data-file-name="${escape(receipt.fileName)}" data-file-size="${receipt.fileSize}" data-sha256="${receipt.sha256}"><h2>申请已接收</h2><p>回执：${escape(receipt.id)}</p><p>简历：${escape(receipt.fileName)} (${receipt.fileSize} 字节)</p><p>SHA-256：${receipt.sha256}</p></section>`;
@@ -173,7 +173,7 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
     }
     return session;
   }
-  const publicLogin=session=>({status:session.status,account:session.account || '',tenant:session.tenant});
+  const publicLogin=session=>({status:session.status,account:session.account || '',tenant:testMode && TENANTS.has(session.reportedTenant)?session.reportedTenant:session.tenant});
   function validOrigin(request,pathname) {
     if(request.headers.host!==`127.0.0.1:${actualPort}`)throw new RequestError(403,'Host 不属于本地招聘测试站。');
     if(request.headers.origin && request.headers.origin!==origin())throw new RequestError(403,'请求来源不属于本地招聘测试站。');
@@ -205,8 +205,15 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
     if(pathname==='/__test/session') {
       if(!['ready','login','expired','verification','unknown'].includes(body.status) || (body.status==='ready' && !ACCOUNTS.has(body.account)))throw new RequestError(400,'会话状态无效。');
       if(body.allSessions!==undefined && typeof body.allSessions!=='boolean')throw new RequestError(400,'allSessions 无效。');
+      if(body.reportedTenant!==undefined && body.reportedTenant!==null && !TENANTS.has(body.reportedTenant))throw new RequestError(400,'reportedTenant 无效。');
       const sessions=body.allSessions?Object.values(state.sessions).filter(session=>session.tenant===body.tenant):[getSession(request,response,body.tenant)];
-      for(const session of sessions){session.status=body.status;session.account=ACCOUNTS.has(body.account)?body.account:session.account;}
+      for(const session of sessions){
+        session.status=body.status;session.account=ACCOUNTS.has(body.account)?body.account:session.account;
+        // Only an authenticated test hook changes the rendered observation; the
+        // cookie/session tenant and application receipt identity stay unchanged.
+        if(body.reportedTenant===null)delete session.reportedTenant;
+        else if(body.reportedTenant!==undefined)session.reportedTenant=body.reportedTenant;
+      }
       persist();return json(response,200,{ok:true,affected:sessions.length});
     }
     throw new RequestError(404,'测试接口不存在。');
@@ -230,7 +237,7 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
           if(!contentType(request,'application/x-www-form-urlencoded'))throw new RequestError(415,'登录表单格式无效。');
           const input=new URLSearchParams((await readBody(request,4096)).toString('utf8'));
           if(input.getAll('account').length!==1 || [...input.keys()].some(key=>key!=='account') || !ACCOUNTS.has(input.get('account')))throw new RequestError(400,'只能选择虚构 demo 或 other 账号。');
-          session.status='ready';session.account=input.get('account');persist();
+          session.status='ready';session.account=input.get('account');delete session.reportedTenant;persist();
           return send(response,303,'','text/html; charset=utf-8',{Location:`/site/${tenant}/login`});
         }
         if(request.method==='GET')return html('账号准备',`<p>只选择虚构账号，无需密码、验证码或真实凭据。</p><form method="post" action="/site/${tenant}/login"><label for="account">演示账号</label><select name="account" id="account"><option value="demo"${session.account==='demo'?' selected':''}>demo</option><option value="other"${session.account==='other'?' selected':''}>other</option></select><button type="submit">使用此虚构账号登录</button></form>`);

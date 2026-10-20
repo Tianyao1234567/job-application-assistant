@@ -15,6 +15,7 @@ on:
           - ui-mocked
           - extension
           - workflow
+          - acceptance-a
 
 permissions:
   contents: read
@@ -99,7 +100,7 @@ jobs:
       - name: Run the single selected browser regression
         run: xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
       - name: Preserve fictional workflow evidence, including failures
-        if: ${{ always() && inputs.browser == 'workflow' }}
+        if: ${{ always() && (inputs.browser == 'workflow' || startsWith(inputs.browser, 'acceptance-')) }}
         uses: actions/upload-artifact@v6
         with:
           name: fictional-workflow-evidence

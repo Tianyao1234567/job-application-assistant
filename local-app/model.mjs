@@ -282,18 +282,29 @@ export class Store {
   }
   loginResult(site,login,profileId=this.connection?.profileId){
     const valid=['ready','login','expired','verification','unknown','account'];let status=valid.includes(login?.status)?login.status:'unknown';
-    if(status==='ready'&&(login.account!==site.expectedAccount||login.tenant!==site.tenant))status='account';
-    site.login={status,account:status==='ready'?short(login.account,80):'',tenant:site.tenant,checkedAt:this.now(),profileId};
+    let reason=status;
+    if(status==='ready'||status==='account'){
+      if(typeof login?.tenant==='string' && login.tenant!==site.tenant){status='account';reason='tenant-mismatch';}
+      else if(typeof login?.account==='string' && login.account!==site.expectedAccount){status='account';reason='account-mismatch';}
+      else if(status==='account'){reason='identity-mismatch';}
+      else if(login?.tenant!==site.tenant || login?.account!==site.expectedAccount){status='unknown';reason='unknown';}
+    }
+    // Reasons are derived from observed identity/status, never arbitrary page text.
+    const messages={ready:'页面检查已就绪',login:'请在投递浏览器完成登录后重新检查',expired:'登录已失效，请在此浏览器重新登录后检查',verification:'网站需要人工验证，请完成后重新检查',unknown:'当前申请账号无法可靠识别，请人工核实后重新检查','tenant-mismatch':'当前公司或租户范围与任务配置不符，请切换后重新检查','account-mismatch':'当前申请账号与任务配置不符，请切换账号后重新检查','identity-mismatch':'当前账号或公司范围无法确认，请重新检查'};
+    const message=messages[reason];
+    site.login={status,reason,message,account:status==='ready'?short(login.account,80):'',tenant:site.tenant,checkedAt:this.now(),profileId};
     if(status==='ready'){
       for(const i of this.state.issues)if(i.siteId===site.id&&['login','account'].includes(i.kind)&&i.status==='open')i.status='resolved';
       for(const t of this.state.tasks)if(t.siteId===site.id&&t.status==='waiting_user'&&['login','account'].includes(t.issue?.kind)){t.status='queued';t.phase='inspect';delete t.issue;this.step(t,'登录检查通过','恢复原任务；先核对岗位及已投记录');}
     }else{
-      const labels={login:'需要登录',expired:'登录已失效',verification:'需要人工验证',unknown:'账号状态待核实',account:'申请账号或公司范围不符'};
+      const labels={login:'需要登录',expired:'登录已失效',verification:'需要人工验证',unknown:'账号状态待核实',account:reason==='tenant-mismatch'?'公司或租户范围不符':reason==='account-mismatch'?'申请账号不符':'申请账号或公司范围不符'};
       for(const t of this.state.tasks)if(t.siteId===site.id&&!terminal.has(t.status)&&!['paused','submitting'].includes(t.status)){
-        t.status='waiting_user';this.issue(t,status==='account'?'account':'login',labels[status],'请在投递浏览器处理后重新检查；其他就绪站点仍可继续');
+        t.status='waiting_user';this.issue(t,status==='account'?'account':'login',labels[status],message+'；其他就绪站点仍可继续');
       }
-      if(!this.state.issues.some(i=>i.siteId===site.id&&['login','account'].includes(i.kind)&&i.status==='open')){
-        const key=`login:${site.id}`;this.state.issues.push({id:uid(),key,kind:status==='account'?'account':'login',siteId:site.id,taskId:null,title:labels[status],detail:'请在指定投递浏览器中处理并重新检查',status:'open',createdAt:this.now()});
+      const pending=this.state.issues.find(i=>i.siteId===site.id&&['login','account'].includes(i.kind)&&i.status==='open');
+      if(pending)Object.assign(pending,{kind:status==='account'?'account':'login',title:labels[status],detail:message});
+      else{
+        const key=`login:${site.id}`;this.state.issues.push({id:uid(),key,kind:status==='account'?'account':'login',siteId:site.id,taskId:null,title:labels[status],detail:message,status:'open',createdAt:this.now()});
       }
     }
     return site.login;
@@ -325,7 +336,12 @@ export class Store {
       }else if(!r.ok){
         if(c.op==='submit'||r.kind==='unknown'){t.status='unknown';t.phase='verify';this.issue(t,'unknown','提交结果待核实','可能已被网站接收；请核对记录，系统不会再次提交');this.step(t,'提交回执未确认',short(r.message)||'只允许核对，禁止自动重投');}
         else if(r.kind==='paused'||t.status==='paused'||this.state.paused){if(t.status!=='paused')t.status='queued';t.phase='inspect';this.step(t,'自动动作已停止','继续时重新检查当前页面');}
-        else if(['login','account'].includes(r.kind)){t.status='waiting_user';this.issue(t,r.kind,r.kind==='login'?'需要登录或验证':'账号范围不符','请在投递浏览器完成后重新检查');site.login={status:r.kind,checkedAt:this.now(),profileId:this.connection?.profileId};}
+        else if(['login','account'].includes(r.kind)){
+          // loginResult already classified verification/unknown/expiry and the
+          // exact account-versus-tenant mismatch. Do not flatten that evidence.
+          if(!r.login || r.login.status==='ready')this.loginResult(site,{status:r.kind},c.profileId);
+          t.status='waiting_user';
+        }
         else{t.status=r.kind==='failure'?'failed':'waiting_user';this.issue(t,r.kind==='structure'?'structure':'manual',r.kind==='structure'?'页面结构已变化':'需要人工处理',short(r.message,1000)||'请检查当前招聘页面');this.step(t,'执行暂停',short(r.message,300));}
       }else if(t.status==='paused'){
         this.step(t,'接管期间的操作已结束','保留暂停状态；恢复前重新检查页面');

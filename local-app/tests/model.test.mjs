@@ -442,3 +442,45 @@ test('迟到的暂停请求不能对已未知或已提交任务伪报暂停成�
   env.store.action({action:'verify',taskId:env.task.id});env.send(env.take(),{ok:true,receipt:receipt(env.task)});
   assert.throws(()=>env.store.action({action:'task-pause',taskId:env.task.id}),/不能确认可撤回/);
 });
+
+test('login observations derive distinct safe account/tenant/unknown reasons without accepting page messages',t=>{
+  const {store,task}=setup(t),site=store.site('local-beta'),sameTask=task.id;
+  const cases=[
+    [{status:'ready',account:'demo',tenant:'alpha'},'account','tenant-mismatch',/租户范围/],
+    [{status:'ready',account:'other',tenant:'beta'},'account','account-mismatch',/切换账号/],
+    [{status:'unknown',account:'',tenant:'beta',reason:'ready',message:'UNTRUSTED PAGE TEXT'},'unknown','unknown',/无法可靠识别/],
+    [{status:'verification',tenant:'beta'},'verification','verification',/人工验证/],
+    [{status:'expired',tenant:'beta'},'expired','expired',/登录已失效/],
+    [{status:'login',tenant:'beta'},'login','login',/完成登录/]
+  ];
+  for(const [observed,status,reason,message]of cases){
+    const result=store.loginResult(site,observed);assert.equal(result.status,status);assert.equal(result.reason,reason);assert.match(result.message,message);
+    assert.equal(task.id,sameTask);assert.equal(task.status,'waiting_user');assert.equal(task.submissionStarted,undefined);
+    assert.equal(JSON.stringify(store.snapshot()).includes('UNTRUSTED PAGE TEXT'),false);
+    const issue=store.state.issues.find(issue=>issue.siteId===site.id&&issue.status==='open');assert.match(issue.detail,message);
+  }
+  store.loginResult(site,login());assert.equal(site.login.reason,'ready');assert.equal(task.status,'queued');assert.equal(task.id,sameTask);
+});
+for(const observed of [
+  {status:'verification',account:'demo',tenant:'beta'},
+  {status:'unknown',account:'',tenant:'beta'},
+  {status:'expired',account:'demo',tenant:'beta'},
+  {status:'account',account:'demo',tenant:'alpha'},
+  {status:'account',account:'other',tenant:'beta'}
+])test(`failed page action preserves classified login observation ${observed.status}/${observed.tenant}/${observed.account}`,t=>{
+  const env=setup(t),command=env.take();
+  env.send(command,{ok:false,kind:observed.status==='account'?'account':'login',login:observed});
+  const current=env.store.site('local-beta').login;
+  assert.equal(current.status,observed.status);
+  assert.equal(current.reason,observed.status==='account'?(observed.tenant!=='beta'?'tenant-mismatch':'account-mismatch'):observed.status);
+  assert.equal(env.task.status,'waiting_user');assert.equal(env.task.submissionStarted,undefined);
+});
+test('login classification while a submission is unknown cannot erase its irreversible history',t=>{
+  const env=setup(t),command=reachSubmit(env);env.send(command,{ok:false,kind:'unknown'});
+  const day=env.task.submitDay,id=env.task.id;
+  env.store.loginResult(env.store.site('local-beta'),{status:'ready',account:'demo',tenant:'alpha'});
+  assert.equal(env.task.id,id);assert.equal(env.task.status,'unknown');assert.equal(env.task.submissionStarted,true);assert.equal(env.task.submitDay,day);
+  env.store.loginResult(env.store.site('local-beta'),login());
+  assert.equal(env.task.status,'unknown');assert.equal(env.task.submissionStarted,true);assert.equal(env.task.submitDay,day);
+  assert.throws(()=>env.store.action({action:'task-resume',taskId:id}));
+});

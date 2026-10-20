@@ -284,3 +284,31 @@ test('same-origin session fetch keeps the actual tenant cookie and does not gain
   const state=(await testApi(fixture,'state')).body;
   assert.equal(state.submitRequests.length,0);assert.equal(state.receipts.length,0);
 });
+
+test('reported tenant hook changes only actual test page/session observations and native login clears it',async t=>{
+  const fixture=await setup(t),{cookie}=await session(fixture,'alpha');await login(fixture,cookie);
+  const change=body=>testApi(fixture,'session',{tenant:'alpha',status:'ready',account:'demo',allSessions:true,...body});
+  assert.equal((await change({reportedTenant:'beta'})).status,200);
+  const observed=await fetch(fixture.url+'/site/alpha/session',{headers:{Cookie:cookie}});
+  assert.deepEqual((await observed.json()).login,{status:'ready',account:'demo',tenant:'beta'});
+  const html=await (await fetch(fixture.url+'/site/alpha/login',{headers:{Cookie:cookie}})).text();
+  assert.match(html,/data-session-status="ready" data-account="demo" data-tenant="beta"/);
+  assert.match(html,/action="\/site\/alpha\/login"/,'route identity is not retargeted by a reported marker');
+  assert.equal((await submit(fixture,cookie,{tenant:'alpha',jobId:'cpp-002'})).status,200);
+  const received=(await testApi(fixture,'state')).body.receipts;
+  assert.equal(received.length,1);assert.equal(received[0].tenant,'alpha');
+  assert.equal((await change({reportedTenant:null})).status,200);
+  assert.equal((await (await fetch(fixture.url+'/site/alpha/session',{headers:{Cookie:cookie}})).json()).login.tenant,'alpha');
+  await change({reportedTenant:'beta'});await login(fixture,cookie,'alpha','other');
+  assert.deepEqual((await (await fetch(fixture.url+'/site/alpha/session',{headers:{Cookie:cookie}})).json()).login,{status:'ready',account:'other',tenant:'alpha'});
+});
+test('reported tenant controls require authenticated test mode and reject invalid values before changing state',async t=>{
+  const fixture=await setup(t);await session(fixture,'alpha');
+  const before=(await testApi(fixture,'state')).body;
+  const body={tenant:'alpha',status:'ready',account:'demo',allSessions:true,reportedTenant:'beta'};
+  assert.equal((await testApi(fixture,'session',body,'wrong')).status,403);
+  for(const reportedTenant of ['other','',{},1,false])assert.equal((await testApi(fixture,'session',{...body,reportedTenant})).status,400);
+  assert.deepEqual((await testApi(fixture,'state')).body,before);
+  const production=await setup(t,{testMode:false});
+  assert.equal((await testApi(production,'session',body)).status,404);
+});
