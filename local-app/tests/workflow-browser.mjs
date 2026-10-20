@@ -63,7 +63,7 @@ async function until(name,read,predicate,timeout=45_000) {
 }
 async function check(name,fn) {
   const started=Date.now();
-  try {await fn();const result={name,status:'PASS',durationMs:Date.now()-started};results.push(result);console.log('PASS '+name);notice('Fictional workflow stage passed',result);}
+  try {await fn();const result={name,status:'PASS',durationMs:Date.now()-started};results.push(result);console.log('PASS '+name);}
   catch(error){results.push({name,status:'FAIL',error:error.message,durationMs:Date.now()-started});throw error;}
 }
 async function api(route='/state',body,{allowFailure=false}={}) {
@@ -454,7 +454,13 @@ async function workflow() {
 let watchdog;
 try {
   await Promise.race([workflow(),new Promise((_,reject)=>{watchdog=setTimeout(()=>reject(new Error('Workflow browser regression exceeded 180 seconds')),180_000);})]);
+  assert.equal(results.length,12,'all selected real extension stages must actually execute');
   evidence.status='PASS';
+  // One final notice avoids GitHub's per-step annotation limit hiding stages 11/12.
+  // This is execution output, with the same assertions as the retained JSON artifact.
+  notice('Fictional workflow final result',{status:evidence.status,stages:results.length,passed:results.filter(result=>result.status==='PASS').length,
+    names:results.map(result=>result.name),summary:evidence.summary,actualHttpPosts:applicationHttpPosts.length,
+    runnerRecovery:evidence.runnerRecovery,allowance:evidence.allowance,safetyScenarios:evidence.safetyScenarios});
 } catch(error) {
   evidence.status='FAIL';evidence.error=error.message;process.exitCode=1;console.error(error.stack);
   // Only explicitly fictional fixture identities and status codes are exposed.
