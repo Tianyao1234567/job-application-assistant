@@ -1,5 +1,7 @@
 # 可靠性与自检优化阶段报告
 
+PM-0008已阶段验收本报告的12段虚构站点闭环；后续A→B→C补证及最新16项对照见 [DEV_REPORT_003.md](DEV_REPORT_003.md)。本报告保留原阶段历史。
+
 最新交付见文末“PM-0007 返工与真实扩展交付（DEV-0025）”；前面记录保留各阶段真实失败与当时限制，不代表最新状态。
 
 状态：开发中，沿用 WIP [PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4)，由产品经理验收。接续 `07457419c021fb3bbe665dbcaed7acee166aab47` 和 Issue #1 的 DEV-0018/DEV-0019。前阶段真实浏览器失败证据保留在 DEV_REPORT_001.md；不得将本轮计划当作通过结果。

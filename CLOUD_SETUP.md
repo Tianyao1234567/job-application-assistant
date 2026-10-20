@@ -60,3 +60,7 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 ## 配置依据
 
 2026-10-16 轻量核对了官方 [checkout v6](https://github.com/actions/checkout/tree/v6)、[setup-node v6](https://github.com/actions/setup-node/tree/v6) 和 [并发控制说明](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。本快照使用官方 v6 标签；未冒充已固定不可变提交 SHA。后续可在云端核验官方标签对应的提交后固定 SHA。工作流写入不等于已运行成功。
+
+## PM-0008 分组补证
+
+`browser=acceptance-a` 在同一固定镜像中串行运行真实隔离profile的登录/身份/会话补证，脚本为`local-app/tests/acceptance-a-browser.mjs`。不扩展原12段脚本，不在本机下载或运行浏览器。每组300秒上限，共享仓库并发限制和10分钟作业上限；最终字段受限Checks汇总与`acceptance-a-browser.json`提供独立证据。最新被测SHA、运行与其他组状态见`DEV_REPORT_003.md`。
