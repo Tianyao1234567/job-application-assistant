@@ -207,6 +207,7 @@ test('test hooks require explicit mode and key; foreign origins and malicious ho
   assert.equal(foreignHostStatus,403);
   const headers=await fetch(fixture.url+'/site/beta/jobs');
   assert.equal(headers.headers.get('access-control-allow-origin'),null);
+  assert.equal(headers.headers.get('referrer-policy'),'same-origin','native same-origin form posts must retain their own Origin; cross-origin referrers remain suppressed');
   assert.match(headers.headers.get('content-security-policy'),/frame-ancestors 'none'/);
   const production=await setup(t,{testMode:false});
   assert.equal((await testApi(production,'state')).status,404);

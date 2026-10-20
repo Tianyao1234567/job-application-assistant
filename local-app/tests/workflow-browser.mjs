@@ -87,7 +87,7 @@ async function start() {
     if(!/^\/site\/(alpha|beta)\/(jobs|apply|login|receipt|session)(?:\/[\w-]+)?$/.test(parsed.pathname))return;
     response.once('finish',()=>{
       if(response.statusCode>=400 && fixtureEvents.length<12)fixtureEvents.push({method:request.method,path:parsed.pathname,status:response.statusCode,
-        origin:!request.headers.origin?'none':request.headers.origin===FIXTURE?'fixture':/^chrome-extension:\/\/[a-p]{32}$/.test(request.headers.origin)?'extension':'other',
+        origin:request.headers.origin==='null'?'null':!request.headers.origin?'none':request.headers.origin===FIXTURE?'fixture':/^chrome-extension:\/\/[a-p]{32}$/.test(request.headers.origin)?'extension':'other',
         site:request.headers['sec-fetch-site']||'absent',mode:request.headers['sec-fetch-mode']||'absent',destination:request.headers['sec-fetch-dest']||'absent'});
     });
   });

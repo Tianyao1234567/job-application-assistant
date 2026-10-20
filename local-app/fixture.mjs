@@ -155,7 +155,7 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
   let actualPort=port;
   const origin=()=>`http://127.0.0.1:${actualPort}`;
   function send(response,status,body,type='text/html; charset=utf-8',headers={}) {
-    response.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers});
+    response.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers});
     response.end(body);
   }
   const json=(response,status,value)=>send(response,status,JSON.stringify(value),'application/json; charset=utf-8');
@@ -177,7 +177,7 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
   function validOrigin(request,pathname) {
     if(request.headers.host!==`127.0.0.1:${actualPort}`)throw new RequestError(403,'Host 不属于本地招聘测试站。');
     if(request.headers.origin && request.headers.origin!==origin())throw new RequestError(403,'请求来源不属于本地招聘测试站。');
-    // Extension tabs.open/update can produce cross-site top-level navigation
+    // Extension tabs.create/update can produce cross-site top-level navigation
     // metadata without an Origin header. Permit only ordinary fixture pages;
     // session JSON, test hooks, subresources and every mutation stay protected.
     const pageNavigation=request.method==='GET' && request.headers.origin===undefined &&
