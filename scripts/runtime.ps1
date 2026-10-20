@@ -12,9 +12,15 @@ $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $runtimeRoot 'browsers'
 $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
 if (-not $nodeCommand) { throw 'NODE_REQUIRED: 需要 Node.js 24。请先安装 Node.js 24；项目不会修改全局环境。' }
 $nodeExecutable = $nodeCommand.Source
-$nodeVersionOutput = & $nodeExecutable -p 'process.versions.node.split(".")[0]'
+# Native argument quoting differs in Windows PowerShell 5.1. Read the real
+# executable version directly rather than sending JavaScript containing quotes.
+$nodeVersionOutput = & $nodeExecutable --version
+$nodeVersionText = [string]($nodeVersionOutput | Select-Object -First 1)
 $nodeMajor = 0
-if ($LASTEXITCODE -ne 0 -or -not [int]::TryParse(($nodeVersionOutput | Select-Object -First 1), [ref]$nodeMajor) -or $nodeMajor -lt 24) {
+if ($LASTEXITCODE -ne 0 -or $nodeVersionText -notmatch '^v([0-9]+)\.[0-9]+\.[0-9]+(?:[-+].*)?$') {
+    throw 'NODE_VERSION: 需要 Node.js 24 或更新版本；候选包以 Node.js 24 验证。'
+}
+if (-not [int]::TryParse($Matches[1], [ref]$nodeMajor) -or $nodeMajor -lt 24) {
     throw 'NODE_VERSION: 需要 Node.js 24 或更新版本；候选包以 Node.js 24 验证。'
 }
 
