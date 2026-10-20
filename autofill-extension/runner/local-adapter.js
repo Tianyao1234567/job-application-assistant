@@ -4,6 +4,7 @@
   const fail = (kind,message) => ({ok:false,kind,message});
   function context(expected,requireForm=false) {
     if (location.origin !== 'http://127.0.0.1:17322' || !['alpha','beta'].includes(expected.tenant) || !location.pathname.startsWith('/site/'+expected.tenant+'/')) return fail('structure','招聘页面不属于当前网站范围。');
+    if(document.querySelector('[data-page-status="unavailable"]'))return fail('structure','岗位页面已失效，请人工核对网站后再继续。');
     const marker=document.querySelector('[data-session-status]');
     if (!marker) return fail('manual','未能可靠识别当前登录状态，请人工检查。');
     const status=marker.dataset.sessionStatus, account=marker.dataset.account || '', tenant=marker.dataset.tenant || '';

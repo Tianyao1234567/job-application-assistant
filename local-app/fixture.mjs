@@ -197,7 +197,7 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
     if(!TENANTS.has(body.tenant))throw new RequestError(400,'tenant 无效。');
     if(pathname==='/__test/scenario') {
       if(!JOBS[body.tenant].some(job=>job.id===body.jobId))throw new RequestError(400,'岗位无效。');
-      const allowed=['tenant','jobId','loseReceipt','hideReceipt','expireSessionOnSubmit','structureChange'];
+      const allowed=['tenant','jobId','loseReceipt','hideReceipt','expireSessionOnSubmit','structureChange','unavailable'];
       if(Object.keys(body).some(key=>!allowed.includes(key)) || Object.entries(body).some(([key,value])=>!['tenant','jobId'].includes(key) && typeof value!=='boolean'))throw new RequestError(400,'测试场景无效。');
       scenarios.set(body.tenant+':'+body.jobId,{...scenarios.get(body.tenant+':'+body.jobId),...body});
       return json(response,200,{ok:true});
@@ -232,6 +232,10 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
       const session=getSession(request,response,tenant);
       if(route==='session' && request.method==='GET')return json(response,200,{login:publicLogin(session)});
       const html=(title,content,status=200)=>send(response,status,page(tenant,publicLogin(session),title,content));
+      const scenario=job?scenarios.get(tenant+':'+job.id) || {}:{};
+      // An authenticated test-only scenario renders an actual unavailable page.
+      // Receipt reads and native POST handling retain their existing semantics.
+      if(request.method==='GET' && job && scenario.unavailable && ['jobs','apply'].includes(route))return html('岗位已失效','<p data-page-status="unavailable">岗位已失效，请检查岗位状态后再继续；本页不能自动申请。</p>',410);
       if(route==='login') {
         if(request.method==='POST') {
           if(!contentType(request,'application/x-www-form-urlencoded'))throw new RequestError(415,'登录表单格式无效。');
@@ -247,7 +251,6 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
         return html(job.title,`<p>${escape(job.company)} · ${escape(job.location)}</p><p>此岗位和公司均为虚构。</p><a data-apply-link href="/site/${tenant}/apply/${job.id}">申请这个虚构岗位</a>`);
       }
       if(!['apply','receipt'].includes(route))throw new RequestError(405,'请求方法不支持。');
-      const scenario=scenarios.get(tenant+':'+job.id) || {};
       const currentReceipt=()=>state.receipts[keyFor(tenant,job.id,session.account)];
       if(route==='apply' && request.method==='POST') {
         // Count actual incoming POSTs independently from the unique accepted record.

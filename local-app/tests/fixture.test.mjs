@@ -312,3 +312,44 @@ test('reported tenant controls require authenticated test mode and reject invali
   const production=await setup(t,{testMode:false});
   assert.equal((await testApi(production,'session',body)).status,404);
 });
+
+
+test('authenticated unavailable scenario returns real 410 detail/application pages without a form or application records',async t=>{
+  const fixture=await setup(t),{cookie}=await session(fixture,'beta');
+  const configured=await testApi(fixture,'scenario',{tenant:'beta',jobId:'web-001',unavailable:true});
+  assert.equal(configured.status,200);
+  for(const route of ['jobs','apply']){
+    const response=await fetch(fixture.url+`/site/beta/${route}/web-001`,{headers:{Cookie:cookie}});
+    assert.equal(response.status,410,route);
+    const html=await response.text();
+    assert.match(html,/data-page-status="unavailable"/);
+    assert.match(html,/岗位已失效/);
+    assert.match(html,/data-session-status="ready" data-account="demo" data-tenant="beta"/);
+    assert.doesNotMatch(html,/data-application-form|data-submit-application/);
+    assert.equal(response.headers.get('access-control-allow-origin'),null);
+    assert.match(response.headers.get('content-security-policy'),/frame-ancestors 'none'/);
+  }
+  assert.equal((await fetch(fixture.url+'/site/beta/jobs/design-001',{headers:{Cookie:cookie}})).status,200,'other jobs remain available');
+  assert.equal((await fetch(fixture.url+'/site/beta/receipt/web-001',{headers:{Cookie:cookie}})).status,200,'read-only receipt route is not made unavailable');
+  assert.deepEqual((await (await fetch(fixture.url+'/site/beta/session',{headers:{Cookie:cookie}})).json()).login,{status:'ready',account:'demo',tenant:'beta'});
+  const state=(await testApi(fixture,'state')).body;
+  assert.equal(state.submitRequests.length,0);assert.equal(state.receipts.length,0);
+  assert.equal((await testApi(fixture,'scenario',{tenant:'beta',jobId:'web-001',unavailable:false})).status,200);
+  assert.equal((await fetch(fixture.url+'/site/beta/apply/web-001',{headers:{Cookie:cookie}})).status,200);
+});
+test('unavailable control requires authenticated test mode and keeps Host/Origin guards',async t=>{
+  const fixture=await setup(t),{cookie}=await session(fixture,'beta');
+  const body={tenant:'beta',jobId:'web-001',unavailable:true};
+  const before=(await testApi(fixture,'state')).body;
+  assert.equal((await testApi(fixture,'scenario',body,'wrong')).status,403);
+  for(const unavailable of ['true',1,{},null])assert.equal((await testApi(fixture,'scenario',{...body,unavailable})).status,400);
+  assert.deepEqual((await testApi(fixture,'state')).body,before);
+  assert.equal((await testApi(fixture,'scenario',body)).status,200);
+  assert.equal((await fetch(fixture.url+'/site/beta/apply/web-001',{headers:{Cookie:cookie,Origin:'https://untrusted.example'}})).status,403);
+  assert.equal((await metadataRequest(fixture,'/site/beta/apply/web-001',{headers:{Cookie:cookie,Host:'untrusted.example'}})).status,403);
+  assert.deepEqual((await testApi(fixture,'state')).body,before,'rejected page requests do not create sessions or applications');
+  const production=await setup(t,{testMode:false});
+  assert.equal((await testApi(production,'scenario',body)).status,404);
+  const normal=await fetch(production.url+'/site/beta/apply/web-001?unavailable=true');
+  assert.equal(normal.status,200);assert.doesNotMatch(await normal.text(),/data-page-status="unavailable"/);
+});

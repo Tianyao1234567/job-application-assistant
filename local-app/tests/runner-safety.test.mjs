@@ -46,7 +46,7 @@ function harness(options={}){
     location:{origin:'http://127.0.0.1:17322',pathname:'/site/beta/apply/web-001'},
     HTMLInputElement:Input,HTMLTextAreaElement:Input,HTMLSelectElement:Input,
     crypto:{randomUUID:()=>webcrypto.randomUUID(),subtle:{async digest(...args){if(options.hashGate)await options.hashGate.wait();return webcrypto.subtle.digest(...args);}}},
-    document:{getElementById:()=>null,querySelector(selector){if(selector==='[data-session-status]')return marker;if(selector==='[data-application-form]')return form;if(selector==='[data-receipt-id]')return h.receipt?receipt:null;return null;}},
+    document:{getElementById:()=>null,querySelector(selector){if(selector==='[data-page-status="unavailable"]')return options.unavailable?{dataset:{pageStatus:'unavailable'}}:null;if(selector==='[data-session-status]')return marker;if(selector==='[data-application-form]')return form;if(selector==='[data-receipt-id]')return h.receipt?receipt:null;return null;}},
     getComputedStyle:()=>({display:'block'}),
     async fetch(){if(options.sessionGate)await options.sessionGate.wait();return {ok:true,json:async()=>({login:{status:'ready',tenant:'beta',account:'demo'}})};},
     JobFill:{nodes:new Map([['name',{node:h.field}],['answer',{node:h.answer}]]),undoBatches:[],editable:node=>node?.isConnected===true,
@@ -168,4 +168,15 @@ test('native navigation may lose the commit result; a separate read still verifi
 test('a missing commit result and missing receipt stay unknown without a second click',async()=>{
   const h=harness({loseCommitResult:true,loseReceipt:true});assert.equal((await h.run('submit')).kind,'unknown');
   assert.equal(h.clicks,1);assert.equal((await h.run('submit')).kind,'unknown');assert.equal(h.clicks,1);
+});
+
+test('fixed unavailable-page marker stops inspection and never authorizes a mutation',async()=>{
+  const h=harness({unavailable:true});const result=await h.run('inspect');
+  assert.equal(result.ok,false);assert.equal(result.kind,'structure');assert.match(result.message,/已失效/);
+  assert.equal(h.writes,0);assert.equal(h.uploads,0);assert.equal(h.clicks,0);
+});
+
+test('a question text change after authorization prevents reuse of the confirmed old answer',async()=>{
+  const h=harness();h.afterAuthorize=()=>{h.answer.dataset.questionText='Changed fictional ordinary question';};
+  const result=await h.run('answer');assert.equal(result.kind,'structure');assert.equal(h.writes,0);assert.equal(h.clicks,0);
 });
