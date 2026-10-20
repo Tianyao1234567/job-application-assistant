@@ -20,7 +20,9 @@
 
 在 Issue 追加接手消息，明确接续版本、正在实施的缺项、真实阻碍和下一步责任人，然后继续。环境发布、自动测试和开发执行分别报告。若当前仍是本机聊天，只做交接与必要轻量核对，不恢复本机依赖安装、浏览器下载和整套测试；应从已发布Cloud环境启动开发任务。
 
-## 3. 当前做到了哪里
+## 3. 初始交接快照（历史，接续最新实现）
+
+本节记录2026-10-16初始交接的历史状态，不是当前缺项。服务、fixture和界面交互现已实现，虚构站点12段流程已由[PM-0008](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6285637106)阶段验收。当前实现与未覆盖分支以 `DEVELOPMENT_SNAPSHOT.md`、`DEV_REPORT_002.md` 和最新Issue为准，禁止因本节旧清单从main重做。
 
 原通用填表引擎保留在 autofill-extension/：资料schema校验、中英文扁平化、扫描匹配、敏感字段保护、已有值保护、结构复查、原生控件填写与撤销。
 
@@ -31,13 +33,15 @@ v0.2.0 已保存但未联调的部分：
 - local-app/public/index.html、style.css：静态初稿。
 - scripts/ 和根CMD：未来Windows使用入口，尚未验证。
 
-明确缺失：**local-app/server.mjs、local-app/fixture.mjs、local-app/public/app.js**。目前不能启动完整产品。接口约定是开发契约，不是已实现/已验收事实。新模型、桥接和适配器存在未经验证的边界，必须检查并修复，不能只补三个空文件就报完成。
+当时明确缺失（现已补齐）：**local-app/server.mjs、local-app/fixture.mjs、local-app/public/app.js**。目前不能启动完整产品。接口约定是开发契约，不是已实现/已验收事实。新模型、桥接和适配器存在未经验证的边界，必须检查并修复，不能只补三个空文件就报完成。
 
 没有真实招聘站已支持或真实申请成功的证据。真实资料和真实筛选条件不作为搭建本地框架的前置要求。
 
-## 4. 已有真实测试及其边界
+## 4. 初始迁移检查（历史基线）与最新证据入口
 
-[迁移PR托管检查](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38851247882)在 GitHub 托管 Ubuntu 24.04.5 / Node 24.21.0 实际成功：31个源码/JSON检查，20项现有单元通过、0失败。浏览器依赖安装、下载和浏览器测试均跳过。这不能证明服务可启动、扩展实际配对、附件被接收或完整申请通过。
+最新虚构站点实际通过运行：[39373798995](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39373798995)，被测9cfe168；138项基础测试、12段真实扩展通过，PM-0008仅阶段验收。新增A/B/C证据另按组交付，不以迁移基线代替当前结果。
+
+以下[迁移PR托管检查](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/38851247882)在 GitHub 托管 Ubuntu 24.04.5 / Node 24.21.0 实际成功：31个源码/JSON检查，20项现有单元通过、0失败。浏览器依赖安装、下载和浏览器测试均跳过。这不能证明服务可启动、扩展实际配对、附件被接收或完整申请通过。
 
 初始导入61个源码/必要文档加1份清单，远端逐项核对无额外/缺失；后来只补报告文档。UPLOAD_MANIFEST.json记录的是初始导入快照，后续变化看Git记录。
 

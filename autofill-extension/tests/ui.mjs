@@ -7,9 +7,9 @@ import {browserOptions,resultsRoot} from './runtime.mjs';
 import {chromium} from 'playwright';
 import {startServer} from './server.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
-const {server,url}=await startServer();let browser;const data={},results=[],sent=[];
+const {server,url}=await startServer();let browser,browserVersion=null;const data={},results=[],sent=[];
 try{
-  browser=await chromium.launch(browserOptions());
+  browser=await chromium.launch(browserOptions());browserVersion=browser.version();
   const context=await browser.newContext({viewport:{width:1600,height:1100}}),fixture=await context.newPage();await fixture.goto(url+'/fixtures/generic.html');
   const errors=[];context.on('page',page=>page.on('pageerror',error=>errors.push(error.message)));
   await context.exposeBinding('__get',(_,keys)=>Object.fromEntries((Array.isArray(keys)?keys:[keys]).map(key=>[key,data[key]])));
@@ -51,4 +51,4 @@ try{
   assert.deepEqual(errors,[]);results.push({name:'保存映射复扫不自动确认；页面无脚本错误（Chrome API模拟）',status:'PASS'});
   console.log(JSON.stringify(results,null,2));
 }catch(error){results.push({status:'FAIL',error:error.message});throw error;}
-finally{await browser?.close();server.close();await fs.writeFile(path.join(resultsRoot,'legacy-ui.json'),JSON.stringify({environment:'Actual Chromium DOM and extension page JavaScript; Chrome extension APIs mocked',results},null,2));}
+finally{await browser?.close();server.close();await fs.writeFile(path.join(resultsRoot,'legacy-ui.json'),JSON.stringify({environment:{platform:process.platform,arch:process.arch,node:process.version,browserVersion},scope:'Actual Chromium DOM and extension page JavaScript; Chrome extension APIs mocked',results},null,2));}

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "求职填表助手 · 本地版",
   "version": "0.2.0",
-  "minimum_chrome_version": "109",
+  "minimum_chrome_version": "116",
   "description": "本机求职管理后台的可见执行端；本地演示站发现、填表、附件与可靠回执。真实站点待适配。",
   "permissions": ["activeTab", "scripting", "storage", "alarms"],
   "host_permissions": ["http://127.0.0.1/*"],
@@ -10,5 +10,5 @@
   "background": {"service_worker": "background.js", "type": "module"},
   "action": {"default_popup": "popup/index.html", "default_title": "求职填表助手"},
   "options_page": "options/index.html",
-  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321"}
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321 http://127.0.0.1:17322"}
 }

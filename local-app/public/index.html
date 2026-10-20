@@ -25,12 +25,13 @@
       <div class="sidebar-bottom"><div class="privacy-icon">⌂</div><strong>资料留在这台电脑</strong><p>本地保存。仅在申请时向目标网站发送必要资料。</p><span class="version-label">v0.2.0 · 单人本地版</span></div>
     </aside>
     <div class="main-shell">
-      <header class="topbar"><div class="breadcrumb">我的工作空间 <span>/</span> <strong id="breadcrumb-current">总览</strong></div><div class="topbar-right"><span id="mode-badge" class="badge neutral">尚未配置</span><span class="topbar-divider"></span><span id="connection-status" class="connection"><span class="status-dot"></span>正在连接后台</span><button id="connect-button" class="button small">连接插件</button></div></header>
+      <header class="topbar"><div class="breadcrumb">我的工作空间 <span>/</span> <strong id="breadcrumb-current">总览</strong></div><div class="topbar-right"><span id="mode-badge" class="badge neutral">尚未配置</span><span class="topbar-divider"></span><span id="connection-status" class="connection"><span class="status-dot"></span>正在连接后台</span><button id="connect-button" class="button small">连接插件</button><button id="health-button" class="button small" data-health>一键自检</button></div></header>
       <main id="main" tabindex="-1"><div class="page-heading"><div><div id="page-eyebrow" class="eyebrow">YOUR NEXT OPPORTUNITY</div><h1 id="page-title">把精力留给下一次机会</h1><p id="page-subtitle">查看投递进度，处理需要你参与的环节。</p></div><div id="page-actions" class="page-actions"></div></div><div id="offline-banner" class="banner danger" hidden></div><div id="view-content" aria-live="polite"><div class="empty-state"><span class="empty-symbol">◌</span><h2>正在读取本地工作台</h2><p>从这台电脑载入任务、资料和计划。</p></div></div></main>
       <footer class="footer"><span><span class="tiny-dot"></span> 本地管理后台 · 127.0.0.1</span><span id="last-refresh">等待同步</span></footer>
     </div>
   </div>
   <dialog id="task-dialog" class="detail-dialog" aria-labelledby="task-dialog-title"><div id="task-dialog-content"></div></dialog>
+  <dialog id="health-dialog" class="detail-dialog" aria-labelledby="health-dialog-title"><div id="health-dialog-content"></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>

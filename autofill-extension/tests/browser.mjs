@@ -10,14 +10,14 @@ import {matchFields} from '../shared/match.js';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const profile=JSON.parse(await fs.readFile(path.join(root,'profile.example.json'),'utf8'));
 const entries=flattenProfile(profile),results=[];
-const {server,url}=await startServer();let browser;
+const {server,url}=await startServer();let browser,browserVersion=null;
 async function check(name,fn){await fn();results.push({name,status:'PASS'});console.log('PASS '+name);}
 async function inject(page){for(const file of ['guard.js','scan.js','fill.js']) await page.addScriptTag({path:path.join(root,'content',file)});}
 async function scan(page){return await page.evaluate(()=>JobFill.scan());}
 async function fill(page,s,values){return await page.evaluate(payload=>JobFill.apply(payload),{site:s.site,layout:s.layout,approvals:values});}
 function approvals(s,ids){return matchFields(s,entries).filter(m=>ids ? ids.includes(JSON.parse(m.field.signature.slice(0,m.field.signature.lastIndexOf(':')))[4]) : m.key && !m.field.blocked).map(m=>({token:m.field.token,signature:m.field.signature,value:entries.find(entry=>entry.key===m.key)?.value || 'TEST',overwrite:false}));}
 try{
-  browser=await chromium.launch(browserOptions());const page=await browser.newPage();await page.goto(url+'/fixtures/generic.html');await inject(page);
+  browser=await chromium.launch(browserOptions());browserVersion=browser.version();const page=await browser.newPage();await page.goto(url+'/fixtures/generic.html');await inject(page);
   const requests=[];page.on('request',request=>requests.push(request.url()));
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await check('真实 DOM 中不返回登录/密码/验证码内容，忽略隐藏与不可编辑字段',async()=>{
@@ -67,4 +67,4 @@ try{
     const s=await scan(page);await fill(page,s,[]);await page.evaluate(()=>JobFill.undo());assert.deepEqual(requests,[]);assert.deepEqual(errors,[]);
   });
 }catch(error){results.push({status:'FAIL',error:error.message});throw error;}
-finally{await browser?.close();server.close();await fs.writeFile(path.join(resultsRoot,'legacy-browser.json'),JSON.stringify({environment:'Playwright Windows Chromium; actual DOM with content scripts injected; not production extension acceptance',results},null,2));}
+finally{await browser?.close();server.close();await fs.writeFile(path.join(resultsRoot,'legacy-browser.json'),JSON.stringify({environment:{platform:process.platform,arch:process.arch,node:process.version,browserVersion},scope:'Actual DOM with content scripts injected; not production extension acceptance',results},null,2));}

@@ -4,6 +4,12 @@ const BASE='http://127.0.0.1:17321', FIXTURE='http://127.0.0.1:17322';
 const status=document.getElementById('status');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let bridge,clientId=crypto.randomUUID(),busy=false,stopped=false;
+let runnerTabId=null,loopStarted=false,heartbeatTimer;
+chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  if(message?.type==='local-runner-probe' && sender.id===chrome.runtime.id && message.tabId===runnerTabId){
+    respond({tabId:runnerTabId,running:loopStarted&&!stopped});
+  }
+});
 const fail=(kind,message)=>({ok:false,kind,message});
 class Stop extends Error {constructor(kind,message){super(message);this.kind=kind;}}
 async function api(route,body) {
@@ -70,10 +76,21 @@ async function read(tab,expect,op='inspect') {
   return {...results[0]?.result,tabId:tab.id,url:safeUrl(current.url,expect)};
 }
 async function mutate(command,tab,expect,method,...args) {
-  // Each field/file/answer/click gets an independent server check. Never carry a batch authorization.
+  // Session requests and hashing must finish BEFORE authorization. commit has no await
+  // before its one DOM write and rechecks the live form and original value synchronously.
   await inject(tab,expect);
+  const prepared=await prepareMutation(tab,expect,method,args);
+  if(!prepared.ok || !prepared.token)return prepared;
   await authorize(command);
-  const results=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(method,context,args)=>JobLocal[method](context,...args),args:[method,expect,args]});
+  return commitMutation(tab,expect,prepared.token);
+}
+async function prepareMutation(tab,expect,method,args) {
+  const results=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(method,context,args)=>JobLocal.prepare(method,context,args),args:[method,expect,args]});
+  return results[0]?.result || fail('failure','页面预检没有返回结果。');
+}
+async function commitMutation(tab,expect,token) {
+  // Only an opaque one-use token crosses worlds; no key is exposed to the page.
+  const results=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(context,token)=>JobLocal.commit(context,token),args:[expect,token]});
   return results[0]?.result || fail('failure','执行端没有返回页面处理结果。');
 }
 function fieldEntries(entries) {
@@ -126,6 +143,20 @@ async function execute(command) {
     return read(tab,expect,'verify');
   }
   if(command.op==='inspect'){
+    // Recovery must not navigate away from a live form and erase manual edits/files.
+    // Check existing receipts in a separate visible GET-only tab, then retain the form.
+    if(tab && tab.url && new URL(tab.url).origin===FIXTURE && new URL(tab.url).pathname==='/site/'+expect.tenant+'/apply/'+expect.jobId){
+      safeUrl(tab.url,expect,'apply');
+      await authorize(command);
+      const verificationTab=await chrome.tabs.create({url:safeUrl(at('receipt/'+expect.jobId),expect,'receipt'),active:true});
+      let verified;
+      try{
+        await waitTab(verificationTab.id);
+        verified=await read(verificationTab,expect,'verify');
+      }finally{await chrome.tabs.remove(verificationTab.id).catch(()=>{});}
+      if(!verified.ok || verified.receipt)return {...verified,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
+      return read(tab,expect);
+    }
     // GET-only receipt check comes before any application editing, including recovery after login.
     tab=await navigate(command,expect,at('receipt/'+expect.jobId),'receipt',tab);
     const verified=await read(tab,expect,'verify');
@@ -157,6 +188,11 @@ async function execute(command) {
     if(typeof payload.answer!=='string' || !payload.answer.trim() || payload.answer.length>10000)throw new Stop('manual','请补充经确认的普通问题答案。');
     return {...await mutate(command,tab,expect,'answer',payload),tabId:tab.id,url:tab.url};
   }
+  if(command.op==='preflight'){
+    await inject(tab,expect);
+    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
+    return prepared.ok?{ok:true,tabId:tab.id,url:tab.url}:prepared;
+  }
   if(command.op==='submit'){
     const {localSubmissionAttempts={}}=await chrome.storage.local.get('localSubmissionAttempts');
     const dedupe=expect.tenant+':'+expect.jobId+':'+expect.expectedAccount;
@@ -165,16 +201,19 @@ async function execute(command) {
     if(!checked.ok || checked.receipt)return checked;
     if(checked.layout!==payload.layout)return fail('structure','提交前表单结构发生变化。');
     await inject(tab,expect);
-    await authorize(command);
+    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
+    if(!prepared.ok || !prepared.token)return prepared;
     // Persist before the single click. A lost response or renderer crash can only lead to verification.
     localSubmissionAttempts[dedupe]={commandId:command.id,taskId:command.task.id,at:Date.now()};
     await chrome.storage.local.set({localSubmissionAttempts});
+    // Include storage latency in the preflight window: authorize only after it completes.
+    try{await authorize(command);}catch(error){
+      return {...fail(error.kind || 'paused',error.message),attempted:false,tabId:tab.id,url:tab.url};
+    }
     let clicked;
     try{
-      const results=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(context,layout)=>JobLocal.submit(context,layout),args:[expect,payload.layout]});
-      clicked=results[0]?.result;
-      if(clicked && clicked.kind!=='unknown' && clicked.attempted===false){delete localSubmissionAttempts[dedupe];await chrome.storage.local.set({localSubmissionAttempts});}
-      if(clicked?.ok || (clicked && clicked.kind!=='unknown'))return {...clicked,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
+      clicked=await commitMutation(tab,expect,prepared.token);
+      if(clicked?.ok || clicked?.attempted===false)return {...clicked,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
     }catch{}
     // A normal form navigation destroys the injected world. Only read the resulting browser page.
     for(let i=0;i<10;i++){
@@ -208,12 +247,13 @@ async function tick() {
   }catch{status.textContent='本地服务已断开；停止新动作，正在等待重连。';}finally{busy=false;}
 }
 async function start() {
-  const current=await chrome.tabs.getCurrent();
+  const current=await chrome.tabs.getCurrent();runnerTabId=current.id;
   const registered=await chrome.runtime.sendMessage({type:'local-runner-register',tabId:current.id});
-  if(!registered?.ok){stopped=true;status.textContent='已有一个执行端运行，此页不会重复处理任务。';return;}
+  if(!registered?.ok){stopped=true;status.textContent=registered?.reason==='runner-conflict'?'已有一个执行端运行，此页不会重复处理任务。':'执行端注册失败（'+(registered?.reason || 'no-response')+'），请从后台重新连接。';return;}
   const {localBridge}=await chrome.storage.local.get('localBridge');bridge=localBridge;
+  loopStarted=true;
   // Heartbeats keep the connection visible while a real page action is still running.
-  setInterval(()=>{if(bridge?.key&&!stopped)api('heartbeat',identity()).catch(()=>{});},4000);
+  heartbeatTimer=setInterval(()=>{if(bridge?.key&&!stopped)api('heartbeat',identity()).catch(()=>{});},4000);
   while(!stopped){await tick();await delay(500);}
 }
-start().catch(()=>{status.textContent='执行端未能启动，请从后台重新连接插件。';});
+start().catch(()=>{stopped=true;loopStarted=false;clearInterval(heartbeatTimer);status.textContent='执行端未能启动，请从后台重新连接插件。';});
