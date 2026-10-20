@@ -1,11 +1,13 @@
 # 云端开发完整交接
 
-更新时间：2026-10-16。接续本项目已有实现，直接开发，不停在已读或方案阶段。用户已找到 Cloud 入口；**仅找到入口不证明环境已经发布或任务已执行**。当前实际状态以协作 Issue 的最新有效消息为准。
+当前接续更新：2026-10-21（北京时间）。PM-0009已验收云端虚构站16项最低闭环，基线为`b6cfdee0bbded79010bb97866fd1ad538275270f`（PR #4仍draft、未合并）。下一阶段在独立`dev/pm9-demo-windows-readiness` / PR #5交付，实际演示、候选包、Windows后台9项验证和真实站只读准备见DEV_REPORT_004。接续当前分支及Issue最新有效消息，不从旧main重做，不重复已关闭缺口。
+
+下文保留2026-10-16迁移要求与需求历史；旧环境/旧基线描述不覆盖上面的实际接续状态。源码、托管运行、产品分层验收和GitHub合并仍分别报告。
 
 ## 1. 唯一项目与协作入口
 
 - 仓库：https://github.com/Tianyao1234567/job-application-assistant ，用户允许 Public。
-- 默认分支：main。迁移基线合并提交：e9048ab02c96cfaed9e475e7c510dd171aeb3cdf；初始源码导入：fc3134300a5617eb0d4185076e25a6e53bd1038e。启动时读取最新main，不把这里的旧SHA当作必须回退的版本。
+- 默认分支：main；这是迁移历史，不是本轮开发起点。迁移基线合并提交：e9048ab02c96cfaed9e475e7c510dd171aeb3cdf；初始源码导入：fc3134300a5617eb0d4185076e25a6e53bd1038e。实际接续上面已验收head派生的当前分支，不回退旧main或这些旧SHA。
 - 常驻协作 Issue：https://github.com/Tianyao1234567/job-application-assistant/issues/1 。
 - 迁移PR：https://github.com/Tianyao1234567/job-application-assistant/pull/2 ，已合入。
 - 产品经理负责需求、交付检查与验收；你是开发负责人。读取最新 PM/DEV 消息，按最高 DEV 编号的下一个编号回复，不冒充经理或宣称已验收。开工、阶段切换、结束前重读 Issue。
