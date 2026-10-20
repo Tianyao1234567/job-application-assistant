@@ -1,6 +1,6 @@
 # v0.2.0 开发中快照
 
-状态：沿用 `dev/local-workflow-foundation` 和 WIP PR #4，待产品经理验收。开发、安装和自动测试在 Cloud 或 GitHub 托管 runner 执行，不使用用户电脑代跑。
+状态：PM-0009已验收`dev/local-workflow-foundation` / PR #4的云端虚构站最低闭环，交付head为`b6cfdee0bbded79010bb97866fd1ad538275270f`；PR #4仍draft、未合并。下一阶段从该head建立独立`dev/pm9-demo-windows-readiness`分支，准备演示、Windows候选与真实站只读方案。开发、安装和自动测试在Cloud或GitHub托管runner执行，不使用用户电脑代跑。
 
 本地 HTTP 后台、虚构招聘测试站和管理界面已实现。后台与测试站仅监听 loopback；管理台显示实际 API、扩展连接和任务状态。Manifest V3 扩展执行岗位发现、通用保护填写、多段经历、真实附件上传、缺答暂停与恢复、网站登录准备及结果核对。Windows 启停入口保留，尚未实际验收。
 
@@ -12,4 +12,4 @@ PM-0008后续A→B→C新增实际补证分别6/6、8/8、4/4通过，见`DEV_RE
 
 最新实际被测代码`3cb6de36da6cc597ecd69040e704ebc1cad5278a`：C组运行39389113681真实4/4；同SHA原12段必要回归39389485864真实12/12，3次HTTP申请/3份接收/3份回执，两项安全场景各0 POST、5个提交边界保留。两次均workflow_dispatch，157项基础测试通过；47源码/JSON检查另计。
 
-以上是开发分组交付，完整产品及16项仍待产品经理复核，PR #4保持draft/WIP。真实招聘网站、个人账号、真实申请和Windows生产浏览器仍未验证，未让用户电脑代跑。最新报告提交与实际被测代码提交分别列出，不以文档head代称另一SHA已通过浏览器。
+以上A/B/C及16项分层证据已由[PM-0009](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6291239731)接受，验收范围是云端虚构站。真实招聘网站、个人账号、真实申请和Windows可见浏览器仍未验证。下一阶段实际演示/候选包/Windows服务入口证据与最小配合清单见独立分支的DEV_REPORT_004；源码包校验、服务启停和可见浏览器安装分别报告，不以文档head代称另一SHA已通过浏览器。

@@ -1,23 +1,18 @@
-. (Join-Path $PSScriptRoot 'runtime.ps1')
-# Only processes positively matched to this project's entry files may be stopped.
+﻿. (Join-Path $PSScriptRoot 'runtime.ps1')
+# Never stop a PID unless its current executable and exact entry belong to this copy.
 foreach ($name in @('browser','server')) {
     $pidFile = Join-Path $runtimeRoot ($name + '.pid')
-    if (-not (Test-Path -LiteralPath $pidFile)) { continue }
-    $projectProcessId = [int](Get-Content -LiteralPath $pidFile -Raw)
-    $process = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $projectProcessId) -ErrorAction SilentlyContinue
-    $entryPath = if ($name -eq 'browser') { Join-Path $taskRoot 'scripts\browser.mjs' } else { Join-Path $taskRoot 'local-app\server.mjs' }
-    if ($process -and $process.CommandLine -and $process.CommandLine.Contains($entryPath)) {
-        if ($name -eq 'browser') {
-            # A stop signal lets Playwright close Chromium and flush the persistent profile.
-            [IO.File]::WriteAllText((Join-Path $runtimeRoot 'browser.stop'), 'stop')
-            for ($attempt = 0; $attempt -lt 50; $attempt++) {
-                if (-not (Get-Process -Id $projectProcessId -ErrorAction SilentlyContinue)) { break }
-                Start-Sleep -Milliseconds 200
-            }
-        } else {
-            Stop-Process -Id $projectProcessId -ErrorAction SilentlyContinue
+    $owned = Get-ProjectProcess $name
+    if ($owned) {
+        [IO.File]::WriteAllText((Join-Path $runtimeRoot ($name + '.stop')), 'stop')
+        for ($attempt = 0; $attempt -lt 80; $attempt++) {
+            if (-not (Get-ProjectProcess $name)) { break }
+            Start-Sleep -Milliseconds 150
         }
+        if (Get-ProjectProcess $name) { throw ('STOP_TIMEOUT: ' + $name + ' 尚未正常关闭，保留PID和数据供检查；未强制结束其他程序。') }
+    } elseif (Test-Path -LiteralPath $pidFile) {
+        Write-Host ('STALE_PID: ' + $name + ' PID不属于本项目，未停止该程序。')
     }
-    Remove-Item -LiteralPath $pidFile -Force
+    if (Test-Path -LiteralPath $pidFile) { Remove-Item -LiteralPath $pidFile -Force }
 }
-Write-Host '本项目辅助进程已停止，登录配置和任务数据保留在 .runtime。'
+Write-Host 'PROJECT_STOPPED: 本项目辅助进程已停止，任务数据与登录配置保留在 .runtime；没有删除数据。'

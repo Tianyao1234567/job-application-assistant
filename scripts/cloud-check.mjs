@@ -48,6 +48,6 @@ if(process.argv[2]==='container-browser'){
       checked++;
     }
   }
-  for(const directory of ['autofill-extension','local-app','scripts']) await inspect(path.join(root,directory));
+  for(const directory of ['autofill-extension','local-app','scripts','runtime-deps']) await inspect(path.join(root,directory));
   console.log('Syntax/JSON files checked: '+checked+'. No browser or application server started.');
 }

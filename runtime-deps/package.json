@@ -1,0 +1,8 @@
+{
+  "name": "job-application-assistant-runtime",
+  "version": "0.2.0-candidate.1",
+  "private": true,
+  "description": "Only the locked dependency needed by the dedicated visible execution browser.",
+  "engines": {"node": ">=24"},
+  "dependencies": {"playwright": "1.58.2"}
+}

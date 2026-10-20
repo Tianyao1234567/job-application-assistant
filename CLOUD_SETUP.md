@@ -63,8 +63,22 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 
 ## PM-0008 分组补证
 
+本节为PM-0009已接受的云端虚构站基线；不重复扩大同类测试。下一阶段独立分支及演示/候选/Windows/真实站准备见DEV_REPORT_004，PR #4保持未合并状态。
+
 `browser=acceptance-a` 在同一固定镜像中串行运行真实隔离profile的登录/身份/会话补证，脚本为`local-app/tests/acceptance-a-browser.mjs`。不扩展原12段脚本，不在本机下载或运行浏览器。每组300秒上限，共享仓库并发限制和10分钟作业上限；最终字段受限Checks汇总与`acceptance-a-browser.json`提供独立证据。最新被测SHA、运行与其他组状态见`DEV_REPORT_003.md`。
 
 `browser=acceptance-b` 单独运行`local-app/tests/acceptance-b-browser.mjs`的真实保护负例，限制与A组相同。输出只包含固定场景/布尔事实/计数，不包含scan原始数据、答案、凭据或人工原值；独立可控未适配端统计所有请求，原生申请HTTP计数在fixture来源检查之外观察。最终结果保存`acceptance-b-browser.json`并提供Checks汇总。
 
 `browser=acceptance-c` 单独运行`local-app/tests/acceptance-c-browser.mjs`，覆盖进行中后台/申请页刷新、原生提交结果页实际GET刷新、runner/profile/服务重启、整站跳过恢复与其他站继续。保存`acceptance-c-browser.json`。执行结束关闭浏览器/服务后仅删除本次隔离子目录，并验证目录消失；默认不保存截图/录像。公开JSON递归过滤私有字段、编码前擦除已知key/profile身份及注册的虚构凭据/Cookie/完整资料标记，保存后回读检查。公开Checks只给出布尔审计结果和受限事实，不上传原始profile或目录。
+
+## PM-0009 独立交付选择
+
+同一Cloud checks工作流在已验收head派生的独立分支上提供以下显式手动选择，普通push/PR仍只做源码和必要Node检查，默认不截图、录像或调研外网。
+
+- `browser=demo`：固定Linux镜像中实际加载扩展，明确的虚构演示，最多一个浏览器实例；仅成功审查后上传精简PNG、离线index和manifest到独立`fictional-demo-reviewed` artifact，保留3天。默认测试行为不变。
+- `browser=source-package`：从明确Git allowlist构建候选ZIP、SOURCE和校验文件并回读验证，artifact保留7天；不打入运行数据或依赖。
+- `browser=windows-candidate`：构建同SHA候选包，然后在GitHub托管Windows runner通过原生Expand-Archive和逐项摘要验证，再实际执行受控副本中的CMD/PowerShell后台检查，证据保留7天。它不安装或启动可见浏览器。
+- `browser=site-readiness`：托管Linux上受限公开GET调研，带超时、响应大小和并发限制，不登录、不注册、不投递；来源身份、ATS空壳、重定向或失败须另行人工解释，HTTP200不自动算核实。
+- `browser=candidate`：同次有界任务组合上述交付；仅演示子任务会开浏览器。各结果和未执行/skipped作业仍分别报告。
+
+新候选运行依赖单独放`runtime-deps`，只锁定Playwright 1.58.2；源码/JSON检查也覆盖该目录。开发测试仍用完整Git checkout的原依赖。用户当前无需运行本机安装/测试。

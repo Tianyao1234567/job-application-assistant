@@ -165,6 +165,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -199,16 +200,25 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $candidateZip = @(Get-ChildItem -LiteralPath '.runtime/candidate-download' -Filter '*.zip')
+          $candidateZip = @(Get-ChildItem -LiteralPath '.runtime/candidate-download' -Filter '*.zip' -Recurse)
           if ($candidateZip.Count -ne 1) { throw 'Expected exactly one source candidate ZIP.' }
-          node scripts/package-candidate.mjs verify $candidateZip[0].FullName --extract '.runtime/candidate smoke 目录'
+          node scripts/package-candidate.mjs verify $candidateZip[0].FullName --source $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Candidate source verification failed.' }
-          & scripts/test-windows-candidate.ps1 -CandidateRoot (Join-Path $PWD '.runtime/candidate smoke 目录')
+          $extractRoot = Join-Path $PWD '.runtime/delivery/candidate smoke'
+          Expand-Archive -LiteralPath $candidateZip[0].FullName -DestinationPath $extractRoot
+          $candidateRoot = Join-Path $extractRoot 'job-application-assistant'
+          $manifest = Get-Content -LiteralPath (Join-Path $candidateRoot 'SOURCE.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          foreach ($file in $manifest.files) {
+            $actual = (Get-FileHash -LiteralPath (Join-Path $candidateRoot $file.path) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $file.sha256) { throw 'Native Windows extraction differs from the source manifest.' }
+          }
+          Write-Host '::notice title=Windows native ZIP extraction::All manifest files match after PowerShell Expand-Archive; visible browser installation is not tested.'
+          & scripts/test-windows-candidate.ps1 -CandidateRoot $candidateRoot
       - name: Preserve bounded Windows evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6
         with:
           name: windows-candidate-evidence
-          path: .runtime/delivery/windows-candidate.json
+          path: .runtime/tests/evidence/windows-candidate.json
           if-no-files-found: warn
           retention-days: 7

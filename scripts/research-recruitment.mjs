@@ -9,8 +9,8 @@ const directory=path.join(root,'.runtime','research');
 await fs.mkdir(directory,{recursive:true});
 const deadline=Date.now()+150_000;
 const companies=[
-  {id:'mech-mind',name:'美卡曼德',identity:'Candidate domain; verify page identity and official hiring links.',roots:['https://www.mech-mind.com.cn/','https://www.mech-mind.com/'],search:'美卡曼德 招聘 官网',crossReference:'https://github.com/MechMindRobotics'},
-  {id:'standard-robots',name:'斯坦德机器人',identity:'Candidate domain; do not conflate similarly named companies.',roots:['https://www.standard-robots.com/'],search:'斯坦德机器人 招聘 官网'},
+  {id:'mech-mind',name:'美卡曼德',identity:'Candidate domain; verify page identity and official hiring links.',roots:['https://www.mech-mind.com.cn/','https://www.mech-mind.com/'],crossReference:'https://github.com/MechMindRobotics'},
+  {id:'standard-robots',name:'斯坦德机器人',identity:'Candidate domain; do not conflate similarly named companies.',roots:['https://www.standard-robots.com/'],search:'斯坦德机器人 官网 招聘'},
   {id:'zhongxing-unresolved',name:'众行机器人',identity:'No reliable official root identified; unresolved names must not be substituted.',roots:[],search:'"众行机器人" 官网 招聘'},
   {id:'4paradigm',name:'第四范式',identity:'Candidate root cross-referenced by public GitHub organization blog; verify page identity.',roots:['https://www.4paradigm.com/'],crossReference:'https://github.com/4paradigm'},
   {id:'roborock',name:'石头科技',identity:'Candidate brand roots; verify corporate identity and official hiring links.',roots:['https://www.roborock.com/','https://cn.roborock.com/']}
@@ -40,21 +40,23 @@ const decode=value=>String(value).replace(/&(?:amp|quot|apos|lt|gt|nbsp);|&#(?:x
 const plain=value=>decode(value.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]*>/g,' ')).replace(/\s+/g,' ').trim();
 function extract(html,base){
   const title=plain(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
-  const text=plain(html),links=[],seen=new Set();
+  const text=plain(html),links=[],discoveryLinks=[],seen=new Set();
   for(const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)){
     const href=match[1].match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
     if(!href)continue;
     const label=plain(match[2]).slice(0,180),url=acceptable(decode(href[1]??href[2]??href[3]),base);
-    if(!url||!employment.test(label+' '+url.href))continue;
-    const key=publicUrl(url.href);if(seen.has(key))continue;seen.add(key);links.push({text:label,url:key});
-    if(links.length>=18)break;
+    if(!url)continue;
+    const key=publicUrl(url.href);if(seen.has(key))continue;seen.add(key);
+    if(employment.test(label+' '+url.href)&&links.length<18)links.push({text:label,url:key});
+    else if(/关于|公司简介|About (?:Us|Roborock)|Global Site|中国|China/i.test(label)&&discoveryLinks.length<6)discoveryLinks.push({text:label,url:key});
   }
   const scriptSources=[];
   for(const match of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)){
     const url=acceptable(decode(match[1]),base);if(url&&scriptSources.length<4)scriptSources.push(publicUrl(url.href));
   }
   const visibleSignals={login:/登录|登入|sign.?in|log.?in/i.test(text),registration:/注册|register|sign.?up/i.test(text),captcha:/验证码|captcha|人机验证/i.test(text),apply:/申请职位|立即申请|立即投递|投递简历|apply.?now/i.test(text),receipt:/申请记录|投递记录|我的申请|application.?status/i.test(text)};
-  return {title,textStart:text.slice(0,2200),textEnd:text.length>2200?text.slice(-1000):'',visibleSignals,links,scriptSources,emptyShell:text.length<180};
+  const identities=[...text.matchAll(/[^。；！？]{0,55}(?:有限公司|股份有限公司|版权所有|Copyright|All Rights Reserved)[^。；！？]{0,90}/gi)].map(match=>match[0].trim().slice(0,180)).slice(-3);
+  return {title,textStart:text.slice(0,2200),textEnd:text.length>2200?text.slice(-1000):'',identityExcerpts:identities,visibleSignals,links,discoveryLinks,scriptSources,emptyShell:text.length<180};
 }
 async function requestPage(url,kind){
   const item={requestedUrl:publicUrl(url),kind,redirects:[]};
@@ -84,10 +86,17 @@ async function requestPage(url,kind){
   }catch(error){item.outcome=error?.name==='TimeoutError'?'TIMEOUT':'NETWORK_ERROR';item.errorType=String(error?.name||'Error').slice(0,40);return item;}
 }
 function annotation(company){
-  const note={company:company.name,id:company.id,identity:company.identity,crossReference:company.crossReference||null,pages:company.pages.map(page=>({...page,textStart:page.textStart?.slice(0,1000),textEnd:page.textEnd?.slice(-400),links:page.links?.slice(0,8),scriptSources:page.scriptSources?.slice(0,2)}))};
-  if(JSON.stringify(note).length>11_000){note.summaryTruncated=true;for(const page of note.pages){page.textStart=page.textStart?.slice(0,500);page.textEnd=page.textEnd?.slice(-180);page.links=page.links?.slice(0,4);}}
-  if(JSON.stringify(note).length>11_000){note.pages=note.pages.slice(0,5);note.summaryTruncated=true;}
-  const value=JSON.stringify(note);if(value.length>12_000)throw new Error('Research notice exceeded bounded size');
+  // GitHub workflow-command annotation messages are limited to 4096 UTF-8
+  // bytes, not 12k JavaScript characters. Keep essential source chains intact.
+  const pages=company.pages.map(page=>({url:page.requestedUrl,kind:page.kind,status:page.status||null,finalUrl:page.finalUrl||null,outcome:page.outcome,title:page.title?.slice(0,95),identity:page.identityExcerpts?.slice(-1),redirects:page.redirects?.slice(-1),links:page.links?.slice(0,4),discoveryLinks:page.discoveryLinks?.slice(0,2),signals:page.visibleSignals,emptyShell:page.emptyShell,errorType:page.errorType}));
+  const note={company:company.name,id:company.id,pages};
+  const bytes=()=>Buffer.byteLength(JSON.stringify(note));
+  if(bytes()>3750){note.compact=true;for(const page of pages){delete page.discoveryLinks;delete page.redirects;page.links=page.links?.slice(0,2);page.identity=page.identity?.map(text=>text.slice(0,100));}}
+  if(bytes()>3750){for(const page of pages){delete page.signals;delete page.emptyShell;page.title=page.title?.slice(0,65);}}
+  if(bytes()>3750){note.omittedSearchPages=true;note.pages=pages.filter(page=>!page.kind.startsWith('search-'));}
+  if(bytes()>3750){for(const page of note.pages){delete page.identity;page.links=page.links?.slice(0,1);}}
+  if(bytes()>3750)throw new Error('Research source summary exceeded its UTF-8 byte budget');
+  const value=JSON.stringify(note);
   console.log('::notice title=Read-only hiring '+company.id+'::'+value.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }
 const evidence={schema:1,sourceSha:process.env.GITHUB_SHA||null,runId:process.env.GITHUB_RUN_ID||null,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',displayDate:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',dateStyle:'short'}).format(new Date()),method:'GET only; no cookies, account, form or application API; public HTML signals are observations, not verified login/application capability.',companies:[]};
@@ -98,9 +107,13 @@ async function worker(){
     const company=companies[index++];company.pages=[];
     for(const url of company.roots)company.pages.push(await requestPage(url,'candidate-root'));
     const visited=new Set(company.pages.map(page=>page.requestedUrl));
+    if(!company.pages.some(page=>page.links?.length)){
+      const discovery=company.pages.flatMap(page=>page.discoveryLinks||[]).slice(0,2);
+      for(const link of discovery){if(visited.has(link.url))continue;visited.add(link.url);company.pages.push(await requestPage(link.url,'official-root-identity-outlink'));}
+    }
     const hiring=company.pages.flatMap(page=>page.links||[]).filter(link=>!/(?:facebook|linkedin|twitter|youtube|instagram|weibo|weixin|wechat)\./i.test(new URL(link.url).hostname));
     for(const link of hiring.slice(0,3)){if(visited.has(link.url))continue;visited.add(link.url);company.pages.push(await requestPage(link.url,'official-root-outlink'));}
-    if(company.search){const url='https://www.bing.com/search?q='+encodeURIComponent(company.search);company.pages.push(await requestPage(url,'search-discovery-only'));}
+    if(company.search){const url='https://www.baidu.com/s?wd='+encodeURIComponent(company.search);company.pages.push(await requestPage(url,'search-discovery-only'));}
     evidence.companies.push(company);annotation(company);
   }
 }

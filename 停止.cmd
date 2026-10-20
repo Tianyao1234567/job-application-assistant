@@ -1,3 +1,6 @@
 @echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\stop.ps1"
-if errorlevel 1 pause
+setlocal
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\stop.ps1" %*
+set "projectExitCode=%errorlevel%"
+if not "%projectExitCode%"=="0" if not "%JOB_ASSISTANT_NONINTERACTIVE%"=="1" pause
+exit /b %projectExitCode%
