@@ -16,7 +16,7 @@ const {chromium}=require('playwright');
 const {createApp}=await import('../server.mjs');
 const BASE='http://127.0.0.1:17321',FIXTURE='http://127.0.0.1:17322';
 const isolated=await testDirectory('workflow'),dataDir=path.join(isolated,'data'),profileDir=path.join(isolated,'browser-profile');
-const testKey=randomBytes(24).toString('base64url'),results=[],pageErrors=[],consoleErrors=[],bridgeEvents=[];
+const testKey=randomBytes(24).toString('base64url'),results=[],pageErrors=[],consoleErrors=[],bridgeEvents=[],fixtureEvents=[];
 const evidence={startedAt:new Date().toISOString(),environment:{platform:process.platform,architecture:process.arch,os:os.release(),node:process.version,githubActions:process.env.GITHUB_ACTIONS==='true',runId:process.env.GITHUB_RUN_ID||null,runAttempt:process.env.GITHUB_RUN_ATTEMPT||null,commit:process.env.GITHUB_SHA||null,containerImage:process.env.CLOUD_PLAYWRIGHT_IMAGE||null},scope:'Real loaded extension, dashboard HTTP API, actual fixture DOM and native multipart requests; fictional data only.',limitations:['No real recruiting website or personal account tested.','No Windows production browser or toolbar acceptance.','Controlled-time and missed-day schedule decisions are covered by the separate Node tests; this journey also checks a due schedule respects manual pause.'],results};
 let app,context,dashboard,key,releaseApply;
 const watchedPages=new WeakSet();
@@ -82,6 +82,15 @@ const task=(snapshot,jobId)=>snapshot.tasks.find(item=>item.jobId===jobId);
 const requests=(snapshot,tenant,jobId)=>snapshot.submitRequests.filter(item=>item.tenant===tenant&&item.jobId===jobId);
 async function start() {
   app=await createApp({dataDir,testMode:true,testKey});assert.equal(app.url,BASE);
+  app.fixture.server.on('request',(request,response)=>{
+    const parsed=new URL(request.url,FIXTURE);
+    if(!/^\/site\/(alpha|beta)\/(jobs|apply|login|receipt|session)(?:\/[\w-]+)?$/.test(parsed.pathname))return;
+    response.once('finish',()=>{
+      if(response.statusCode>=400 && fixtureEvents.length<12)fixtureEvents.push({method:request.method,path:parsed.pathname,status:response.statusCode,
+        origin:!request.headers.origin?'none':request.headers.origin===FIXTURE?'fixture':/^chrome-extension:\/\/[a-p]{32}$/.test(request.headers.origin)?'extension':'other',
+        site:request.headers['sec-fetch-site']||'absent',mode:request.headers['sec-fetch-mode']||'absent',destination:request.headers['sec-fetch-dest']||'absent'});
+    });
+  });
   app.server.on('request',(request,response)=>{
     const url=BASE+request.url;recordBridge('server-request',url,request.headers);
     response.once('finish',()=>recordBridge('server-response',url,request.headers,response.statusCode));
@@ -448,8 +457,8 @@ try {
       command:app.store.command?{op:app.store.command.op,jobId:app.store.command.taskId?app.store.task(app.store.command.taskId).jobId:null}:null,
       queued:app.store.queue.map(command=>({op:command.op,siteId:command.siteId})),
       sites:snapshot.sites.map(site=>({id:site.id,login:site.login?.status,discoveryError:site.lastDiscoveryError||null})),
-      tasks:snapshot.tasks.map(task=>({jobId:task.jobId,status:task.status,phase:task.phase,issue:task.issue?.kind||null,lastStep:task.steps.at(-1)?.label||null})),
-      pageErrors:pageErrors.slice(-3),consoleErrors:consoleErrors.slice(-3)};
+      tasks:snapshot.tasks.map(task=>({jobId:task.jobId,status:task.status,phase:task.phase,issue:task.issue?.kind||null,lastStep:task.steps.at(-1)?.label||null,reason:task.issue?.kind==='manual'?safeDiagnostic(task.issue.detail).slice(0,150):null})),
+      fixtureEvents,pageErrors:pageErrors.slice(-3),consoleErrors:consoleErrors.slice(-3)};
     notice('Fictional workflow state at failure',evidence.failureState);
     await pairingDiagnostic(context?.serviceWorkers()[0]);
   }catch{notice('Fictional workflow state at failure',{readFailed:true});}
