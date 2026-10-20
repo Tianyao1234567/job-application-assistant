@@ -440,6 +440,20 @@ try {
   evidence.status='PASS';
 } catch(error) {
   evidence.status='FAIL';evidence.error=error.message;process.exitCode=1;console.error(error.stack);
+  // Only explicitly fictional fixture identities and status codes are exposed.
+  // No applicant fields, keys, URLs, cookies, storage values or session data.
+  try{
+    const snapshot=await state();
+    evidence.failureState={connected:snapshot.connection.connected,running:snapshot.running,paused:snapshot.paused,
+      command:app.store.command?{op:app.store.command.op,jobId:app.store.command.taskId?app.store.task(app.store.command.taskId).jobId:null}:null,
+      queued:app.store.queue.map(command=>({op:command.op,siteId:command.siteId})),
+      sites:snapshot.sites.map(site=>({id:site.id,login:site.login?.status,discoveryError:site.lastDiscoveryError||null})),
+      tasks:snapshot.tasks.map(task=>({jobId:task.jobId,status:task.status,phase:task.phase,issue:task.issue?.kind||null,lastStep:task.steps.at(-1)?.label||null})),
+      pageErrors:pageErrors.slice(-3),consoleErrors:consoleErrors.slice(-3)};
+    notice('Fictional workflow state at failure',evidence.failureState);
+    await pairingDiagnostic(context?.serviceWorkers()[0]);
+  }catch{notice('Fictional workflow state at failure',{readFailed:true});}
+
   // Keep the concrete failure visible through the Checks API as well as log storage.
   // This suite contains fictional data only; do not emit browser storage or API keys.
   // Launch command lines are very long; preserve the exit signal and stack tail
