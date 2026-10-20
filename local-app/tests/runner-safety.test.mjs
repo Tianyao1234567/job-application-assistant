@@ -56,7 +56,7 @@ function harness(options={}){
   const tabs=new Map([[7,tab]]);
   const runner=vm.createContext({console,URL,Date,AbortSignal,definitions,crypto:webcrypto,document:{getElementById:()=>({textContent:''})},setTimeout:callback=>{queueMicrotask(callback);return 1;},
     async fetch(url){assert.equal(url,'http://127.0.0.1:17321/api/bridge/authorize');h.authorizations++;h.afterAuthorize?.();if(options.authFailure)throw new Error('Disconnected');return {ok:true,json:async()=>({allowed:h.allowed})};},
-    chrome:{runtime:{id:'test-extension'},tabs:{
+    chrome:{runtime:{id:'test-extension',onMessage:{addListener(){}}},tabs:{
       get:async id=>{assert.ok(tabs.has(id),'tab must remain open');return tabs.get(id);},
       async create(details){const created={id:8,status:'complete',...details};tabs.set(created.id,created);h.createdTabs.push(created);return created;},
       async remove(id){h.closedTabs.push(id);tabs.delete(id);},

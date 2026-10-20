@@ -4,6 +4,12 @@ const BASE='http://127.0.0.1:17321', FIXTURE='http://127.0.0.1:17322';
 const status=document.getElementById('status');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let bridge,clientId=crypto.randomUUID(),busy=false,stopped=false;
+let runnerTabId=null,loopStarted=false,heartbeatTimer;
+chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  if(message?.type==='local-runner-probe' && sender.id===chrome.runtime.id && message.tabId===runnerTabId){
+    respond({tabId:runnerTabId,running:loopStarted&&!stopped});
+  }
+});
 const fail=(kind,message)=>({ok:false,kind,message});
 class Stop extends Error {constructor(kind,message){super(message);this.kind=kind;}}
 async function api(route,body) {
@@ -241,12 +247,13 @@ async function tick() {
   }catch{status.textContent='本地服务已断开；停止新动作，正在等待重连。';}finally{busy=false;}
 }
 async function start() {
-  const current=await chrome.tabs.getCurrent();
+  const current=await chrome.tabs.getCurrent();runnerTabId=current.id;
   const registered=await chrome.runtime.sendMessage({type:'local-runner-register',tabId:current.id});
   if(!registered?.ok){stopped=true;status.textContent=registered?.reason==='runner-conflict'?'已有一个执行端运行，此页不会重复处理任务。':'执行端注册失败（'+(registered?.reason || 'no-response')+'），请从后台重新连接。';return;}
   const {localBridge}=await chrome.storage.local.get('localBridge');bridge=localBridge;
+  loopStarted=true;
   // Heartbeats keep the connection visible while a real page action is still running.
-  setInterval(()=>{if(bridge?.key&&!stopped)api('heartbeat',identity()).catch(()=>{});},4000);
+  heartbeatTimer=setInterval(()=>{if(bridge?.key&&!stopped)api('heartbeat',identity()).catch(()=>{});},4000);
   while(!stopped){await tick();await delay(500);}
 }
-start().catch(()=>{status.textContent='执行端未能启动，请从后台重新连接插件。';});
+start().catch(()=>{stopped=true;loopStarted=false;clearInterval(heartbeatTimer);status.textContent='执行端未能启动，请从后台重新连接插件。';});

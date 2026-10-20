@@ -13,18 +13,49 @@ let registering=Promise.resolve();
 async function runnerContexts(tabId) {
   return chrome.runtime.getContexts({contextTypes:['TAB'],documentUrls:[runnerUrl],...(Number.isInteger(tabId)?{tabIds:[tabId]}:{})});
 }
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function runnerRunning(tabId) {
+  let timer;
+  try {
+    // This is a read-only, extension-internal liveness query. A document alone
+    // may be a stopped runner rejected during a previous registration attempt.
+    const reply=await Promise.race([chrome.runtime.sendMessage({type:'local-runner-probe',tabId}),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),1000);})]);
+    return reply?.tabId===tabId && reply?.running===true;
+  }catch{return false;}finally{clearTimeout(timer);}
+}
+async function waitRunner(tabId) {
+  const deadline=Date.now()+5000;
+  while(Date.now()<deadline){
+    if(await runnerRunning(tabId))return;
+    await delay(100);
+  }
+  throw new Error('runner-startup-timeout');
+}
 async function ensureRunner() {
   if (opening) return opening;
   opening = (async () => {
-    const {localBridge} = await chrome.storage.local.get('localBridge');
+    const {localBridge,runnerTabId} = await chrome.storage.local.get(['localBridge','runnerTabId']);
     if (!localBridge?.key) return;
-    const {runnerTabId} = await chrome.storage.local.get('runnerTabId');
-    if (Number.isInteger(runnerTabId)) {
-      try { const tab = await chrome.tabs.get(runnerTabId); if ((await runnerContexts(runnerTabId)).length === 1) return tab; } catch {}
+    const contexts=await runnerContexts();
+    for(const context of contexts){
+      if(await runnerRunning(context.tabId)){
+        await chrome.storage.local.set({runnerTabId:context.tabId});
+        return chrome.tabs.get(context.tabId);
+      }
     }
-    const contexts = await runnerContexts();
-    const tab = contexts.length ? await chrome.tabs.get(contexts[0].tabId) : await chrome.tabs.create({url:runnerUrl,active:false});
-    await chrome.storage.local.set({runnerTabId:tab.id});
+    const selected=contexts.find(context=>context.tabId===runnerTabId) || contexts[0];
+    let tab;
+    if(selected){
+      tab=await chrome.tabs.get(selected.tabId);
+      // Reload only this extension's selected inactive document, never task pages
+      // or a production browser profile. Durable attempts/outbox remain intact.
+      await chrome.storage.local.set({runnerTabId:tab.id});
+      await chrome.tabs.reload(tab.id);
+    }else{
+      tab=await chrome.tabs.create({url:runnerUrl,active:false});
+      await chrome.storage.local.set({runnerTabId:tab.id});
+    }
+    await waitRunner(tab.id);
     return tab;
   })();
   try {return await opening;} finally {opening = null;}

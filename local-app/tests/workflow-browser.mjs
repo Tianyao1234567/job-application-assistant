@@ -152,7 +152,26 @@ async function launch() {
       await duplicate.goto(runner.url());
       await duplicate.getByText('已有一个执行端运行，此页不会重复处理任务。',{exact:true}).waitFor();
       assert.equal((await state()).connection.connected,true);
-    }finally{await duplicate.close();}
+      const beforeRecovery=await fixture(),previousClient=app.store.connection.clientId;
+      // Retain the rejected B document, remove active A, then use the actual
+      // dashboard pairing path to recover B. Do not write extension storage.
+      await runner.close();
+      await dashboard.locator('#connect-button').click();
+      await until('retained rejected runner recovers a real backend heartbeat',state,value=>value.connection.connected&&app.store.connection.clientId!==previousClient);
+      const probes=await worker.evaluate(async()=>{
+        const contexts=await chrome.runtime.getContexts({contextTypes:['TAB'],documentUrls:[chrome.runtime.getURL('runner/index.html')]});
+        return Promise.all(contexts.map(async context=>{
+          const reply=await chrome.runtime.sendMessage({type:'local-runner-probe',tabId:context.tabId});
+          return {tabId:context.tabId,running:reply?.running===true};
+        }));
+      });
+      assert.equal(probes.filter(probe=>probe.running).length,1,'exactly one real registered polling loop survives recovery');
+      const selected=await duplicate.evaluate(async()=>(await chrome.tabs.getCurrent()).id);
+      assert.equal(probes.find(probe=>probe.running).tabId,selected,'retained B is the recovered runner');
+      const afterRecovery=await fixture();assert.equal(afterRecovery.submitRequests.length,beforeRecovery.submitRequests.length);
+      assert.equal(afterRecovery.receipts.length,beforeRecovery.receipts.length);
+      evidence.runnerRecovery={retainedRejectedPage:true,recoveredThroughDashboard:true,activeRunners:1,noAdditionalPosts:true};
+    }catch(error){await duplicate.close();throw error;}
   }catch(error){await pairingDiagnostic(worker);throw error;}
 }
 async function loginAlpha() {
@@ -352,7 +371,21 @@ async function workflow() {
       await route.continue();
     };
     await context.route(FIXTURE+'/site/beta/session',sessionRoute);
+    const exhausted=await state();
+    assert.equal(exhausted.settings.dailyLimit,3);assert.equal(exhausted.stats.demo.today,3);
+    assert.equal(app.store.dailyUsed(),3,'the original three submission boundaries exhaust the configured allowance');
     await action('task-resume',{taskId:target.id});
+    await delay(1250);
+    const held=await state();
+    assert.equal(task(held,'design-001').status,'queued');assert.equal(task(held,'design-001').phase,'inspect');
+    assert.equal(gated,false,'an exhausted allowance must not reach attachment preflight');
+    assert.equal(app.store.command,null);assert.equal((await fixture()).submitRequests.length,3);
+    // Keep the real quota-exhaustion evidence, then configure enough allowance for
+    // the two additional fictional boundaries through the public settings API.
+    await api('/settings',{settings:{...held.settings,dailyLimit:5},sites:held.sites});
+    const extended=await state();assert.equal(extended.settings.dailyLimit,5);
+    assert.equal(app.store.dailyUsed(),3,'changing allowance does not delete prior boundaries');
+    evidence.allowance={originalLimit:3,exhaustedBoundaries:3,blockedQueuedTask:true,extendedLimit:5};
     await until('attachment preflight refusal',state,value=>gated&&task(value,'design-001')?.status==='waiting_user');
     await context.unroute(FIXTURE+'/site/beta/session',sessionRoute);
     assert.equal(requests(await fixture(),'beta','design-001').length,0);
@@ -375,6 +408,9 @@ async function workflow() {
     await context.unroute(BASE+'/api/bridge/authorize',authorizationRoute);
     assert.equal(requests(await fixture(),'beta','design-001').length,0);
     assert.equal(task(await state(),'design-001').canResume,false);
+    assert.equal(gated,true);assert.equal(replaced,true,'the real final-authorization request must be intercepted');
+    assert.equal(app.store.task(target.id).submissionStarted,true);
+    assert.equal(app.store.dailyUsed(),4,'safe attachment abort preserves its submission boundary');
   });
   await check('提交派发后单项暂停撤销最终授权，实际POST为零且历史不清除',async()=>{
     const target=task(await state(),'sales-001');assert.ok(target);let paused=false;
@@ -392,7 +428,10 @@ async function workflow() {
     assert.equal(requests(await fixture(),'alpha','sales-001').length,0);
     assert.equal(task(await state(),'sales-001').canResume,false);
     assert.equal(app.store.task(target.id).submissionStarted,true);
-
+    assert.equal(paused,true,'the real final-authorization request must reach the pause gate');
+    assert.equal(app.store.dailyUsed(),5,'safe pause retains the fifth boundary without posting an application');
+    const actual=await fixture();assert.equal(actual.submitRequests.length,3);assert.equal(actual.receipts.length,3);
+    evidence.safetyScenarios={attachmentPreflightReached:true,attachmentFinalAuthorizationReached:true,pauseFinalAuthorizationReached:true,attachmentPosts:0,pausePosts:0,retainedSubmissionBoundaries:5};
   });
 }
 let watchdog;
