@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {randomBytes} from 'node:crypto';
 import {createRequire} from 'node:module';
-import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoot} from '../../autofill-extension/tests/runtime.mjs';
+import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoot,testsRoot} from '../../autofill-extension/tests/runtime.mjs';
 
 if(process.env.GITHUB_ACTIONS!=='true' || process.platform!=='linux')throw new Error('Run acceptance groups only in the manual GitHub-hosted Linux browser job.');
 const require=createRequire(new URL('../../autofill-extension/package.json',import.meta.url));
@@ -32,12 +32,47 @@ export async function createAcceptance(group){
     let text=String(value);for(const marker of privateMarkers)if(marker)text=text.replaceAll(marker,'[redacted]');
     return text;
   };
+  const privateField=/^(?:key|testKey|profileId|cookie|cookies|fullProfile|profileSnapshot|resumeSnapshot|profileData|personal|education|experience|projects|base64|fileBytes|password|otp|token|sessionToken|authorization)$/i;
+  // Scrub string values before JSON encoding: markers containing quotes or
+  // backslashes must not survive merely because JSON escaped their characters.
+  const publicValue=value=>{
+    if(typeof value==='string')return scrub(value);
+    if(Array.isArray(value))return value.map(publicValue);
+    if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([name])=>!privateField.test(name)).map(([name,item])=>[scrub(name),publicValue(item)]));
+    return value;
+  };
+  const privateValuesAbsent=text=>[...privateMarkers].every(marker=>!text.includes(marker)&&!text.includes(JSON.stringify(marker).slice(1,-1)));
+  const hasPrivateField=value=>Array.isArray(value)?value.some(hasPrivateField):!!value&&typeof value==='object'&&Object.entries(value).some(([name,item])=>privateField.test(name)||hasPrivateField(item));
+  const inIsolated=candidate=>{const relative=path.relative(isolated,path.resolve(candidate));return !!relative&&!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative);};
+  const artifactDirectory=path.join(isolated,'artifacts'),downloadDirectory=path.join(isolated,'downloads');
+  const evidenceFile=path.join(evidenceRoot,'acceptance-'+group+'-browser.json');
   const notice=(title,value)=>{
-    const detail=scrub(JSON.stringify(value));assert.ok(detail.length<=12_000,'Acceptance notice must remain bounded');
+    const detail=JSON.stringify(publicValue(value));assert.ok(detail.length<=12_000,'Acceptance notice must remain bounded');
+    assert.ok(privateValuesAbsent(detail)&&!hasPrivateField(JSON.parse(detail)),'Acceptance notices must exclude private values and fields');
     console.error('::notice title='+title+'::'+detail.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
   };
   // Tests may register fictional credential markers without publishing their values.
   h.protect=(...markers)=>{for(const marker of markers)if(typeof marker==='string'&&marker)privateMarkers.add(marker);};
+  h.verifyPrivateEvidence=async()=>{
+    const serialized=JSON.stringify(publicValue(h.evidence));
+    // Exercise the same encoder with every actual private binding and registered
+    // fictional marker without ever placing the unredacted probe in evidence.
+    const encodedProbe=JSON.stringify(publicValue({probe:[...privateMarkers]}));
+    let mediaArtifacts=0;
+    async function inspectArtifacts(directory){
+      let entries;try{entries=await fs.readdir(directory,{withFileTypes:true});}catch(error){if(error.code==='ENOENT')return;throw error;}
+      for(const entry of entries){
+        assert.equal(entry.isSymbolicLink(),false,'Acceptance artifact paths must not follow symlinks');
+        const child=path.join(directory,entry.name);
+        if(entry.isDirectory())await inspectArtifacts(child);
+        else if(/\.(?:png|jpe?g|webp|gif|webm|mp4)$/i.test(entry.name))mediaArtifacts++;
+      }
+    }
+    await inspectArtifacts(artifactDirectory);
+    const checked={privateValuesAbsent:privateValuesAbsent(serialized)&&privateValuesAbsent(encodedProbe),privateFieldsAbsent:!hasPrivateField(JSON.parse(serialized)),registeredMarkersExercised:true,noDefaultScreenshotsOrVideo:mediaArtifacts===0,profilePathsIsolated:[...profiles.values()].every(inIsolated)};
+    assert.ok(Object.values(checked).every(Boolean),'Acceptance evidence confidentiality or isolation check failed');
+    h.evidence.privateEvidence=checked;return {...checked};
+  };
   h.until=until;
   h.posts=(tenant,jobId)=>httpPosts.filter(post=>(tenant===undefined||post.tenant===tenant)&&(jobId===undefined||post.jobId===jobId));
   h.api=async(route='/state',body,{allowFailure=false}={})=>{
@@ -82,8 +117,11 @@ export async function createAcceptance(group){
     assert.equal(proof.image,IMAGE);assert.equal(proof.playwright,'1.58.2');assert.equal(proof.copiedAndVerified,true);
     h.evidence.environment.imageVerified=true;
     if(!profiles.has(profileName))profiles.set(profileName,path.join(isolated,'profile-'+profileName));
+    const profileDirectory=profiles.get(profileName);assert.ok(inIsolated(profileDirectory),'Browser profiles must stay in this isolated test directory');
+    await fs.mkdir(profileDirectory,{recursive:true});
+    assert.ok(inIsolated(await fs.realpath(profileDirectory)),'Browser profiles must not escape through a symlink');
     const previousClient=h.app.store.connection?.clientId;
-    h.context=await chromium.launchPersistentContext(profiles.get(profileName),browserOptions({headless:false,channel:'chromium',args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension')]}));
+    h.context=await chromium.launchPersistentContext(profileDirectory,browserOptions({headless:false,channel:'chromium',downloadsPath:downloadDirectory,artifactsDir:artifactDirectory,args:['--disable-extensions-except='+path.join(projectRoot,'autofill-extension'),'--load-extension='+path.join(projectRoot,'autofill-extension')]}));
     h.evidence.environment.browser=h.context.browser().version();
     if(!pair)return h.context;
     const worker=h.context.serviceWorkers()[0]||await h.context.waitForEvent('serviceworker',{timeout:15_000});
@@ -142,10 +180,31 @@ export async function createAcceptance(group){
       try{await h.closeBrowser();}catch{h.evidence.status='FAIL';h.evidence.cleanupFailed=true;process.exitCode=1;}
       try{await h.closeApp();}catch{h.evidence.status='FAIL';h.evidence.cleanupFailed=true;process.exitCode=1;}
       h.evidence.finishedAt=new Date().toISOString();
-      await fs.writeFile(path.join(evidenceRoot,'acceptance-'+group+'-browser.json'),scrub(JSON.stringify(h.evidence,null,2)));
-      await removeTestDirectory(isolated);
+      try{await h.verifyPrivateEvidence();}catch{h.evidence.status='FAIL';h.evidence.privateEvidence={verified:false};process.exitCode=1;}
+      const relative=path.relative(testsRoot,isolated);
+      const scoped=!!relative&&!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative)&&[...profiles.values()].every(inIsolated);
+      let removed=false;
+      try{
+        assert.ok(scoped,'Cleanup must target only this isolated child of the test root');
+        await removeTestDirectory(isolated);
+        try{await fs.lstat(isolated);}catch(error){if(error.code==='ENOENT')removed=true;else throw error;}
+        assert.ok(removed,'The isolated acceptance directory must be gone after cleanup');
+      }catch{h.evidence.status='FAIL';h.evidence.cleanupFailed=true;process.exitCode=1;}
+      h.evidence.cleanup={onlyIsolatedTarget:scoped,targetRemoved:removed,profilePathsIsolated:[...profiles.values()].every(inIsolated)};
+      const encoded=JSON.stringify(publicValue(h.evidence),null,2);
+      await fs.writeFile(evidenceFile,encoded);
+      const saved=await fs.readFile(evidenceFile,'utf8');
+      if(!privateValuesAbsent(saved)||hasPrivateField(JSON.parse(saved))){
+        h.evidence.status='FAIL';h.evidence.privateEvidence={verified:false};process.exitCode=1;
+        // Fail closed if the actual serialized file violates the audit. Do not
+        // retain the rejected content, even on the failing runner.
+        await fs.writeFile(evidenceFile,JSON.stringify({group,status:'FAIL',privateEvidence:{verified:false},cleanup:h.evidence.cleanup}));
+      }else{
+        h.evidence.privateEvidence.savedJsonChecked=true;
+        await fs.writeFile(evidenceFile,JSON.stringify(publicValue(h.evidence),null,2));
+      }
     }
-    if(h.evidence.status==='PASS')notice('Acceptance '+group+' final result',{group,status:'PASS',stages:results.length,passed:results.length,names:results.map(result=>result.name),facts:h.evidence.facts,httpPosts:httpPosts.length,posts:httpPosts});
+    if(h.evidence.status==='PASS')notice('Acceptance '+group+' final result',{group,status:'PASS',stages:results.length,passed:results.length,names:results.map(result=>result.name),facts:h.evidence.facts,httpPosts:httpPosts.length,posts:httpPosts,privateEvidence:h.evidence.privateEvidence,cleanup:h.evidence.cleanup});
     return h.evidence;
   };
   return h;

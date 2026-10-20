@@ -17,6 +17,7 @@ on:
           - workflow
           - acceptance-a
           - acceptance-b
+          - acceptance-c
 
 permissions:
   contents: read
