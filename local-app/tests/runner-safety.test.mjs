@@ -70,7 +70,9 @@ function harness(options={}){
         }
         if(request.files){vm.runInContext(fillSource,page);vm.runInContext(adapterSource,page);return [{result:null}];}
         const func=vm.runInContext('('+request.func.toString()+')',page);
-        return [{result:await func(...structuredClone(request.args))}];}}}});
+        const result=await func(...structuredClone(request.args));
+        if(options.loseCommitResult && request.func.toString().includes('JobLocal.commit'))return [{result:undefined}];
+        return [{result}];}}}});
   vm.runInContext(runnerSource.replace(/^import[^\n]+\n/,'').replace(/start\(\)\.catch\([\s\S]*$/,'globalThis.runCommand=execute;'),runner);
   vm.runInContext("bridge={key:'fictional-key',profileId:'isolated-test'};",runner);
   h.run=(op)=>runner.runCommand({id:'command-'+op,op,site:{adapter:'local-v1',origin:'http://127.0.0.1:17322',mode:'demo',tenant:'beta',expectedAccount:'demo'},
@@ -156,4 +158,14 @@ for(const stage of ['session','hash','authorization'])test(`submit stops attachm
   const pending=h.run('submit');
   if(stage!=='authorization'){await waiting.entered;replace();waiting.release();}
   const result=await pending;assert.equal(result.ok,false);assert.equal(h.clicks,0);
+});
+
+test('native navigation may lose the commit result; a separate read still verifies its single receipt',async()=>{
+  const h=harness({loseCommitResult:true});const result=await h.run('submit');
+  assert.equal(result.ok,true);assert.equal(result.receipt.id,'receipt-1');assert.equal(h.clicks,1);
+  assert.ok(h.storage.localSubmissionAttempts['beta:web-001:demo']);
+});
+test('a missing commit result and missing receipt stay unknown without a second click',async()=>{
+  const h=harness({loseCommitResult:true,loseReceipt:true});assert.equal((await h.run('submit')).kind,'unknown');
+  assert.equal(h.clicks,1);assert.equal((await h.run('submit')).kind,'unknown');assert.equal(h.clicks,1);
 });

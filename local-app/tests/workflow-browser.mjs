@@ -16,8 +16,8 @@ const {chromium}=require('playwright');
 const {createApp}=await import('../server.mjs');
 const BASE='http://127.0.0.1:17321',FIXTURE='http://127.0.0.1:17322';
 const isolated=await testDirectory('workflow'),dataDir=path.join(isolated,'data'),profileDir=path.join(isolated,'browser-profile');
-const testKey=randomBytes(24).toString('base64url'),results=[],pageErrors=[],consoleErrors=[],bridgeEvents=[],fixtureEvents=[];
-const evidence={startedAt:new Date().toISOString(),environment:{platform:process.platform,architecture:process.arch,os:os.release(),node:process.version,githubActions:process.env.GITHUB_ACTIONS==='true',runId:process.env.GITHUB_RUN_ID||null,runAttempt:process.env.GITHUB_RUN_ATTEMPT||null,commit:process.env.GITHUB_SHA||null,containerImage:process.env.CLOUD_PLAYWRIGHT_IMAGE||null},scope:'Real loaded extension, dashboard HTTP API, actual fixture DOM and native multipart requests; fictional data only.',limitations:['No real recruiting website or personal account tested.','No Windows production browser or toolbar acceptance.','Controlled-time and missed-day schedule decisions are covered by the separate Node tests; this journey also checks a due schedule respects manual pause.'],results};
+const testKey=randomBytes(24).toString('base64url'),results=[],pageErrors=[],consoleErrors=[],bridgeEvents=[],fixtureEvents=[],applicationHttpPosts=[];
+const evidence={startedAt:new Date().toISOString(),environment:{platform:process.platform,architecture:process.arch,os:os.release(),node:process.version,githubActions:process.env.GITHUB_ACTIONS==='true',runId:process.env.GITHUB_RUN_ID||null,runAttempt:process.env.GITHUB_RUN_ATTEMPT||null,commit:process.env.GITHUB_SHA||null,containerImage:process.env.CLOUD_PLAYWRIGHT_IMAGE||null},scope:'Real loaded extension, dashboard HTTP API, actual fixture DOM and native multipart requests; fictional data only.',limitations:['No real recruiting website or personal account tested.','No Windows production browser or toolbar acceptance.','Controlled-time and missed-day schedule decisions are covered by the separate Node tests; this journey also checks a due schedule respects manual pause.'],results,applicationHttpPosts};
 let app,context,dashboard,key,releaseApply;
 const watchedPages=new WeakSet();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -80,10 +80,16 @@ async function fixture(route='/state',body) {
 }
 const task=(snapshot,jobId)=>snapshot.tasks.find(item=>item.jobId===jobId);
 const requests=(snapshot,tenant,jobId)=>snapshot.submitRequests.filter(item=>item.tenant===tenant&&item.jobId===jobId);
+const observedPosts=(tenant,jobId)=>applicationHttpPosts.filter(item=>item.tenant===tenant&&item.jobId===jobId);
 async function start() {
   app=await createApp({dataDir,testMode:true,testKey});assert.equal(app.url,BASE);
   app.fixture.server.on('request',(request,response)=>{
     const parsed=new URL(request.url,FIXTURE);
+    const application=/^\/site\/(alpha|beta)\/apply\/([a-zA-Z0-9_-]{1,80})$/.exec(parsed.pathname);
+    // Observe every HTTP application POST independently of fixture validation.
+    // Rejected Origin/Fetch-Metadata requests never enter fixture.submitRequests.
+    // Keep only fictional tenant/job identity; no body, URL query or headers.
+    if(request.method==='POST' && application)applicationHttpPosts.push({tenant:application[1],jobId:application[2]});
     if(!/^\/site\/(alpha|beta)\/(jobs|apply|login|receipt|session)(?:\/[\w-]+)?$/.test(parsed.pathname))return;
     response.once('finish',()=>{
       if(response.statusCode>=400 && fixtureEvents.length<12)fixtureEvents.push({method:request.method,path:parsed.pathname,status:response.statusCode,
@@ -161,7 +167,7 @@ async function launch() {
       await duplicate.goto(runner.url());
       await duplicate.getByText('已有一个执行端运行，此页不会重复处理任务。',{exact:true}).waitFor();
       assert.equal((await state()).connection.connected,true);
-      const beforeRecovery=await fixture(),previousClient=app.store.connection.clientId;
+      const beforeRecovery=await fixture(),beforeRecoveryHttpPosts=applicationHttpPosts.length,previousClient=app.store.connection.clientId;
       // Retain the rejected B document, remove active A, then use the actual
       // dashboard pairing path to recover B. Do not write extension storage.
       await runner.close();
@@ -178,6 +184,7 @@ async function launch() {
       const selected=await duplicate.evaluate(async()=>(await chrome.tabs.getCurrent()).id);
       assert.equal(probes.find(probe=>probe.running).tabId,selected,'retained B is the recovered runner');
       const afterRecovery=await fixture();assert.equal(afterRecovery.submitRequests.length,beforeRecovery.submitRequests.length);
+      assert.equal(applicationHttpPosts.length,beforeRecoveryHttpPosts,'runner recovery must not send any additional HTTP application POST');
       assert.equal(afterRecovery.receipts.length,beforeRecovery.receipts.length);
       evidence.runnerRecovery={retainedRejectedPage:true,recoveredThroughDashboard:true,activeRunners:1,noAdditionalPosts:true};
     }catch(error){await duplicate.close();throw error;}
@@ -195,6 +202,7 @@ async function loginAlpha() {
 async function verifyReceipt(tenant,jobId,resume) {
   const actual=await fixture(),received=actual.receipts.filter(item=>item.tenant===tenant&&item.jobId===jobId);
   assert.equal(received.length,1);assert.equal(requests(actual,tenant,jobId).length,1);
+  assert.equal(observedPosts(tenant,jobId).length,1,'exactly one HTTP application POST, including any rejected attempts');
   assert.equal(requests(actual,tenant,jobId)[0].accepted,true);
   const receipt=received[0];
   assert.equal(receipt.account,'demo');assert.equal(receipt.fileName,resume.name);assert.equal(receipt.fileSize,resume.size);assert.equal(receipt.sha256,resume.sha256);
@@ -275,18 +283,18 @@ async function workflow() {
     await dashboard.getByText('手动暂停，计划不会自动恢复',{exact:true}).waitFor();
     await api('/settings',{settings:initial.settings,sites:scheduled.sites});
     await betaPage.locator('[name="personal.name"]').fill('用户接管的虚构姓名');
-    await delay(800);assert.equal((await fixture()).submitRequests.length,0);
+    await delay(800);assert.equal((await fixture()).submitRequests.length,0);assert.equal(applicationHttpPosts.length,0);
     await action('resume');
     await until('original value blocks automatic overwrite',state,value=>task(value,'web-001')?.status==='waiting_user');
     assert.equal(await betaPage.locator('[name="personal.name"]').inputValue(),'用户接管的虚构姓名');
-    assert.equal((await fixture()).submitRequests.length,0);
+    assert.equal((await fixture()).submitRequests.length,0);assert.equal(applicationHttpPosts.length,0);
     await dashboard.locator('nav [data-view="queue"]').click();
     const betaRow=dashboard.locator('tbody tr').filter({hasText:betaTask.title});
     await betaRow.getByRole('button',{name:'查看详情',exact:true}).click();
     await dashboard.locator('#task-dialog').getByRole('button',{name:'跳过此任务',exact:true}).click();
     const skipped=await until('same beta task skipped',state,value=>task(value,'web-001')?.status==='skipped');
     assert.equal(task(skipped,'web-001').id,betaTask.id);assert.equal(task(skipped,'web-001').canResume,true);
-    assert.equal(requests(await fixture(),'beta','web-001').length,0);
+    assert.equal(requests(await fixture(),'beta','web-001').length,0);assert.equal(observedPosts('beta','web-001').length,0);
     await betaPage.locator('[name="personal.name"]').fill('');
     await dashboard.locator('#task-dialog').getByRole('button',{name:'重新检查并排队',exact:true}).click();
     await dashboard.keyboard.press('Escape');
@@ -310,7 +318,7 @@ async function workflow() {
     assert.equal(question.key,'motivation');assert.equal(question.scope,'local-v1:alpha:cpp-001:motivation:v1');assert.ok(question.text.includes('为什么'));
     assert.equal(waiting.issues.find(item=>item.taskId===alphaTask.id&&item.kind==='answer'&&item.status==='open')?.question.text,question.text);
     await action('task-pause',{taskId:alphaTask.id});await delay(800);
-    assert.equal(task(await state(),'cpp-001').status,'paused');assert.equal(requests(await fixture(),'alpha','cpp-001').length,0);
+    assert.equal(task(await state(),'cpp-001').status,'paused');assert.equal(requests(await fixture(),'alpha','cpp-001').length,0);assert.equal(observedPosts('alpha','cpp-001').length,0);
     await action('task-resume',{taskId:alphaTask.id});
     const repeated=await until('same question after task recovery',state,value=>task(value,'cpp-001')?.status==='waiting_answer');
     assert.equal(task(repeated,'cpp-001').id,alphaTask.id);assert.deepEqual(task(repeated,'cpp-001').question,question);
@@ -344,7 +352,7 @@ async function workflow() {
     const verificationCount=task(await state(),'cpp-002').steps.filter(step=>step.label==='核对接收结果').length;
     await action('verify',{taskId:unknownTask.id});
     await until('expired-session verification was actually processed',state,value=>task(value,'cpp-002').steps.filter(step=>step.label==='核对接收结果').length>verificationCount);
-    assert.equal(task(await state(),'cpp-002').status,'unknown');assert.equal(requests(await fixture(),'alpha','cpp-002').length,1);
+    assert.equal(task(await state(),'cpp-002').status,'unknown');assert.equal(requests(await fixture(),'alpha','cpp-002').length,1);assert.equal(observedPosts('alpha','cpp-002').length,1);
   });
   await check('关闭浏览器可见断线；服务和隔离持久 profile 重启保留版本与提交边界',async()=>{
     await context.close();context=null;
@@ -356,16 +364,16 @@ async function workflow() {
     assert.deepEqual(recovered.settings,initial.settings);assert.equal(recovered.tasks.length,5);
     assert.equal(task(recovered,'cpp-002').id,unknownTask.id);assert.equal(task(recovered,'cpp-002').status,'unknown');
     assert.equal(task(recovered,'cpp-001').status,'submitted');assert.equal(task(recovered,'web-001').status,'submitted');
-    await action('resume');await delay(1000);assert.equal((await fixture()).submitRequests.length,3);
+    await action('resume');await delay(1000);assert.equal((await fixture()).submitRequests.length,3);assert.equal(applicationHttpPosts.length,3);
   });
   await check('重新实际登录后只读核对恢复未知结果，重启和重连没有重复申请',async()=>{
     await loginAlpha();await action('verify',{taskId:unknownTask.id});
     const recovered=await until('read-only receipt recovery',state,value=>task(value,'cpp-002')?.status==='submitted');
     assert.equal(task(recovered,'cpp-002').id,unknownTask.id);
     for(const [tenant,id]of [['beta','web-001'],['alpha','cpp-001'],['alpha','cpp-002']])await verifyReceipt(tenant,id,resume);
-    const actual=await fixture();assert.equal(actual.submitRequests.length,3);assert.equal(actual.receipts.length,3);
+    const actual=await fixture();assert.equal(actual.submitRequests.length,3);assert.equal(actual.receipts.length,3);assert.equal(applicationHttpPosts.length,3);
     assert.deepEqual(pageErrors,[],'No dashboard, fixture, or extension page script errors');
-    evidence.summary={actualMultipartRequests:actual.submitRequests.length,acceptedReceipts:actual.receipts.length,submittedTasks:recovered.stats.demo.submitted,profileVersion:recovered.profile.version,resumeVersion:recovered.resume.version};
+    evidence.summary={actualMultipartRequests:actual.submitRequests.length,observedHttpApplicationPosts:applicationHttpPosts.length,acceptedReceipts:actual.receipts.length,submittedTasks:recovered.stats.demo.submitted,profileVersion:recovered.profile.version,resumeVersion:recovered.resume.version};
     assert.equal(evidence.summary.submittedTasks,3);
   });
   await check('附件同名同大小内容被换在预检前拦截；最终授权等待再换仍为零POST',async()=>{
@@ -388,7 +396,7 @@ async function workflow() {
     const held=await state();
     assert.equal(task(held,'design-001').status,'queued');assert.equal(task(held,'design-001').phase,'inspect');
     assert.equal(gated,false,'an exhausted allowance must not reach attachment preflight');
-    assert.equal(app.store.command,null);assert.equal((await fixture()).submitRequests.length,3);
+    assert.equal(app.store.command,null);assert.equal((await fixture()).submitRequests.length,3);assert.equal(applicationHttpPosts.length,3);
     // Keep the real quota-exhaustion evidence, then configure enough allowance for
     // the two additional fictional boundaries through the public settings API.
     await api('/settings',{settings:{...held.settings,dailyLimit:5},sites:held.sites});
@@ -397,7 +405,7 @@ async function workflow() {
     evidence.allowance={originalLimit:3,exhaustedBoundaries:3,blockedQueuedTask:true,extendedLimit:5};
     await until('attachment preflight refusal',state,value=>gated&&task(value,'design-001')?.status==='waiting_user');
     await context.unroute(FIXTURE+'/site/beta/session',sessionRoute);
-    assert.equal(requests(await fixture(),'beta','design-001').length,0);
+    assert.equal(requests(await fixture(),'beta','design-001').length,0);assert.equal(observedPosts('beta','design-001').length,0);
     assert.equal(app.store.task(target.id).submissionStarted,undefined);
     const page=context.pages().find(page=>page.url()===FIXTURE+'/site/beta/apply/design-001');
     await page.locator('input[type="file"]').setInputFiles([]);
@@ -415,7 +423,7 @@ async function workflow() {
     await action('task-resume',{taskId:target.id});
     await until('attachment swap during final authorization',state,value=>replaced&&task(value,'design-001')?.status==='unknown');
     await context.unroute(BASE+'/api/bridge/authorize',authorizationRoute);
-    assert.equal(requests(await fixture(),'beta','design-001').length,0);
+    assert.equal(requests(await fixture(),'beta','design-001').length,0);assert.equal(observedPosts('beta','design-001').length,0);
     assert.equal(task(await state(),'design-001').canResume,false);
     assert.equal(gated,true);assert.equal(replaced,true,'the real final-authorization request must be intercepted');
     assert.equal(app.store.task(target.id).submissionStarted,true);
@@ -434,13 +442,13 @@ async function workflow() {
     await action('task-resume',{taskId:target.id});
     await until('submit pause acknowledged by runner',state,value=>paused&&!app.store.command&&task(value,'sales-001')?.status==='unknown');
     await context.unroute(BASE+'/api/bridge/authorize',pauseRoute);
-    assert.equal(requests(await fixture(),'alpha','sales-001').length,0);
+    assert.equal(requests(await fixture(),'alpha','sales-001').length,0);assert.equal(observedPosts('alpha','sales-001').length,0);
     assert.equal(task(await state(),'sales-001').canResume,false);
     assert.equal(app.store.task(target.id).submissionStarted,true);
     assert.equal(paused,true,'the real final-authorization request must reach the pause gate');
     assert.equal(app.store.dailyUsed(),5,'safe pause retains the fifth boundary without posting an application');
-    const actual=await fixture();assert.equal(actual.submitRequests.length,3);assert.equal(actual.receipts.length,3);
-    evidence.safetyScenarios={attachmentPreflightReached:true,attachmentFinalAuthorizationReached:true,pauseFinalAuthorizationReached:true,attachmentPosts:0,pausePosts:0,retainedSubmissionBoundaries:5};
+    const actual=await fixture();assert.equal(actual.submitRequests.length,3);assert.equal(actual.receipts.length,3);assert.equal(applicationHttpPosts.length,3);
+    evidence.safetyScenarios={attachmentPreflightReached:true,attachmentFinalAuthorizationReached:true,pauseFinalAuthorizationReached:true,attachmentPosts:0,pausePosts:0,attachmentHttpPosts:observedPosts('beta','design-001').length,pauseHttpPosts:observedPosts('alpha','sales-001').length,totalHttpApplicationPosts:applicationHttpPosts.length,retainedSubmissionBoundaries:5};
   });
 }
 let watchdog;
@@ -457,8 +465,14 @@ try {
       command:app.store.command?{op:app.store.command.op,jobId:app.store.command.taskId?app.store.task(app.store.command.taskId).jobId:null}:null,
       queued:app.store.queue.map(command=>({op:command.op,siteId:command.siteId})),
       sites:snapshot.sites.map(site=>({id:site.id,login:site.login?.status,discoveryError:site.lastDiscoveryError||null})),
-      tasks:snapshot.tasks.map(task=>({jobId:task.jobId,status:task.status,phase:task.phase,issue:task.issue?.kind||null,lastStep:task.steps.at(-1)?.label||null,reason:task.issue?.kind==='manual'?safeDiagnostic(task.issue.detail).slice(0,150):null})),
-      fixtureEvents,pageErrors:pageErrors.slice(-3),consoleErrors:consoleErrors.slice(-3)};
+      tasks:snapshot.tasks.map(task=>({jobId:task.jobId,status:task.status,phase:task.phase,issue:task.issue?.kind||null,lastStep:task.steps.at(-1)?.label||null,reason:['manual','unknown'].includes(task.issue?.kind)?safeDiagnostic(task.steps.at(-1)?.detail || task.issue.detail).slice(0,150):null})),
+      fixtureEvents,applicationHttpPosts,pageErrors:pageErrors.slice(-3),consoleErrors:consoleErrors.slice(-3)};
+    const actual=await fixture();
+    evidence.failureState.fixtureSummary={requests:actual.submitRequests.length,receipts:actual.receipts.map(receipt=>{
+      const task=app.store.state.tasks.find(task=>task.jobId===receipt.jobId&&app.store.site(task.siteId).tenant===receipt.tenant);
+      const locked=task?.resumeSnapshot;
+      return {jobId:receipt.jobId,nameMatches:receipt.fileName===locked?.name,sizeMatches:receipt.fileSize===locked?.size,hashMatches:receipt.sha256===locked?.sha256};
+    })};
     notice('Fictional workflow state at failure',evidence.failureState);
     await pairingDiagnostic(context?.serviceWorkers()[0]);
   }catch{notice('Fictional workflow state at failure',{readFailed:true});}

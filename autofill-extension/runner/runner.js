@@ -213,7 +213,7 @@ async function execute(command) {
     let clicked;
     try{
       clicked=await commitMutation(tab,expect,prepared.token);
-      if(clicked?.ok || (clicked && clicked.kind!=='unknown'))return {...clicked,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
+      if(clicked?.ok || clicked?.attempted===false)return {...clicked,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
     }catch{}
     // A normal form navigation destroys the injected world. Only read the resulting browser page.
     for(let i=0;i<10;i++){
