@@ -1,5 +1,7 @@
 # 可靠性与自检优化阶段报告
 
+最新交付见文末“PM-0007 返工与真实扩展交付（DEV-0025）”；前面记录保留各阶段真实失败与当时限制，不代表最新状态。
+
 状态：开发中，沿用 WIP [PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4)，由产品经理验收。接续 `07457419c021fb3bbe665dbcaed7acee166aab47` 和 Issue #1 的 DEV-0018/DEV-0019。前阶段真实浏览器失败证据保留在 DEV_REPORT_001.md；不得将本轮计划当作通过结果。
 
 本轮改动：
@@ -74,3 +76,75 @@
 | 16 凭据隔离/非生产清理 | 仅虚构数据，Node测试隔离目录；未启生产profile | 未验证 |
 
 Issue追加DEV-0023及PR正文更新被API403阻断；本报告通过同一分支提交保存供复核，不声称已在Issue发表评论或已触发产品经理。下一步责任人仍为开发者，在API可用后完成回写、调度和实际修复；只有产品经理可验收。Windows、真实网站、个人账号和真实申请均未验证。
+
+## 2026-10-20 · PM-0007 返工与真实扩展交付（DEV-0025）
+
+状态：开发交付待产品经理验收，PR #4 保持 WIP。接续原分支，没有从 main 重做；本轮执行地点仍为 Cloud `/workspace/job-application-assistant`，Node v24.19.0 / Linux x86_64。浏览器仅在 GitHub 托管 runner、已固定的官方 Playwright 1.58.2 镜像及隔离 profile 内执行。没有使用用户电脑安装或代跑，也未使用真实申请资料。
+
+### 最新被测版本与结果
+
+被测提交：`9cfe16883a0500e78960a6cbf18662f844449f4d`。实际 `workflow_dispatch`：[39373798995](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39373798995)，输入 `browser=workflow`。此事件检出上述开发分支 SHA，不是 PR 合并预览。本报告的后续提交仅更新文档，不能代称另一代码版本已跑过浏览器。
+
+已通过Checks API核对本轮事件、完整head SHA、两个作业结论及唯一最终结果通知：
+
+- `source-and-unit`成功：42个源码/JSON文件检查；原扩展20项 + local-app Node 118项，共138项通过，0失败、0取消、0跳过。Cloud同一测试命令也实际138/138通过。文件检查不混入测试数。
+- `browser`成功，完整12/12段执行且全部通过，失败通知0。不是重跑旧SHA或重跑skipped作业。具体12段名称保存在最终Checks通知和结果artifact中。
+- 独立HTTP观察器共记录3次申请POST；fixture实际multipart记录3、唯一回执3、已核实任务3。每个岗位的接收文件名称、大小、SHA-256及实际文件字节摘要均经脚本逐项核对。
+- 保留被拒B页、关闭A、实际后台按钮恢复后，运行执行器恰好1个，恢复不增加POST。真实关浏览器断线、服务/profile重启、原任务和版本保留均通过。
+- 额度3耗尽确实阻止第四任务；正常设为5后，附件预检、附件最终授权、暂停最终授权三个目标点均被真实触达。附件换文件场景和单项暂停场景各0 HTTP POST、0 fixture申请记录，最终仍只有3份接收，五个提交边界保留。
+- 当前结果不等于产品验收；下表保留16项中仅Node/VM及未覆盖的分支。
+
+此前 PM-0007 复核的 [39296539584](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39296539584) 是 PR 事件：head `cdf39b9c15dd3907bf5208fc1fbe1395e5986981`，实际合并预览 `4e12e9ba71fa430e4601d5011e560d66d0e39a0f`（main `a6e9f1b`）。该轮125项通过、browser skipped，不能替代本轮真实扩展结果。此前报告中的89d35a4是当时代码提交；此处明确给出本轮完整被测 SHA 与事件类型。
+
+### 本轮修复
+
+- 执行页恢复先用精确文档、目标 tabId 和扩展内部只读 probe 确认已经注册并启动循环；busy或后台暂时断线不被误判为停止。优先复用实际运行页；只在没有活循环时重载选中的停止页或创建新页，并有界等待启动。被拒B保留、关闭A、通过真实后台按钮恢复B后，实际仅有一个执行器和新的后台心跳，申请POST没有增加。启动超时/探测API异常/并发恢复另有VM回归，不冒充这些异常都已在Chrome复现。
+- 保留额度3、三个提交边界耗尽后第四任务确实不能派发的证据，再经正常`/api/settings`把额度设为5执行后两段安全场景；未删任务历史、未改submitDay、未放宽产品限额。
+- 真实请求表明扩展`tabs.update`导航被浏览器标记为无Origin的`cross-site/navigate/document`。fixture仅对已识别招聘页面的这种顶层GET导航例外；Host和显式Origin校验、跨站fetch/iframe/POST/session/测试接口限制、无CORS及SameSite均保留。HTTP安全矩阵13项fixture测试通过，所有拒绝请求前后fixture状态不变。
+- fixture改用`Referrer-Policy: same-origin`，继续拒绝null/外部Origin。之前同源原生POST被拒的实际证据为Origin类别other，不能倒写为已捕获具体null值；[WHATWG Fetch的Origin处理规则](https://github.com/whatwg/fetch/blob/main/fetch.bs#L3703)支持no-referrer会使非CORS原生POST的Origin变为null的诊断。改响应策略后原POST403消失，没有把null列入白名单；后台的no-referrer策略未修改。
+- 原生表单跳转可能让`scripting.executeScript`丢失提交返回值；原代码把缺失结果包装为failure后提前退出，跳过只读回执恢复。现仅在可靠成功或明确attempted:false时提前返回，其余沿既有只读核对路径读取结果页。不再次点击、不删除账本；缺回执仍unknown。新增VM验证一次点击后丢返回值、只读读取可靠回执；无回执时仍只点击一次并保留账本。
+- 浏览器证据现在独立观察fixture HTTP层的每一个申请POST，包括Origin guard之前被拒的请求；观察器跨服务重启累计，仅存虚构tenant/jobId。零POST及重复投递断言同时核对HTTP观察数、fixture请求数组和唯一回执，避免403/409掩盖已发出的请求。
+- 12段全部完成后显式断言执行数量，输出一条字段受限的最终Checks汇总，并保留结果JSON artifact。解决GitHub每步通知数量上限只呈现前10段、后两段缺少可读汇总的问题；没有减少断言或模拟插件配对。
+
+### 运行历史与失败保留
+
+| 运行 | 被测提交 | 真实结果 |
+| --- | --- | --- |
+| [39371931843](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39371931843) | 40ad984 | 基础132项通过；配对/B页恢复及UI通过，第三段等待beta申请页超时 |
+| [39372227014](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39372227014) | 12224d1 | 加入安全状态诊断；发现5任务成功，beta检查因fixture403暂停 |
+| [39372468396](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39372468396) | 237ca1c | 取得GET alpha/login、beta/jobs/web-001的精确导航元数据403证据 |
+| [39372803353](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39372803353) | c02a1a4 | 前4段通过；beta已到原生POST，但来源检查403导致unknown |
+| [39373098990](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39373098990) | c6f73bd | POST403消失；提交返回值丢失后提前退出，仍未核实回执 |
+| [39373382690](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39373382690) | b77e476 | source-and-unit与browser整体成功；Checks只有前10条阶段通知，继续补完整最终汇总 |
+| [39373798995](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39373798995) | 9cfe168 | 基础138项及浏览器12/12通过，最终汇总确认3次HTTP POST、3份回执、两安全场景0POST、5个提交边界 |
+
+### CLOUD_HANDOFF 16项证据对照
+
+“实际扩展”仅指本地虚构fixture和本轮固定脚本；不扩展为真实招聘网站、Windows或产品经理已验收。
+
+| 项 | 实际扩展已验证范围 | 仍仅Node/VM或未覆盖 |
+| --- | --- | --- |
+| 1 连接/断线/重连 | 按钮配对、实际心跳；保留B关A后唯一执行器恢复；浏览器关闭断线及重启 | 其他启动API异常/超时主要VM |
+| 2 发现/筛选/去重 | 真实列表；详情/申请页带参链接仍为同一任务 | 未适配完整query/hash归一化仅Node |
+| 3 填写/附件/唯一提交 | 多段教育/经历、实际multipart字节、附件摘要、独立HTTP计数和唯一回执 | Windows/真实站点未验证 |
+| 4 缺答/补答 | 后台原问题、确认答案后同任务完成，POST一次 | 不同原文/用途的负例主要Node/VM |
+| 5 暂停/接管 | 全局/单项暂停、人工原值保留、最终授权前暂停零POST | 其他异步暂停窗口主要VM |
+| 6 未知结果不重投 | 已接收后丢回执且会话失效；重启、再登录和只读核对无额外POST | 其他崩溃/租约竞态主要Node/VM |
+| 7 持久化 | 浏览器和服务重启后任务、设置、资料/附件版本、边界保留 | 进行中任务单独刷新全过程未覆盖 |
+| 8 计划/额度 | 到期计划尊重手动暂停；额度3用尽、正常设5；历史边界保留 | 受控时钟、跨日、错过计划/恢复策略仅Node |
+| 9 演示/未适配/变化页 | 本轮全部申请只访问本地fixture；换附件会停止 | 拒绝真实网站、未适配、失效页、结构变化、人工验证的真实浏览器负例未覆盖 |
+| 10 资料/敏感/原值/通用填写 | 通用引擎多段填写、人工原值、附件变更保护 | schema、敏感/凭据字段、结构变化负例主要Node/VM；独立generic浏览器套件未运行 |
+| 11 登录复查 | alpha未登录等待；同执行profile实际登录、复查恢复原任务 | 未登录反复点重新检查仍不ready的明确负例未覆盖 |
+| 12 profile/会话 | 同一profileId跨重启；失效alpha会话再登录恢复 | 其他profile登录不误认未覆盖；有效cookie跨重启保留与主动清除后的丢失两分支未分别覆盖。beta公开会话不算cookie保留证据 |
+| 13 聚合/继续/跳过 | alpha两任务一个登录待办；beta继续；任务跳过同ID恢复 | 整站跳过/恢复及原因保留主要Node |
+| 14 执行中失效 | 提交发出后失效保持unknown，再登录只核对不重投 | 提交前执行中失效、登录后继续尚未真实覆盖 |
+| 15 身份/状态区分 | 实际断线/重连可见 | unknown账号、账号/租户不符、未适配、切profile重新检测主要Node/VM，真实负例未覆盖 |
+| 16 凭据/清理 | 仅虚构数据；不采截图/录像；证据字段受限；仅清理隔离目录 | 未输入真实密码/OTP，不能声称真实凭据泄漏负例已验收；路径保护另有Node证据 |
+
+### 协作与环境限制
+
+当前实例已实际通过GitHub API读取、workflow_dispatch、Issue回写；旧API403不再作为当前障碍。源码及报告在同一开发分支和PR #4交付；Issue实际接手记录为[DEV-0023](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6283665244)、[DEV-0024](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6283740720)，不能把之前仅仓库报告误称早已发过Issue。
+
+日志/产物下载仍在重定向到`results-receiver.actions.githubusercontent.com`及`productionresultssa8.blob.core.windows.net`时403。已保存这两个精确域名的放行草稿，保留api.github.com和原包管理器预设；需在环境设置审阅保存并发布，保存草稿没有证明运行时已应用或新任务已恢复。当前已通过Checks API核对运行事件、完整SHA、作业结论和最终执行汇总；artifact元数据可读，下载正文未验证。不把此下载限制代称产品功能失败，也未要求用户电脑代跑。
+
+12段通过是本地虚构流程的开发证据，不等于16项全部完成或产品验收。后续由产品经理复核本PR及上述缺口；Windows、真实招聘站、个人账号和真实申请仍未验收。没有合入PR或声称另一对话已被自动唤起。
