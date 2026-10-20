@@ -12,7 +12,7 @@ $evidenceDir = Join-Path $sourceRoot '.runtime\tests\evidence'
 New-Item -ItemType Directory -Force -Path $testCopy,$evidenceDir | Out-Null
 $evidenceFile = Join-Path $evidenceDir 'windows-candidate.json'
 $results = New-Object Collections.ArrayList
-$context = @{ key = $null; taskId = $null; fileHash = $null; serverPid = $null; lastCommand = $null }
+$context = @{ key = $null; taskId = $null; fileHash = $null; serverPid = $null; lastCommand = $null; commandIndex = 0 }
 $currentCase = 'copy-candidate'
 $result = @{status='RUNNING'; commit=$env:GITHUB_SHA; githubActions=$true; platform='Windows'; powershell=$PSVersionTable.PSVersion.ToString(); candidateArchiveInput=[bool]$CandidateRoot; isolatedPathContainsSpacesAndChinese=$true; browserStarted=$false; browserInstalled=$false; results=$results}
 $exitCode = 0
@@ -25,25 +25,38 @@ function Check([string]$name,[scriptblock]$body) {
     & $body
     $null = $results.Add(@{name=$name;status='PASS'})
     Write-Host ('PASS ' + $name)
+    if ($results.Count -in @(3,6)) { Write-Host ('::notice title=Windows candidate progress::' + ($results.Count.ToString() + '/9 completed')) }
+}
+function Read-CommandOutput([string]$file) {
+    if (-not (Test-Path -LiteralPath $file)) { return '' }
+    # These are regular files, not inherited pipes. Read a bounded snapshot even
+    # if the long-lived service still has an unused inherited file handle.
+    $stream = [IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+    $reader = [IO.StreamReader]::new($stream,[Text.Encoding]::Default,$true)
+    try {
+        $characters = New-Object char[] 32768
+        $count = $reader.ReadBlock($characters,0,$characters.Length)
+        return [string]::new($characters,0,$count)
+    } finally { $reader.Dispose() }
 }
 function Invoke-Candidate([string]$file,[string]$arguments='') {
+    if ($file -notin @('启动.cmd','停止.cmd') -or $arguments -notin @('','-BackendOnly') -or ($file -eq '停止.cmd' -and $arguments)) { throw 'COMMAND_NOT_ALLOWED: Only the fixed candidate wrappers and backend-only argument may run.' }
     $command = Join-Path $testCopy $file
+    $context.commandIndex = [int]$context.commandIndex + 1
+    $outputFile = Join-Path $testParent ('command-' + $context.commandIndex + '.stdout.log')
+    $errorFile = Join-Path $testParent ('command-' + $context.commandIndex + '.stderr.log')
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $env:ComSpec
-    $info.Arguments = '/d /s /c ""' + $command + '" ' + $arguments + '"'
+    $info.Arguments = '/d /s /c ""' + $command + '" ' + $arguments + ' 1>"' + $outputFile + '" 2>"' + $errorFile + '""'
     $info.WorkingDirectory = $testCopy
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
-    $info.RedirectStandardOutput = $true
-    $info.RedirectStandardError = $true
     $info.EnvironmentVariables['JOB_ASSISTANT_NONINTERACTIVE'] = '1'
     $child = New-Object Diagnostics.Process
     $child.StartInfo = $info
     $null = $child.Start()
-    $stdout = $child.StandardOutput.ReadToEndAsync()
-    $stderr = $child.StandardError.ReadToEndAsync()
     if (-not $child.WaitForExit(35000)) { $child.Kill(); throw 'COMMAND_TIMEOUT: Candidate command exceeded its bounded deadline.' }
-    $output = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
+    $output = (Read-CommandOutput $outputFile) + (Read-CommandOutput $errorFile)
     $context.lastCommand = @{entry=$file;exitCode=$child.ExitCode;markers=@([Regex]::Matches($output,'\b[A-Z][A-Z0-9_]+:') | ForEach-Object {$_.Value.TrimEnd(':')} | Select-Object -Unique)}
     return @{exitCode=$child.ExitCode;output=$output}
 }
