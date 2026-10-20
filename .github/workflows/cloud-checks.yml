@@ -18,6 +18,11 @@ on:
           - acceptance-a
           - acceptance-b
           - acceptance-c
+          - site-readiness
+          - source-package
+          - windows-candidate
+          - demo
+          - candidate
 
 permissions:
   contents: read
@@ -57,7 +62,7 @@ jobs:
         run: node --test local-app/tests/*.test.mjs
   browser:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","acceptance-a","acceptance-b","acceptance-c","demo","candidate"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
@@ -82,6 +87,8 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
       CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
+      # Screenshots are opt-in only for this reviewed fictional demonstration.
+      CLOUD_DEMO_CAPTURE: ${{ (inputs.browser == 'demo' || inputs.browser == 'candidate') && 'reviewed-fictional' || '' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -100,12 +107,108 @@ jobs:
       - name: Verify and copy the image Chromium into checkout-local runtime
         run: node scripts/cloud-check.mjs container-browser
       - name: Run the single selected browser regression
-        run: xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
+        run: |
+          if [[ "$CLOUD_BROWSER_CHECK" == demo || "$CLOUD_BROWSER_CHECK" == candidate ]]; then
+            xvfb-run --auto-servernum node local-app/tests/demo-browser.mjs
+          else
+            xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
+          fi
       - name: Preserve fictional workflow evidence, including failures
         if: ${{ always() && (inputs.browser == 'workflow' || startsWith(inputs.browser, 'acceptance-')) }}
         uses: actions/upload-artifact@v6
         with:
           name: fictional-workflow-evidence
           path: /workspace/.runtime/tests/evidence/*browser*.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve only reviewed fictional demonstration media
+        if: ${{ success() && (inputs.browser == 'demo' || inputs.browser == 'candidate') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-demo-reviewed
+          path: /workspace/.runtime/tests/evidence/demo-reviewed/
+          if-no-files-found: error
+          retention-days: 3
+
+  site-readiness:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.browser == 'site-readiness' || inputs.browser == 'candidate') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Read only public recruitment entry points
+        env:
+          SITE_RESEARCH_READONLY: '1'
+        run: node scripts/research-recruitment.mjs
+      - name: Preserve bounded public entry evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: public-site-readiness
+          path: .runtime/research/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  candidate-package:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate"]'), inputs.browser) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build and verify source-only candidate
+        run: node scripts/package-candidate.mjs build
+      - uses: actions/upload-artifact@v6
+        with:
+          name: source-candidate
+          path: .runtime/delivery/*
+          if-no-files-found: error
+          retention-days: 7
+
+  candidate-windows:
+    needs: candidate-package
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.browser == 'windows-candidate' || inputs.browser == 'candidate') }}
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@v6
+        with:
+          name: source-candidate
+          path: .runtime/candidate-download
+      - name: Verify actual candidate and exercise Windows service scripts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateZip = @(Get-ChildItem -LiteralPath '.runtime/candidate-download' -Filter '*.zip')
+          if ($candidateZip.Count -ne 1) { throw 'Expected exactly one source candidate ZIP.' }
+          node scripts/package-candidate.mjs verify $candidateZip[0].FullName --extract '.runtime/candidate smoke 目录'
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate source verification failed.' }
+          & scripts/test-windows-candidate.ps1 -CandidateRoot (Join-Path $PWD '.runtime/candidate smoke 目录')
+      - name: Preserve bounded Windows evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-candidate-evidence
+          path: .runtime/delivery/windows-candidate.json
           if-no-files-found: warn
           retention-days: 7
