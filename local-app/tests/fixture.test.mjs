@@ -221,3 +221,65 @@ test('runtime path restrictions prevent writes outside .runtime or through symli
   fs.symlinkSync('/tmp',link,'dir');
   await assert.rejects(()=>createFixture({dataDir:path.join(link,'must-not-write-'+randomUUID()),port:0}),/符号链接/);
 });
+
+
+// Native HTTP preserves the exact Fetch Metadata under test; Node fetch may
+// supply its own Sec-Fetch-Mode. This is HTTP guard coverage, not a browser run.
+function metadataRequest(fixture,pathname,{method='GET',headers={},body}={}) {
+  return new Promise((resolve,reject)=>{
+    const request=http.request(fixture.url+pathname,{method,headers},response=>{
+      const chunks=[];response.on('data',chunk=>chunks.push(chunk));
+      response.on('end',()=>resolve({status:response.statusCode,headers:response.headers,text:Buffer.concat(chunks).toString('utf8')}));
+      response.on('error',reject);
+    });
+    request.on('error',reject);request.end(body);
+  });
+}
+const navigationHeaders={'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document'};
+test('origin-less cross-site top-level GET navigation can open only fixture recruiting pages',async t=>{
+  const fixture=await setup(t);
+  for(const pathname of ['/site/alpha/login','/site/beta/jobs','/site/beta/jobs/web-001','/site/beta/apply/web-001','/site/beta/receipt/web-001']){
+    const response=await metadataRequest(fixture,pathname,{headers:navigationHeaders});
+    assert.equal(response.status,200,pathname);
+    assert.equal(response.headers['access-control-allow-origin'],undefined);
+    assert.match(response.headers['content-security-policy'],/frame-ancestors 'none'/);
+    assert.match(response.headers['set-cookie'][0],/HttpOnly; SameSite=Strict/);
+  }
+  const state=(await testApi(fixture,'state')).body;
+  assert.equal(state.submitRequests.length,0);assert.equal(state.receipts.length,0);
+});
+test('navigation exception rejects fetches, subframes, mutations, session JSON and test hooks without side effects',async t=>{
+  const fixture=await setup(t),before=(await testApi(fixture,'state')).body;
+  const cases=[
+    ...['cors','no-cors','same-origin',''].map(mode=>({headers:{...navigationHeaders,'Sec-Fetch-Mode':mode}})),
+    ...['iframe','frame','image','empty',''].map(dest=>({headers:{...navigationHeaders,'Sec-Fetch-Dest':dest}})),
+    ...['POST','PUT','DELETE','OPTIONS','HEAD'].map(method=>({method,headers:navigationHeaders})),
+    ...['/site/beta/session','/__test/state','/__test/session','/site/beta/login/web-001','/site/beta/apply','/site/beta/unrecognized','/'].map(pathname=>({pathname,headers:{...navigationHeaders,'X-Fixture-Test-Key':TEST_KEY}})),
+    {pathname:'/__test/session',method:'POST',headers:{...navigationHeaders,'X-Fixture-Test-Key':TEST_KEY,'Content-Type':'application/json'},body:JSON.stringify({tenant:'beta',status:'expired',allSessions:true})}
+  ];
+  for(const entry of cases){
+    const {pathname='/site/beta/jobs/web-001',...options}=entry;
+    assert.equal((await metadataRequest(fixture,pathname,options)).status,403,`${options.method || 'GET'} ${pathname} ${options.headers['Sec-Fetch-Mode']}/${options.headers['Sec-Fetch-Dest']}`);
+  }
+  assert.deepEqual((await testApi(fixture,'state')).body,before,'all refused requests stop before sessions or application state can change');
+});
+test('navigation exception keeps exact Host and explicit Origin protection including null or extension origins',async t=>{
+  const fixture=await setup(t),before=(await testApi(fixture,'state')).body;
+  for(const Origin of ['https://untrusted.example','null','chrome-extension://'+'a'.repeat(32),fixture.url,'']){
+    const response=await metadataRequest(fixture,'/site/beta/jobs/web-001',{headers:{...navigationHeaders,Origin}});
+    assert.equal(response.status,403,'cross-site exception requires an absent Origin header');
+  }
+  const response=await metadataRequest(fixture,'/site/beta/jobs/web-001',{headers:{...navigationHeaders,Host:'untrusted.example'}});
+  assert.equal(response.status,403);
+  assert.deepEqual((await testApi(fixture,'state')).body,before);
+});
+test('same-origin session fetch keeps the actual tenant cookie and does not gain cross-site read access',async t=>{
+  const fixture=await setup(t),{cookie,login:current}=await session(fixture,'alpha');
+  const response=await metadataRequest(fixture,'/site/alpha/session',{headers:{Cookie:cookie,Origin:fixture.url,'Sec-Fetch-Site':'same-origin','Sec-Fetch-Mode':'cors','Sec-Fetch-Dest':'empty'}});
+  assert.equal(response.status,200);assert.deepEqual(JSON.parse(response.text).login,current);
+  assert.equal(response.headers['set-cookie'],undefined);assert.equal(response.headers['access-control-allow-origin'],undefined);
+  const denied=await metadataRequest(fixture,'/site/alpha/session',{headers:{Cookie:cookie,...navigationHeaders}});
+  assert.equal(denied.status,403);
+  const state=(await testApi(fixture,'state')).body;
+  assert.equal(state.submitRequests.length,0);assert.equal(state.receipts.length,0);
+});

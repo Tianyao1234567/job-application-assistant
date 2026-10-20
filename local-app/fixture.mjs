@@ -174,10 +174,16 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
     return session;
   }
   const publicLogin=session=>({status:session.status,account:session.account || '',tenant:session.tenant});
-  function validOrigin(request) {
+  function validOrigin(request,pathname) {
     if(request.headers.host!==`127.0.0.1:${actualPort}`)throw new RequestError(403,'Host 不属于本地招聘测试站。');
     if(request.headers.origin && request.headers.origin!==origin())throw new RequestError(403,'请求来源不属于本地招聘测试站。');
-    if(request.headers['sec-fetch-site']==='cross-site')throw new RequestError(403,'禁止跨站访问。');
+    // Extension tabs.open/update can produce cross-site top-level navigation
+    // metadata without an Origin header. Permit only ordinary fixture pages;
+    // session JSON, test hooks, subresources and every mutation stay protected.
+    const pageNavigation=request.method==='GET' && request.headers.origin===undefined &&
+      request.headers['sec-fetch-mode']==='navigate' && request.headers['sec-fetch-dest']==='document' &&
+      /^\/site\/(?:alpha|beta)\/(?:jobs(?:\/[a-zA-Z0-9_-]{1,80})?|(?:apply|receipt)\/[a-zA-Z0-9_-]{1,80}|login)$/.test(pathname);
+    if(request.headers['sec-fetch-site']==='cross-site' && !pageNavigation)throw new RequestError(403,'禁止跨站访问。');
   }
   async function testRoute(request,response,pathname) {
     if(!testMode)throw new RequestError(404,'页面不存在。');
@@ -207,8 +213,8 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
   }
   const server=http.createServer(async(request,response)=>{
     try {
-      validOrigin(request);
       const parsed=new URL(request.url,origin()),pathname=parsed.pathname;
+      validOrigin(request,pathname);
       if(pathname.startsWith('/__test/'))return await testRoute(request,response,pathname);
       if(pathname==='/' && request.method==='GET')return send(response,302,'','text/html; charset=utf-8',{Location:'/site/alpha/jobs'});
       const match=/^\/site\/(alpha|beta)\/(jobs|apply|login|receipt|session)(?:\/([a-zA-Z0-9_-]{1,80}))?$/.exec(pathname);
