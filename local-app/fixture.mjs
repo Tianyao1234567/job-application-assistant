@@ -271,13 +271,16 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
           attempt.accepted=true;attempt.outcome='accepted';
           if(scenario.expireSessionOnSubmit)session.status='expired';
           try{persist();}catch(error){delete state.receipts[keyFor(tenant,job.id,session.account)];attempt.accepted=false;attempt.outcome='storage-failure';fs.unlinkSync(storedFile);throw error;}
-          return html('申请结果',scenario.loseReceipt || scenario.hideReceipt || session.status!=='ready'?'<p>暂未显示可靠回执，请到原岗位核对申请记录，勿重复提交。</p>':receiptHtml(receipt));
+          // Complete native submission with a GET result document so reloading
+          // that document cannot replay the multipart POST. A lost visible result
+          // stays hidden only at this pending URL; canonical verification is read-only.
+          return send(response,303,'','text/html; charset=utf-8',{Location:`/site/${tenant}/receipt/${job.id}${scenario.loseReceipt?'?pending=1':''}`});
         } catch(error) {attempt.outcome=error instanceof RequestError?'rejected':'storage-failure';persist();throw error;}
       }
       if(request.method!=='GET')throw new RequestError(405,'请求方法不支持。');
       if(session.status!=='ready')return html('需要准备账号',`<p>尚未登录、登录失效或需要人工验证。请先在此浏览器处理账号准备。</p><a href="/site/${tenant}/login">打开账号准备</a>`);
       const receipt=currentReceipt();
-      if(receipt && !scenario.hideReceipt)return html('申请回执',receiptHtml(receipt));
+      if(receipt && !scenario.hideReceipt && !(scenario.loseReceipt && route==='receipt' && parsed.searchParams.get('pending')==='1'))return html('申请回执',receiptHtml(receipt));
       if(route==='receipt')return html('核对申请记录','<p>当前未显示可核实的申请回执。没有回执不表示可以再次提交。</p>');
       if(receipt)return html('申请结果待核实','<p>暂未显示可靠回执，请核对申请记录，勿重复提交。</p>');
       return html(job.title+' · 申请',applicationHtml(tenant,job,session.account,scenario));

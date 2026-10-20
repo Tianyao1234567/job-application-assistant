@@ -53,7 +53,9 @@ await h.run(async()=>{
     };
     page.on('dialog',dialog);
     try{
-      await page.reload({waitUntil:'domcontentloaded'});
+      const response=await page.reload({waitUntil:'domcontentloaded'});
+      assert.equal(h.posts().length,before,'refresh must not issue another native application POST');
+      assert.equal(response.request().method(),'GET','the native result must reload as a read-only document');
       await page.locator('[data-session-status]').waitFor();
       if(receipt)await page.locator('[data-receipt-id]').waitFor();
       await delay(400);

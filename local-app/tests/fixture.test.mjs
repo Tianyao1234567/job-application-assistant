@@ -33,8 +33,8 @@ function form(tenant='beta',jobId='web-001',account='demo') {
   value.set('resume',new File([RESUME],'fictional-resume.txt',{type:'text/plain'}));
   return value;
 }
-async function submit(fixture,cookie,{tenant='beta',jobId='web-001',account='demo',body=form(tenant,jobId,account)}={}) {
-  return fetch(fixture.url+`/site/${tenant}/apply/${jobId}`,{method:'POST',headers:{Cookie:cookie,Origin:fixture.url},body});
+async function submit(fixture,cookie,{tenant='beta',jobId='web-001',account='demo',body=form(tenant,jobId,account),redirect='follow'}={}) {
+  return fetch(fixture.url+`/site/${tenant}/apply/${jobId}`,{method:'POST',redirect,headers:{Cookie:cookie,Origin:fixture.url},body});
 }
 async function testApi(fixture,route,body,key=TEST_KEY) {
   const response=await fetch(fixture.url+'/__test/'+route,{method:body?'POST':'GET',headers:{'X-Fixture-Test-Key':key,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
@@ -352,4 +352,72 @@ test('unavailable control requires authenticated test mode and keeps Host/Origin
   assert.equal((await testApi(production,'scenario',body)).status,404);
   const normal=await fetch(production.url+'/site/beta/apply/web-001?unavailable=true');
   assert.equal(normal.status,200);assert.doesNotMatch(await normal.text(),/data-page-status="unavailable"/);
+});
+
+
+test('accepted native POST redirects to a GET result; repeated result GETs never add application POSTs',async t=>{
+  const fixture=await setup(t),{cookie}=await session(fixture),requests=[];
+  fixture.server.on('request',request=>requests.push({method:request.method,url:request.url}));
+  const response=await submit(fixture,cookie,{redirect:'manual'});
+  assert.equal(response.status,303);
+  assert.equal(response.headers.get('location'),'/site/beta/receipt/web-001');
+  assert.equal(await response.text(),'');
+  assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.equal(response.headers.get('access-control-allow-origin'),null);
+  assert.match(response.headers.get('content-security-policy'),/form-action 'self'; frame-ancestors 'none'/);
+  const before=(await testApi(fixture,'state')).body;
+  assert.equal(before.submitRequests.length,1);assert.equal(before.submitRequests[0].accepted,true);assert.equal(before.receipts.length,1);
+  for(let count=0;count<3;count++){
+    const result=await fetch(fixture.url+response.headers.get('location'),{headers:{Cookie:cookie}});
+    assert.equal(result.status,200);assert.match(await result.text(),/data-receipt-id=/);
+  }
+  const after=(await testApi(fixture,'state')).body;
+  assert.deepEqual(after.submitRequests,before.submitRequests);assert.deepEqual(after.receipts,before.receipts);
+  assert.equal(requests.filter(request=>request.method==='POST'&&request.url==='/site/beta/apply/web-001').length,1);
+  assert.equal(requests.filter(request=>request.method==='GET'&&request.url==='/site/beta/receipt/web-001').length,3);
+});
+
+test('lost native result redirects to a stable pending GET while canonical verification retains the accepted receipt',async t=>{
+  const fixture=await setup(t),{cookie}=await session(fixture);
+  await testApi(fixture,'scenario',{tenant:'beta',jobId:'web-001',loseReceipt:true});
+  const response=await submit(fixture,cookie,{redirect:'manual'});
+  assert.equal(response.status,303);assert.equal(response.headers.get('location'),'/site/beta/receipt/web-001?pending=1');
+  assert.equal(await response.text(),'');
+  const before=(await testApi(fixture,'state')).body;
+  assert.equal(before.submitRequests.length,1);assert.equal(before.receipts.length,1);assert.equal(before.receipts[0].sha256,DIGEST);
+  for(let count=0;count<2;count++){
+    const pending=await fetch(fixture.url+response.headers.get('location'),{headers:{Cookie:cookie}});
+    assert.equal(pending.status,200);assert.doesNotMatch(await pending.text(),/data-receipt-id=|data-application-form/);
+    const canonical=await fetch(fixture.url+'/site/beta/receipt/web-001',{headers:{Cookie:cookie}});
+    assert.equal(canonical.status,200);assert.match(await canonical.text(),/data-receipt-id=/);
+  }
+  const application=await fetch(fixture.url+'/site/beta/apply/web-001?pending=1',{headers:{Cookie:cookie}});
+  assert.match(await application.text(),/data-receipt-id=/,'pending only hides the receipt result document, never changes apply semantics');
+  const after=(await testApi(fixture,'state')).body;
+  assert.deepEqual(after.submitRequests,before.submitRequests);assert.deepEqual(after.receipts,before.receipts);
+  assert.equal((await fetch(fixture.url+'/site/beta/receipt/web-001?pending=1',{headers:{Cookie:cookie,Origin:'https://untrusted.example'}})).status,403);
+  assert.equal((await metadataRequest(fixture,'/site/beta/receipt/web-001?pending=1',{headers:{Cookie:cookie,Host:'untrusted.example'}})).status,403);
+  assert.deepEqual((await testApi(fixture,'state')).body,after);
+});
+
+test('PRG keeps hidden receipt and session-expiry protection until their original conditions are corrected',async t=>{
+  for(const flag of ['hideReceipt','expireSessionOnSubmit']){
+    const fixture=await setup(t),{cookie}=await session(fixture);
+    await testApi(fixture,'scenario',{tenant:'beta',jobId:'web-001',[flag]:true});
+    const response=await submit(fixture,cookie,{redirect:'manual'});
+    assert.equal(response.status,303,flag);assert.equal(response.headers.get('location'),'/site/beta/receipt/web-001',flag);
+    for(let count=0;count<2;count++){
+      const result=await fetch(fixture.url+response.headers.get('location'),{headers:{Cookie:cookie}});
+      assert.equal(result.status,200);const html=await result.text();assert.doesNotMatch(html,/data-receipt-id=|data-application-form/);
+      if(flag==='expireSessionOnSubmit')assert.match(html,/data-session-status="expired"/);
+    }
+    const before=(await testApi(fixture,'state')).body;
+    assert.equal(before.submitRequests.length,1);assert.equal(before.receipts.length,1);assert.equal(before.receipts[0].sha256,DIGEST);
+    if(flag==='hideReceipt')await testApi(fixture,'scenario',{tenant:'beta',jobId:'web-001',hideReceipt:false});
+    else await login(fixture,cookie,'beta');
+    const verified=await fetch(fixture.url+'/site/beta/receipt/web-001',{headers:{Cookie:cookie}});
+    assert.match(await verified.text(),/data-receipt-id=/);
+    const after=(await testApi(fixture,'state')).body;
+    assert.deepEqual(after.submitRequests,before.submitRequests);assert.deepEqual(after.receipts,before.receipts);
+  }
 });
