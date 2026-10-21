@@ -46,11 +46,16 @@ async function run(){
     const item={company:source.company,officialSource:source.url,stages:[],outcome:'STOPPED'};result.candidates.push(item);
     const status=await navigate(source.url),home=await observe();item.stages.push({phase:'official',url:publicUrl(home.url),status,title:home.title});
     if(status==='NAVIGATION_FAILED'||status>=400||!home.title.toLowerCase().includes(source.company.toLowerCase())){item.stop='OFFICIAL_SOURCE_NOT_VERIFIED';continue;}
-    const outbound=home.links.find(link=>/^(?:jobs\.lever\.co|jobs\.eu\.lever\.co|job-boards\.greenhouse\.io|boards\.greenhouse\.io)$/.test(new URL(link.href).hostname)&&!/privacy|legal|login/.test(link.href));
-    if(!outbound){item.stop='ATS_OUTBOUND_NOT_OBSERVED';item.publicLinks=home.links.filter(link=>/career|opening|vacanc|job|position/i.test(link.text+' '+link.href)).slice(0,8).map(link=>({text:link.text,url:publicUrl(link.href)}));continue;}
+    let hiring=home;
+    const jobsMenu=home.links.find(link=>new URL(link.href).origin===new URL(home.url).origin&&/^(?:View open jobs|Open jobs|Apply for an open role)$/i.test(link.text));
+    if(jobsMenu){await navigate(jobsMenu.href);hiring=await observe();item.stages.push({phase:'observed-official-jobs-menu',url:publicUrl(hiring.url),title:hiring.title});}
+    const outbound=hiring.links.find(link=>/^(?:jobs\.lever\.co|jobs\.eu\.lever\.co|job-boards\.greenhouse\.io|boards\.greenhouse\.io)$/.test(new URL(link.href).hostname)&&!/privacy|legal|login/.test(link.href));
+    if(!outbound){item.stop='ATS_OUTBOUND_NOT_OBSERVED';item.publicLinks=hiring.links.filter(link=>/career|opening|vacanc|job|position/i.test(link.text+' '+link.href)).slice(0,8).map(link=>({text:link.text,url:publicUrl(link.href)}));continue;}
     item.officialATSHref=publicUrl(outbound.href);
     await navigate(outbound.href);let list=await observe();item.stages.push({phase:'observed-ats',url:publicUrl(list.url),title:list.title,verification:list.verification});
-    if(list.verification){item.stop='LOGIN_OR_MANUAL_VERIFICATION';continue;}
+    // A challenge widget on an otherwise public job/application page is a
+    // submission boundary, not a reason to hide already readable public fields.
+    if(list.verification&&list.fields.length===0&&list.lines.join(' ').length<500){item.stop='BLOCKING_LOGIN_OR_MANUAL_VERIFICATION';continue;}
     // Only actual observed links supply role identifiers and navigation targets.
     const base=new URL(outbound.href),tenant=base.pathname.split('/').filter(Boolean)[0];
     const candidates=[outbound,...list.links].filter(link=>{const url=new URL(link.href);return url.origin===base.origin&&url.pathname.split('/').filter(Boolean)[0]===tenant&&roleId(link.href)&&!/apply|application|login/i.test(url.pathname);});
@@ -65,7 +70,7 @@ async function run(){
     if(apply){await navigate(apply.href);form=await observe();}
     item.stages.push({phase:'blank-application',url:publicUrl(form.url),title:form.title,verification:form.verification});
     item.form={url:publicUrl(form.url),verification:form.verification,fields:form.fields,forms:form.forms.map(value=>({...value,action:publicUrl(value.action)})),visibleFieldCount:form.fields.length,uploadObserved:form.fields.some(field=>field.type==='file'),noValuesEntered:true};
-    item.outcome=form.verification?'MANUAL_VERIFICATION_REQUIRED':form.fields.some(field=>/name|email/i.test(field.name+' '+field.label))?'PUBLIC_FORM_OBSERVED':'PUBLIC_ROLE_OBSERVED';
+    item.outcome=form.fields.some(field=>/name|email/i.test(field.name+' '+field.label))?'PUBLIC_FORM_OBSERVED':form.verification?'MANUAL_VERIFICATION_REQUIRED':'PUBLIC_ROLE_OBSERVED';
     if(item.outcome==='PUBLIC_FORM_OBSERVED')break;
   }
   result.status='OBSERVED';
