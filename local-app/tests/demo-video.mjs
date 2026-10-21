@@ -20,6 +20,7 @@ await fs.mkdir(encoderDir,{recursive:true});await fs.copyFile(imageEncoder,encod
 const encoderDigest=hash(await fs.readFile(imageEncoder));assert.equal(hash(await fs.readFile(encoderPath)),encoderDigest);
 await fs.mkdir(review,{recursive:true});
 const WIDTH=1280,HEIGHT=900,FPS=5,privateValues=new Set(),stages=[],sources=new Set();
+const bridgeResults=[],applicationResponses=[];
 let encoder,encoderExit,recording,recordFailure,stopping=false,started=0,frameCount=0,captured=0,duplicates=0,pixelChecks=0,stage='setup',watchdog,finished=false;
 const manifest={status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,generatedAt:new Date().toISOString(),scope:'Continuous live capture of the actual active page in one isolated extension browser; fictional local recruiting site only.',recording:{fps:FPS,width:WIDTH,height:HEIGHT,encoderStreams:1,edited:false,waitCompression:false,source:'Actual Chrome active tab sampled live; repeated last reviewed frame preserves wall time if capture is late.'},encoder:{playwright:'1.58.2',revision,officialImage:process.env.CLOUD_PLAYWRIGHT_IMAGE,copiedBytesVerified:true,sha256:encoderDigest},stages};
 function notice(title,value){const text=JSON.stringify(value);assert.ok(Buffer.byteLength(text)<=3750);for(const marker of privateValues)assert.ok(!text.includes(marker));console.log('::'+(value.status==='FAIL'?'error':'notice')+' title='+title+'::'+text.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));}
@@ -93,6 +94,11 @@ async function record(){let previous;
 }
 async function demonstrate(){
   await h.start();await h.launch('video');await h.dashboard.setViewportSize({width:WIDTH,height:HEIGHT});
+  h.context.on('request',request=>{if(request.url()===BASE+'/api/bridge/result'){
+    const value=request.postDataJSON()?.result;
+    if(bridgeResults.length<30)bridgeResults.push({op:h.app.store.command?.op,ok:value?.ok===true,kind:/^[a-z-]{1,30}$/.test(value?.kind)?value.kind:null,receipt:!!value?.receipt});
+  }});
+  h.context.on('response',response=>{if(response.request().method()==='POST'&&response.url()===FIXTURE+'/site/alpha/apply/cpp-001')applicationResponses.push(response.status());});
   h.dashboard.once('dialog',dialog=>dialog.accept());await h.dashboard.getByRole('button',{name:'准备虚构演示资料',exact:true}).click();
   const initial=await until('fictional profile prepared',h.state,value=>value.profile.version===1&&value.resume?.version===1);
   await h.api('/settings',{settings:{...initial.settings,dailyLimit:1},sites:initial.sites.map(site=>({...site,enabled:site.id==='local-alpha'}))});
@@ -124,7 +130,7 @@ async function demonstrate(){
   const checkbox=h.dashboard.getByRole('checkbox',{name:'保存为本站相同原文、相同限定用途的确认答案',exact:true});assert.equal(await checkbox.isChecked(),false);
   await h.dashboard.getByRole('textbox',{name:'确认答案',exact:true}).fill('这是虚构演示操作者确认的答案：希望参与机器人系统测试与可靠性开发。');await delay(4000);
   await step('操作者确认答案并恢复同一任务');await h.dashboard.getByRole('button',{name:'确认答案并继续原任务',exact:true}).click();
-  const submitted=await until('reliable receipt on original task',h.state,value=>value.tasks.find(task=>task.id===id)?.status==='submitted');assert.equal(submitted.tasks.find(task=>task.id===id).title,'C++ 开发工程师');
+  const submitted=await until('reliable receipt on original task',async()=>{if(recordFailure)throw recordFailure;const value=await h.state();if(value.tasks.find(task=>task.id===id)?.status==='unknown')throw new Error('VIDEO_TASK_RECEIPT_UNKNOWN');return value;},value=>value.tasks.find(task=>task.id===id)?.status==='submitted');assert.equal(submitted.tasks.find(task=>task.id===id).title,'C++ 开发工程师');
   const fixture=await h.fixture();assert.equal(h.posts().length,1);assert.equal(fixture.submitRequests.length,1);assert.equal(fixture.receipts.length,1);assert.equal(fixture.receipts[0].sha256,pinned.sha256);assert.equal(hash(await fs.readFile(path.join(h.dataDir,'fixture','uploads',fixture.receipts[0].id+'.bin'))),pinned.sha256);
   const receipt=h.context.pages().find(page=>page.url()===FIXTURE+'/site/alpha/receipt/cpp-001');assert.ok(receipt);await front(receipt);await step('站点实际回执，一次接收');await delay(7000);
   await show('queue');await h.dashboard.getByRole('button',{name:'已核实提交',exact:true}).click();await step('后台同任务显示真实结果');
@@ -143,5 +149,5 @@ try{
   await fs.writeFile(path.join(review,'manifest.json'),JSON.stringify(manifest,null,2));
   await fs.writeFile(path.join(review,'index.html'),'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; media-src \'self\'; style-src \'unsafe-inline\'"><title>虚构站真实连续演示</title><style>body{font:16px/1.7 system-ui;max-width:1280px;margin:30px auto}video{width:100%}</style><h1>虚构站真实连续演示</h1><p>单个真实执行浏览器当前活动页连续实况，5fps、单段编码、无剪辑、等待未压缩。没有真实企业投递。</p><p>来源 '+manifest.sourceSHA+' · '+manifest.generatedAt+'</p><video controls preload="metadata" src="continuous-fictional.webm"></video><p>自动逐帧隐私检查；人工视觉验收待PM。详情见manifest.json。</p></html>');
   await fs.rm(output,{recursive:true,force:true});await fs.mkdir(output,{recursive:true});for(const name of ['continuous-fictional.webm','manifest.json','index.html'])await fs.copyFile(path.join(review,name),path.join(output,name));finished=true;
-}catch(error){process.exitCode=1;stopping=true;await recording?.catch(()=>{});encoder?.stdin.destroy();if(encoder&&encoder.exitCode===null)encoder.kill();await fs.rm(output,{recursive:true,force:true});notice('Continuous fictional recording failure',{status:'FAIL',sourceSHA:manifest.sourceSHA,stage,type:error.name,frames:String(error.stack||'').split('\n').filter(line=>/^\s+at /.test(line)).slice(0,4),captured,encodedFrames:frameCount,httpPosts:h.posts().length});}
+}catch(error){process.exitCode=1;stopping=true;await recording?.catch(()=>{});encoder?.stdin.destroy();if(encoder&&encoder.exitCode===null)encoder.kill();await fs.rm(output,{recursive:true,force:true});const fixture=await h.fixture().catch(()=>null);notice('Continuous fictional recording failure',{status:'FAIL',sourceSHA:manifest.sourceSHA,stage,type:error.name,reason:/^VIDEO_[A-Z_]+$/.test(error.message)?error.message:error.code==='WAIT_TIMEOUT'?'WAIT_TIMEOUT':null,frames:String(error.stack||'').split('\n').filter(line=>/^\s+at /.test(line)).slice(0,4),captured,encodedFrames:frameCount,httpPosts:h.posts().length,applicationResponses,accepted:fixture?.submitRequests.filter(item=>item.accepted).length,receipts:fixture?.receipts.length,tasks:h.app?.store.state.tasks.map(task=>({status:task.status,phase:task.phase,issueKind:task.issue?.kind})),bridgeResults});}
 finally{clearTimeout(watchdog);stopping=true;await h.closeBrowser();await h.closeApp();await removeTestDirectory(h.isolated);if(finished)notice('Continuous fictional recording result',{status:'PASS',sourceSHA:manifest.sourceSHA,recording:manifest.recording,facts:manifest.facts,privacy:manifest.privacy,file:manifest.file,cleanup:true});}
