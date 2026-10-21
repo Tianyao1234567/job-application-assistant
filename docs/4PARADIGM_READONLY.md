@@ -2,6 +2,8 @@
 
 更新：2026-10-21（Asia/Shanghai，北京时间）。接续[PM-0010](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6309088895)，只核实官网来源、实际公开列表／详情、租户和稳定岗位ID。本轮不注册、不登录、不填申请、不上传、不提交；真实站自动投递仍是后续目标，目前仍为待适配。
 
+当前范围已由[PM-0011](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6314222151)补充：首个真实样本不限企业，不让第四范式持续受阻阻塞其他候选。本文件仅记录Moka这一项的只读证据和真实限制，不能当作首个完整适配已完成；其他候选、连续虚构站录屏及整体进展另由DEV_REPORT_005汇总。
+
 ## 第一轮：真实页面已出现，导航等待误停
 
 实际运行[39587500605](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39587500605)，来源[`80ca5b91f1947b853e4d4d354a3d50ef4a0b3601`](https://github.com/Tianyao1234567/job-application-assistant/commit/80ca5b91f1947b853e4d4d354a3d50ef4a0b3601)。[browser作业119180062297](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39587500605/job/119180062297)于2026-10-21 **18:50:40–18:51:50**实际完成；workflow与browser均success，但业务结果为`STOPPED / NAVIGATION_TIMEOUT`，不能称只读岗位发现通过。
@@ -100,8 +102,26 @@ https://app.mokahr.com/social-recruitment/4paradigm/102013#/jobs
 
 ## 接入方案与当前验证边界
 
-只读发现入口固定从上述已核实官网人才页开始，读取当次实际社招href，再使用完整安全URL跟随；不手工构造API、不绕过登录或人工验证。URL身份与公开脱敏显示分开，凭据／不合适目的地仍拒绝。只有真正观察到租户与岗位页面后，才据页面实现该站解析。
+本项第四范式只读发现入口从上述已核实官网人才页开始，读取当次实际社招href，再使用完整安全URL跟随；不手工构造API、不绕过登录或人工验证。URL身份与公开脱敏显示分开，凭据／不合适目的地仍拒绝。只有真正观察到租户与岗位页面后，才据页面实现该站解析。
 
 当前实际核实到官方来源、Moka社招公司身份与职位列表菜单页面；公开岗位列表、至少一个真实详情、详情所属租户及稳定岗位ID仍未取得。不能从官网文本、入口段、泛岗位hash导航或workflow success推导这些已通过，也不能用fixture解析器代替真实站适配器。第一轮误停、第二轮只读方法边界造成的未知项分别保留。
 
 当前无需用户配合；众行机器人待确认、不追问、不替换近名公司、不阻塞本预研。只有实际遇到必须本人完成的登录或人工验证，才由PM一次性组织同一执行profile上的操作，不收取密码、验证码或Cookie。
+
+## 第六轮：公开岗位与详情实际读取通过
+
+[运行39593353603](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39593353603)，源`179b6f594ba3fde2a2bda8a3a61abd2b1eec1af2`，[browser119199665283](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39593353603/job/119199665283) success，业务结果`READONLY_DISCOVERY_OBSERVED`。已实际读取完整Checks：官网来源、真实社招href、实际公司/租户、公开列表、岗位详情、稳定ID均true，申请发送0。
+
+| 事实 | 实际页面 |
+| --- | --- |
+| 公司/租户 | 第四范式（北京）技术有限公司，4paradigm / 102013 |
+| 官网人才来源 | https://www.4paradigm.com/about/hr.html |
+| 完整社招href | https://app.mokahr.com/social-recruitment/4paradigm/102013#/ |
+| 完整岗位列表 | https://app.mokahr.com/social-recruitment/4paradigm/102013#/jobs ，实际显示5结果 |
+| 首个实际岗位 | 大模型系统优化工程师，全职/技术类，上海市、北京市 |
+| 稳定岗位ID | `733c2666-1b8d-4ad4-bf80-5635647f13a9`，由当次实际详情URL读取 |
+| 完整实际详情 | https://app.mokahr.com/social-recruitment/4paradigm/102013#/job/733c2666-1b8d-4ad4-bf80-5635647f13a9 |
+
+详情实际1184字符，职责、岗位要求与C++/Java/Python等正文可见。正常网页自身处理公开响应；没有解密、构造或重放招聘API。精确公开配置/职位查询已获实际HTTP200；store/filters、applicant-limit-check和未知job请求仍被阻止，没有为获取详情放开申请或账号写入。方法计数GET106/POST29包含被拦截及允许的只读查询，不等于29次申请；实际申请发出0。隔离目录已回收。
+
+[JSON artifact12341679659](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39593353603/artifacts/12341679659)到北京时间2026-10-28 19:39；Checks分组可直接审查。此次没有点击申请、填写、上传或提交，申请表与结果识别尚未验证。PM-0011允许其他公司并行，本条公开发现通过不作为完整真实适配或真实投递完成。

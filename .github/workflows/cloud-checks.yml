@@ -26,6 +26,8 @@ on:
           - candidate
           - windows-browser
           - public-site-browser
+          - real-site-browser
+          - video
 
 permissions:
   contents: read
@@ -66,7 +68,7 @@ jobs:
         run: node --test local-app/tests/*.test.mjs
   browser:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
@@ -92,8 +94,8 @@ jobs:
       CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
       CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
       # Screenshots are opt-in only for this reviewed fictional demonstration.
-      CLOUD_DEMO_CAPTURE: ${{ (inputs.browser == 'demo' || inputs.browser == 'candidate') && 'reviewed-fictional' || '' }}
-      REAL_SITE_READONLY: ${{ inputs.browser == 'public-site-browser' && '1' || '' }}
+      CLOUD_DEMO_CAPTURE: ${{ inputs.browser == 'video' && 'reviewed-fictional-video' || (inputs.browser == 'demo' || inputs.browser == 'candidate') && 'reviewed-fictional' || '' }}
+      REAL_SITE_READONLY: ${{ (inputs.browser == 'public-site-browser' || inputs.browser == 'real-site-browser') && '1' || '' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -117,6 +119,10 @@ jobs:
             xvfb-run --auto-servernum node local-app/tests/demo-browser.mjs
           elif [[ "$CLOUD_BROWSER_CHECK" == public-site-browser ]]; then
             xvfb-run --auto-servernum node local-app/tests/public-site-browser.mjs
+          elif [[ "$CLOUD_BROWSER_CHECK" == real-site-browser ]]; then
+            xvfb-run --auto-servernum node local-app/tests/real-site-browser.mjs
+          elif [[ "$CLOUD_BROWSER_CHECK" == video ]]; then
+            xvfb-run --auto-servernum node local-app/tests/demo-video.mjs
           else
             xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
           fi
@@ -137,13 +143,21 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Preserve bounded public browser observations
-        if: ${{ always() && inputs.browser == 'public-site-browser' }}
+        if: ${{ always() && (inputs.browser == 'public-site-browser' || inputs.browser == 'real-site-browser') }}
         uses: actions/upload-artifact@v6
         with:
           name: public-browser-readonly
-          path: /workspace/.runtime/tests/evidence/public-site-browser.json
+          path: /workspace/.runtime/tests/evidence/*site-browser.json
           if-no-files-found: error
           retention-days: 7
+      - name: Preserve reviewed continuous fictional recording
+        if: ${{ success() && inputs.browser == 'video' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-continuous-video
+          path: /workspace/.runtime/tests/evidence/demo-video-reviewed/
+          if-no-files-found: error
+          retention-days: 3
 
   site-readiness:
     needs: source-and-unit
