@@ -62,10 +62,46 @@
 
 据这些新观察补充精确只读查询策略：仅在同一匿名浏览器的已观察Moka公司页面，让浏览器本来发出的上述公开查询继续；固定HTTPS origin、公司`4paradigm`、涉及siteId时固定`102013`，约束JSON键与类型、分页上限，拒绝未知字段、身份错误及所有其他POST。不会构造／重放API，未放开注册、登录、上传或提交路由。策略6项加URL4项Cloud单元测试10/10通过，包含恶意siteId对象回归；这仍不是下一轮真实列表运行的通过证据。
 
+## 第四轮：公开配置已实际放行，纠正岗位查询类型
+
+运行[39591918477](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591918477)，来源[`a605bb1be89250a48a027e94134bf82c49d6debc`](https://github.com/Tianyao1234567/job-application-assistant/commit/a605bb1be89250a48a027e94134bf82c49d6debc)。[browser119194826195](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591918477/job/119194826195)于2026-10-21 **19:26:19–19:27:08**实际success；业务仍为采集器限制下的`STOPPED / PUBLIC_DATA_NOT_OBSERVED_WITH_QUERY_METHODS_BLOCKED`。已读取全部分组Checks。
+
+本轮真实浏览器原样发出的feature-switches、privacy-policy/get、group-by-job、两个departments查询通过精确只读策略并返回HTTP200，记录的响应为公开JSON键名；没有创建或重放请求。社招公司标题与官方租户路径同时成立，`tenantIdentityObserved=true`。实际完整社招href现已安全公开为：
+
+```text
+https://app.mokahr.com/social-recruitment/4paradigm/102013#/
+```
+
+原始hash不再仅由摘要代替；其SHA-256与前三轮记录一致。它仍是公司入口，不是岗位详情。
+
+岗位查询`jobs/module`没有放行：实际13键包含locale，`needGroupType`的实际类型是**string**，旧策略误限为boolean／0／1；其余可见类型包括websitePageId=null、jobEnableFields=array。故此仍是自己的类型假设未补齐，不能称外站无岗位或要求用户登录。已据新观察允许有界分组选择字符串，保留对对象、超长值、URL及未知字段的拒绝，相关策略7项加URL4项Cloud测试11/11通过；下一轮实际放行结果另报。
+
+GET尝试98次、POST尝试15次（包含上述已允许查询与被阻止的其他POST），没有真实申请写入。当前页面仍只有96字符主页导航；接下来允许跟随**已实际观察**的“职位列表”菜单作为列表导航，不称该菜单是岗位详情，也不猜URL。四轮均清理隔离目录。
+
+[public-browser-readonly artifact 12341877743](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591918477/artifacts/12341877743) ZIP为5358字节，保留至2026-10-28 **19:27:04**。公开列表、具体详情和稳定岗位ID仍待实际验证，不能由配置HTTP200或通过的Cloud单元测试代替。
+
+## 第五轮：实际进入职位列表，定位新查询与公开筛选类型
+
+运行[39592445411](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39592445411)，来源[`064f92ded0abd81fd7685ec061cb7704cd547f2e`](https://github.com/Tianyao1234567/job-application-assistant/commit/064f92ded0abd81fd7685ec061cb7704cd547f2e)。[browser119196623341](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39592445411/job/119196623341)于2026-10-21 **19:30:44–19:31:38**success，但仍为采集器限制下的`STOPPED / PUBLIC_DATA_NOT_OBSERVED_WITH_QUERY_METHODS_BLOCKED`，不能交成外站阻断或列表发现成功。
+
+实际跟随页面的“职位列表”锚点进入完整安全URL：
+
+```text
+https://app.mokahr.com/social-recruitment/4paradigm/102013#/jobs
+```
+
+正文183字符，实际显示职位筛选、已选0条件、0结果、职位搜索、全职／兼职／实习／其他、上海市／北京市、在招职位及“数据读取中…”。**加载尚未完成时的0结果不是站点没有岗位的证明。**没有实际岗位详情或稳定ID，不把此菜单当作详情。
+
+此次诊断明确了module查询仍被自己的ASCII筛选值约束挡住，`invalidFields=[commitments]`；公开筛选标签在真实DOM中实际为中文。列表页面另实际发出`POST /api/outer/ats-apply/website/jobs/v2`（orgId、siteId、limit、offset、needStat、jobIdTopList、customFields、site、locale）及`jobs/recent`；不是开发者猜API。`store/filters`虽也被观察到，但语义尚不充分，保持阻止，不因路径类似就放行。
+
+据新观察补齐有界公开文字筛选、上述两个精确只读列表查询和已反复观察的orgId限定国家区号字典；jobs/v2仅允许空customFields，不允许携带个人信息或任意筛选对象。策略9项与URL4项Cloud测试13/13通过，真实岗位结果仍以之后实际运行另报。没有解密API、构造重放请求或绕过人工验证。
+
+本轮GET尝试100次、POST尝试25次，应用提交0，清理成功。[artifact 12342298468](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39592445411/artifacts/12342298468) ZIP为5971字节，保留至2026-10-28 **19:31:35**；已读取全部分组Checks，未称下载artifact正文。
+
 ## 接入方案与当前验证边界
 
 只读发现入口固定从上述已核实官网人才页开始，读取当次实际社招href，再使用完整安全URL跟随；不手工构造API、不绕过登录或人工验证。URL身份与公开脱敏显示分开，凭据／不合适目的地仍拒绝。只有真正观察到租户与岗位页面后，才据页面实现该站解析。
 
-两轮目前实际核实到官方来源与Moka社招公司身份；公开岗位列表、至少一个真实详情、详情所属租户及稳定岗位ID仍未取得。不能从官网文本、入口段、泛岗位hash导航或workflow success推导这些已通过，也不能用fixture解析器代替真实站适配器。第一轮误停、第二轮只读方法边界造成的未知项分别保留。
+当前实际核实到官方来源、Moka社招公司身份与职位列表菜单页面；公开岗位列表、至少一个真实详情、详情所属租户及稳定岗位ID仍未取得。不能从官网文本、入口段、泛岗位hash导航或workflow success推导这些已通过，也不能用fixture解析器代替真实站适配器。第一轮误停、第二轮只读方法边界造成的未知项分别保留。
 
 当前无需用户配合；众行机器人待确认、不追问、不替换近名公司、不阻塞本预研。只有实际遇到必须本人完成的登录或人工验证，才由PM一次性组织同一执行profile上的操作，不收取密码、验证码或Cookie。

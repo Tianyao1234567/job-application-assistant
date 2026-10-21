@@ -54,7 +54,7 @@ function requestShape(request){
       const value=JSON.parse(body);bodyType=Array.isArray(value)?'json-array':value===null?'json-null':typeof value==='object'?'json-object':'json-scalar';
       if(bodyType==='json-object'){
         bodyKeys=Object.keys(value).filter(safeKey).slice(0,24);
-        for(const key of bodyKeys.slice(0,3))if(value[key]&&typeof value[key]==='object'&&!Array.isArray(value[key]))nestedKeys[key]=Object.keys(value[key]).filter(safeKey).slice(0,6);
+        for(const key of bodyKeys)if(value[key]&&typeof value[key]==='object'&&!Array.isArray(value[key]))nestedKeys[key]=Object.keys(value[key]).filter(safeKey).slice(0,8);
       }
     }catch{
       if(contentType==='application/x-www-form-urlencoded'){
@@ -64,11 +64,11 @@ function requestShape(request){
   }
   // Deliberately retain key names/types only. No body values, credentials,
   // cookies, request headers or full query values enter public evidence.
-  const bodyValueTypes={};
+  const bodyValueTypes={},arrayElementTypes={};
   if(bodyType==='json-object'){
-    const value=JSON.parse(body);for(const key of bodyKeys)bodyValueTypes[key]=value[key]===null?'null':Array.isArray(value[key])?'array':typeof value[key];
+    const value=JSON.parse(body);for(const key of bodyKeys){bodyValueTypes[key]=value[key]===null?'null':Array.isArray(value[key])?'array':typeof value[key];if(Array.isArray(value[key]))arrayElementTypes[key]=[...new Set(value[key].map(item=>item===null?'null':Array.isArray(item)?'array':typeof item))];}
   }
-  return {method:request.method(),resourceType:request.resourceType(),url:endpoint,queryKeys,contentType,bodyType,bodyKeys,nestedKeys,bodyValueTypes};
+  return {method:request.method(),resourceType:request.resourceType(),url:endpoint,queryKeys,contentType,bodyType,bodyKeys,nestedKeys,bodyValueTypes,arrayElementTypes};
 }
 function diagnosticNotices(){
   function publishRecords(title,records){

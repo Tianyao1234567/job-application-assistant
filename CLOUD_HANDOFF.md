@@ -1,6 +1,6 @@
 # 云端开发完整交接
 
-2026-10-21 PM-0010接续：当前分支`dev/pm9-demo-windows-readiness` / PR #5继续draft。PM已接收candidate.1完整性、Windows后台9项及公开入口准备；本轮修复F1浏览器统一管理、F2岗位详情/截图像素遮罩、F3完整URL与摘要分离。实际证据与未验证项目见`DEV_REPORT_005.md`。众行机器人待确认、不追问、不阻塞；无需用户电脑安装或代跑。
+2026-10-21 PM-0010接续：当前分支`dev/pm9-demo-windows-readiness` / PR #5继续draft。PM已接收candidate.1完整性、Windows后台9项及公开入口准备；F1已在托管Windows实际9+4通过，最终候选来源`a605bb1be89250a48a027e94134bf82c49d6debc`；F2新7图演示来源`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`，岗位资料与图05最终像素实际通过；F3完整URL已修复，第四范式只读逐项结果见`DEV_REPORT_005.md`及`docs/4PARADIGM_READONLY.md`。这是开发验证、待PM验收，不能替PM记录通过。众行机器人待确认、不追问、不阻塞；无需用户电脑安装或代跑。
 
 当前接续更新：2026-10-21（北京时间）。PM-0009已验收云端虚构站16项最低闭环，基线为`b6cfdee0bbded79010bb97866fd1ad538275270f`（PR #4仍draft、未合并）。下一阶段在独立`dev/pm9-demo-windows-readiness` / PR #5交付，实际演示、候选包、Windows后台9项验证和真实站只读准备见DEV_REPORT_004。接续当前分支及Issue最新有效消息，不从旧main重做，不重复已关闭缺口。
 

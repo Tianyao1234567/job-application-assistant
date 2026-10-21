@@ -5,17 +5,25 @@ const safeIdentifier=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,120}$/.te
 const locale=value=>typeof value==='string'&&/^[a-z]{2}(?:[-_][A-Za-z]{2,4})?$/.test(value);
 const nullable=validator=>value=>value===null||validator(value);
 const identifierArray=value=>Array.isArray(value)&&value.length<=50&&value.every(safeIdentifier);
+const publicLabel=value=>typeof value==='string'&&value.length<=80&&!/[\u0000-\u001f@]|https?:|\/\//i.test(value);
+const publicLabelArray=value=>Array.isArray(value)&&value.length<=30&&value.every(publicLabel);
+const emptyPublicFilters=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype&&Object.keys(value).length===0;
 const scoped={orgId:value=>value==='4paradigm',siteId:value=>(typeof value==='string'||Number.isSafeInteger(value))&&String(value)==='102013',locale};
 const routeSchemas=new Map([
   ['/api/outer/ats-jc-apply/website/feature-switches',{fields:{orgId:scoped.orgId},required:['orgId']}],
+  ['/api/outer/ats-apply/website/listCountryCallingCodes',{fields:{orgId:scoped.orgId},required:['orgId']}],
   ['/api/outer/ats-apply/privacy-policy/get',{fields:{orgId:scoped.orgId,scope:safeIdentifier,locale,businessId:safeIdentifier},required:['orgId','scope','locale','businessId']}],
-  ...['group-by-job','jobs/departments/flat','jobs/departments/structure'].map(name=>['/api/outer/ats-apply/website/'+name,{fields:scoped,required:['orgId','siteId']}]),
+  ...['group-by-job','jobs/departments/flat','jobs/departments/structure','jobs/recent'].map(name=>['/api/outer/ats-apply/website/'+name,{fields:scoped,required:['orgId','siteId']}]),
+  ['/api/outer/ats-apply/website/jobs/v2',{fields:{
+    ...scoped,limit:value=>Number.isSafeInteger(value)&&value>=1&&value<=100,offset:value=>Number.isSafeInteger(value)&&value>=0&&value<=5000,
+    needStat:value=>typeof value==='boolean',jobIdTopList:identifierArray,customFields:emptyPublicFilters,site:safeIdentifier
+  },required:['orgId','siteId','limit','offset']}],
   ['/api/outer/ats-apply/website/jobs/module',{fields:{
     ...scoped,
     keyword:value=>typeof value==='string'&&value.length<=120&&!/[\u0000-\u001f@]/.test(value),
     limit:value=>Number.isSafeInteger(value)&&value>=1&&value<=100,
     offset:value=>Number.isSafeInteger(value)&&value>=0&&value<=5000,
-    departmentIds:nullable(identifierArray),commitments:nullable(identifierArray),
+    departmentIds:nullable(identifierArray),commitments:nullable(publicLabelArray),
     needGroupType:value=>typeof value==='boolean'||value===0||value===1||typeof value==='string'&&/^[A-Za-z0-9_-]{0,80}$/.test(value),
     moduleId:nullable(safeIdentifier),jobEnableFields:nullable(identifierArray),
     enableBrandIcon:value=>typeof value==='boolean',websitePageId:nullable(safeIdentifier)

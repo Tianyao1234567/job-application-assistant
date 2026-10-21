@@ -2,6 +2,8 @@
 
 本轮候选版本为 `0.2.0-candidate.2`，包含PM-0010修复；来源SHA、实际生成包和本轮Windows浏览器结果以DEV_REPORT_005为准，不能沿用candidate.1旧包。这是待复核的源码候选包，不含已安装的 Node、浏览器、运行依赖或个人数据。能解压和通过文件校验不代表 Windows 可见浏览器已安装、真实招聘站已接入或已经可以真实投递。当前无需在用户电脑运行旧“安装运行环境.cmd”；先查看演示及本轮报告，由 PM 组织后续轻量试用。
 
+本轮实际交付：[source-candidate artifact12342167482](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/artifacts/12342167482)，来源`a605bb1be89250a48a027e94134bf82c49d6debc`，59个源码文件加SOURCE。内层ZIP444113字节，SHA-256 `46b46ce813bc92ad772dd9a422d3b5f7051b0c2f958b3494426d523edc5c0305`，北京时间2026-10-28 19:24:39到期。实际Windows原生解包核验、后台9项及可见浏览器4项均通过，待PM验收。包内文档为打包时快照，构建后结论见仓库最新报告；研究脚本与测试工具仍只在完整开发仓库，不在运行源码候选中。
+
 ## 来源与内容
 
 生成入口是 `node scripts/package-candidate.mjs build`，只从当前已提交 `HEAD` 的明确文件清单读取 Git blob，不打包工作树修改或未跟踪文件。来源必须延续 PM-0009 已验收 head `b6cfdee0bbded79010bb97866fd1ad538275270f`；CI 需要取得该祖先对象，不能只取一个无历史的浅提交。缺少已提交的 `WINDOWS_START_001.md` 等必需文件会直接失败，不生成“说明以后补”的包。

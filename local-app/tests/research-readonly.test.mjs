@@ -14,6 +14,7 @@ const classify=(pathname,body,extra)=>classifyObservedMokaRead(request(pathname,
 // fixture response, API replay or real Moka job-discovery result.
 test('observed public configuration and tenant-scoped list queries can continue',()=>{
   assert.equal(classify(feature,{orgId:'4paradigm'}).allowed,true);
+  assert.equal(classify('/api/outer/ats-apply/website/listCountryCallingCodes',{orgId:'4paradigm'}).allowed,true);
   assert.equal(classify(group,scope).allowed,true);
   for(const pathname of ['/api/outer/ats-apply/website/jobs/departments/flat','/api/outer/ats-apply/website/jobs/departments/structure'])assert.equal(classify(pathname,scope).allowed,true);
   const body={...scope,keyword:'',limit:10,offset:0,departmentIds:[],commitments:[]};
@@ -59,4 +60,21 @@ test('the observed module grouping selector accepts bounded strings and rejects 
   const body={...scope,keyword:'',limit:10,offset:0,departmentIds:[],commitments:[]};
   for(const needGroupType of ['', 'department',true,false])assert.equal(classify(modulePath,{...body,needGroupType}).allowed,true);
   for(const needGroupType of [{email:'fictional@example.test'},'x'.repeat(81),'https://example.test/'])assert.equal(classify(modulePath,{...body,needGroupType}).allowed,false);
+});
+
+// The fifth hosted browser actually emitted jobs/v2 from the observed list
+// menu. Only the initial unfiltered public query is authorized here.
+test('observed list and recent queries accept their public scope while custom objects remain closed',()=>{
+  const pathname='/api/outer/ats-apply/website/jobs/v2';
+  const body={...scope,limit:20,offset:0,needStat:true,jobIdTopList:[],customFields:{},site:'social-recruitment'};
+  assert.equal(classify(pathname,body).allowed,true);
+  assert.equal(classify('/api/outer/ats-apply/website/jobs/recent',scope).allowed,true);
+  for(const patch of [{orgId:'other'},{siteId:58145},{limit:100000},{needStat:'yes'},{jobIdTopList:[{email:'fictional@example.test'}]},{customFields:{email:'fictional@example.test'}},{customFields:[]},{customFields:null},{site:'https://example.test/'},{password:'FICTIONAL'}])assert.equal(classify(pathname,{...body,...patch}).allowed,false);
+  assert.equal(classify('/api/outer/ats-apply/store/filters',scope).allowed,false,'an ambiguous newly observed route is not authorized merely by a similar body');
+});
+
+test('public commitment filters can use observed Chinese labels without accepting private objects',()=>{
+  const body={...scope,keyword:'',limit:10,offset:0,departmentIds:[],commitments:['全职','兼职','实习','其他']};
+  assert.equal(classify(modulePath,body).allowed,true);
+  for(const commitments of [[{email:'fictional@example.test'}],['fictional@example.test'],['https://example.test/'],['x'.repeat(81)],['unsafe\nvalue']])assert.equal(classify(modulePath,{...body,commitments}).allowed,false);
 });

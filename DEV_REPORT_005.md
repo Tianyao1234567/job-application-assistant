@@ -1,61 +1,79 @@
-# PM-0010 修复与第四范式只读预研
+# PM-0010：修复、Windows可见浏览器与第四范式只读预研
 
-日期：2026-10-21（北京时间）。接续`dev/pm9-demo-windows-readiness` / PR #5；base仍为`dev/local-workflow-foundation`，PR #4/#5未合并，开发交付待PM验收。需求依据：[PM-0010](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6309088895)，开工记录DEV-0033。
+2026-10-21（北京时间）。沿`dev/pm9-demo-windows-readiness` / [PR #5](https://github.com/Tianyao1234567/job-application-assistant/pull/5)继续，base仍为`dev/local-workflow-foundation`。PR #4/#5保持draft、未合并；以下是开发实际验证，**交PM验收，不代替PM验收结论**。依据[PM-0010](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6309088895)，接手DEV-0033、阶段回写DEV-0034。
 
-PM已接收旧候选完整性、Windows后台9项和公开入口准备，已独立核实旧演示真实性；原云端虚构站16项验收继续有效。本报告只补本轮改动，不把既有通过数改称本轮重跑。
+F1 Windows启停、F2岗位资料与新图遮罩已有实际通过证据；F3完整URL语义与受限只读查询策略通过回归。第四范式真实站的来源、岗位列表、详情与稳定ID按下文独立报告，不由workflow success推导。PM此前已接收的candidate.1完整性、后台9项及云端虚构站16项继续有效，历史见DEV_REPORT_003/004。
 
-## 修复范围
+## 本轮可查看成果及真实来源
 
-- **F1**：管理台、直接Windows后台与CMD共用受管理的浏览器入口、启动锁、归属PID与关闭机制。依赖检测保留；就绪须实际扩展profile与新鲜心跳，停止期间禁止新开浏览器。关闭后台会回收项目执行浏览器，错误PID不结束其他程序。管理台显式打开等待45秒、有界且不自动重放。新增托管Windows实际可见浏览器与扩展的UI/CMD两条测试路径。
-- **F2**：从实际详情标记读取标题、公司、城市，校验同租户/岗位/详情来源后仅合并白名单字段。同任务补答、结果、重启保留资料；手动后发现补充同任务，不重置提交边界。恢复时临时只读详情页不触碰保留的申请表、原值或File；未知资料继续未知。更新演示与最终PNG像素遮罩验证。
-- **F3**：安全检查后的完整URL供导航和去重；公开摘要单独脱敏/截断。query/hash/长链接保留完整身份，凭据或不合适目标拒绝。校招完整href补正出处见[校正说明](docs/PM0010_URL_CORRECTION.md)，不倒改1118d9f的历史观测。
+| 成果 | 实际运行与结果 | 来源SHA |
+| --- | --- | --- |
+| 最终Windows候选与可见浏览器 | [39591700007](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007)，workflow success；后台9/9、真实可见浏览器4/4；63源码/JSON另计、20+172=192基础测试通过 | `a605bb1be89250a48a027e94134bf82c49d6debc` |
+| 新7图实际扩展演示 | [39590989886 / browser119191683542](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886/job/119191683542)，workflow/browser success；HTTP申请、实际接收、唯一回执各1 | `cd890f2eac6fc12576df7764a3b7dcd47dac6e15` |
+| candidate.2源码包 | [source-candidate artifact12342167482](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/artifacts/12342167482)，59源码+SOURCE=60项；实际Windows下载、原生解包逐项核验 | 同a605bb1 |
+| Windows原始JSON证据 | [artifact12341837226](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/artifacts/12341837226)，后台与浏览器两份独立记录 | 同a605bb1 |
+| 新演示PNG/离线index/manifest | [fictional-demo-reviewed artifact12341287042](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886/artifacts/12341287042)，最终像素检查含图05任务标识 | 同cd890f2 |
 
-## 当前源码构建时的验证记录
+候选ZIP为**444113字节**，SHA-256：
+`46b46ce813bc92ad772dd9a422d3b5f7051b0c2f958b3494426d523edc5c0305`。
 
-Cloud工作区为`/workspace/job-application-assistant`，Linux / Node24.19.0；没有使用用户电脑安装、下载或运行测试。Cloud上本轮基础检查为61项源码/JSON、165项Node应用测试、20项原schema/保护测试，全部通过；源检查与测试计数分别报告。托管运行、候选来源和最终结果在本报告后续交付更新中补充；这个源码快照不预先宣布尚未发生的Windows或演示通过。
+Cloud独立构建与托管构建摘要一致；Windows对实际下载的ZIP及59文件再核验，不是只测仓库目录。版本`0.2.0-candidate.2`，不能沿用candidate.1旧包。allowlist Git源码不含依赖、runtime、资料、会话或媒体。候选内报告为构建时进度快照，本仓库最新DEV_REPORT_005补齐构建之后的运行结果；后续报告提交不冒称已运行过该新SHA。cd890f2到a605bb1的变化是关闭持久暂停及其测试、Windows测试与只读观察/报告；F2模型、适配器、演示脚本未改变，演示仍明确标其实际来源。
 
-第一次真实公开浏览器：[39587500605](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39587500605)，来源`80ca5b91f1947b853e4d4d354a3d50ef4a0b3601`。workflow/browser success表示观察脚本完成，实际发现结果为STOPPED/NAVIGATION_TIMEOUT。实际已取得官网人才页200、正确标题、1958字符正文及Moka出链；脚本等待DOMContentLoaded超时却提前停止，属于需要修复的等待条件，不能据此声称官网不可读或列表验证完成。
+到期（北京时间）：**演示10月24日19:20**；候选10月28日19:24:39；Windows证据10月28日19:25:42。artifact外层下载ZIP大小与内层候选ZIP大小不同。Cloud读取过完整Checks摘要与artifact元数据；Azure跳转下载403受限，未冒称人工下载审图。PM可通过artifact审查。
 
-## 候选、演示与未验证边界
+## F1：Windows管理台与CMD的统一生命周期
 
-本轮版本`0.2.0-candidate.2`，须使用本轮Git来源生成的新包；candidate.1旧摘要只作历史，不证明修复代码。只打包allowlist Git源码与SOURCE，不含依赖、runtime、资料、会话或图像。短期演示图仍只在显式选择的独立artifact，普通自动检查不截图。
+管理台、直接Windows后台和CMD使用同一管理入口，统一依赖检测、启动锁、精确Node入口/PID归属、真实扩展profile与新鲜心跳就绪、关闭。UI显式打开最多等待45秒，失败不自动重放。停止期间拒绝新开浏览器；后台关闭会回收项目浏览器，错误PID与占用端口不结束其他程序。停止持久写入手动暂停，重启或次日计划不能自动解除；重复关闭已暂停状态不反复修改任务版本。
 
-旧演示图05漏出隔离任务UUID的事实保留，PM曾逐张查看旧7张图。旧artifact不改称遮罩通过。新演示必须校验最终PNG实际遮罩区域像素；脚本自动检查不等于开发者逐张人工视觉复核，也不代替PM验收。
+[Windows作业119194157574](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/job/119194157574)实际运行于Windows2025 / Node24.22.0 / PowerShell5.1.26100.33648 / Chromium145.0.7632.6，候选置于含中文和空格的隔离路径：
 
-真实站只读观察不注册、不填表、不上传、不投递。公开列表、详情、稳定岗位ID与自动申请分别报告；未经观察的页面不猜API或构造解析器。真实账号、本人Windows现场与真实投递未验证。当前无需用户配合；众行机器人身份待确认、不追问、不替换近名公司、不阻塞其余工作。后续若实际需要本人登录，由PM一次性组织同执行profile的必要步骤，不索要密码/验证码/Cookie。
+1. 后台模式启动，从真实管理台点击打开，实际加载扩展、连接profile并取得ready标记。
+2. 安全恢复一个已跳过、无可执行任务的虚构状态（manualPaused=false），停止后确认**创建**持久暂停；项目进程和17321/17322/测试CDP17323端口释放，重启保留同taskId及资料/附件版本。
+3. CMD启动实际可见浏览器，再由管理台重复打开，同launcher和Chromium根PID被复用。
+4. CMD停止后捕获的项目进程均退出、端口释放，任务及暂停保留；fixture台账合法缺失明确记录absent，不制造空文件或冒称独立HTTP计数。managedCleanup与隔离目录cleanup均true。
 
-## 托管Windows首轮：后台通过，浏览器测试辅助进程失败
+初始为了在“尚无执行浏览器”的管理台点击按钮，另有短暂无扩展的可见控制浏览器，响应确认后关闭；它与执行浏览器启动短暂重叠。**仅一个浏览器加载扩展并执行**，不声称所有Chrome根进程始终最多1。CDP仅显式GitHub托管隔离测试双重开关启用并绑定loopback，生产入口不启用。
 
-运行[39588110817](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588110817)，来源`e7d5d5b1d6e968adc5de1e4962c4d1234178906f`。source-and-unit与candidate-package成功；[candidate-windows 119183469665](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588110817/job/119183469665)后台9项全部通过，实际59个源码文件经Windows原生解包逐项摘要核验。
+后台9项保留缺依赖/Node、中文空格路径、重复启动、停止/重启、两个占用端口、错误PID保护。新增服务测试验证运行中明确停止→次日计划到期重启仍暂停、不消耗计划、不下发命令，提交边界仍只能核对；服务测试14项通过。
 
-候选candidate.2 ZIP 434624字节，SHA-256 `ca7f817bd747eb6b8744958892215b06b9df3753fb6b3e8c8008769c0facaf38`，与Cloud独立生成值相同。此轮为真实失败历史，后续最终候选应以最新实际运行来源为准。
+## F2：来源岗位资料与最终PNG
 
-托管Windows实际安装锁定Playwright与Chromium145.0.7632.6/revision1208后，第一条场景在外层Node等待PowerShell辅助进程管道关闭时达到100秒`HELPER_TIMEOUT`；尚无已完成的可见浏览器场景，不能把脚本声明的headed/realExtension字段当实际通过。问题定位为背景后台继承外层输出管道，等待`close`仍依赖EOF。修复为受控普通文件捕获输出、等待辅助进程自身`exit`和有界快照读取，补固定操作/耗时诊断后再实际运行。后台9项不受此测试辅助问题推翻。最终`managedCleanup=true`、`cleanup=true`，保留失败事实，不报整轮成功。
+核实详情租户、岗位稳定ID和详情来源后，仅合并标题/公司/城市白名单；不从简历或演示脚本捏造。手动详情和申请链接进入同一任务，实际读取“C++ 开发工程师 / 虚构甲公司 / 上海”；补答、提交结果及真实服务/profile重启保留资料。来源缺失仍未知。手动后发现同ID补充资料，不换taskId/去重身份，不清空提交边界；恢复用临时只读详情页，不触碰原表单值或File。
 
-## 新演示首轮像素检查拒绝发布
+实际演示还核对beta手动申请链接的详情资料并在填表授权前暂停，beta为0 POST；alpha缺答、补答、暂停恢复、附件与接收字节摘要均通过，alpha最终POST/接收/回执各1。一次实际列表发现后同任务及提交历史保留；截图07在真实服务和同profile重启后生成。
 
-[39589216338](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589216338)，同源`e7d5d5b1d6e968adc5de1e4962c4d1234178906f`：[browser119185787379](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589216338/job/119185787379)在`capture 05-paused-task.png`的最终不透明RGB像素检查失败（前4张已通过其检查），实际申请POST为0。作业failure，失败媒体没有进入独立演示artifact。不能把这一轮当新演示或遮罩通过；定位并修复弹窗截图坐标后重新实测，不放宽像素断言或移除任务标识区域检查。
+遮罩使用敏感元素内部CSSOM覆盖层，保留管理台CSP，在原生dialog顶层内生效；先检查计算样式，再解码最终PNG逐像素校验不透明RGB，图05任务标识区域有正向断言。7张新图实际检查通过，manifest有逐图大小/摘要。**没有宣称开发者逐张人工视觉审图**；仍需PM查看新图。旧图05漏出隔离任务UUID的事实不改写，旧artifact不重新标成遮罩通过。
 
-后续定位：管理台CSP为`style-src 'self'`，注入的`<style>`遮罩没有生效；浏览器外层截图遮罩也不能可靠覆盖原生dialog顶层。修复采用敏感元素内部的CSSOM不透明覆盖层，保留CSP，检查计算样式，并在固定页面clip中逐像素验证；不会改变任务、问题答案或申请状态。实际新图仍须以后续托管运行通过为准。
+Linux的52次采样最多13个后代进程、RSS求和峰值1906MiB、Node206MiB，可能重复计算共享页；只代表该runner，不承诺用户Windows内存占用。一个浏览器顺序重启，隔离目录回收。
 
-## 第四范式进一步观察与查询方法校正
+## F3与第四范式：完整URL和实际只读边界
 
-第二轮[39588958656](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588958656)同源e7d5d5b，实际官网200→Moka302→200，Moka标题“第四范式（北京）技术有限公司 - 社会招聘”。列表/详情/稳定ID仍未核实，曾跟随的hash菜单链接不当作岗位详情。第三轮诊断[39589796909](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909)，源`c4255e1526e61de1d5a3c02dfff56612c866983c`，实际看到“职位列表”“热招职位”，记录浏览器发出的公开功能、部门、职位模块查询及参数键名；全POST拦截使这些查询未完成，**这是本轮工具限制，不能报告为网站必须登录或外部访问受限**。
+通过安全检查的完整URL用于导航/去重，公开摘要另行脱敏/截短；query/hash/长链接不合并，凭据或不合适目标拒绝。4项URL测试通过；[2026-10-21校招href补正](docs/PM0010_URL_CORRECTION.md)注明PM来源，不倒改1118d9f历史观察。
 
-后续只允许当次浏览器实际发出的、已观察到的精确公开查询路由；校验4paradigm/102013、JSON字段与类型、分页及请求总预算。未知路由、登录、上传、申请或额外敏感字段继续拒绝，不自行构造/重放API。此门控6项与URL语义4项回归通过，只有新运行中的实际DOM与来源能够证明岗位发现。实际观察到的公开JS来源曾一次Cloud GET返回403，没有重试或声称读过其正文。Cloud下载JSON artifact被Azure跳转403拒绝，读取到的Checks与下载全文分别报告。
+实际从官网人才页到Moka社招200，标题确认“第四范式（北京）技术有限公司 - 社会招聘”。全POST拦截阻止公开列表查询属于工具自身限制，已据真实页面请求增加精确只读查询门控；仅当次浏览器自行发出的已观察路由，校验4paradigm/102013、JSON键/类型和预算，拒绝未知路由、额外私密字段、登录/上传/申请。6项门控回归通过。没有构造或重放API，没有将虚构资料注册/投递真实站。
 
-## 修复版来源与基础检查
+最终观察详见[第四范式只读报告](docs/4PARADIGM_READONLY.md)及[集中准备](REAL_SITE_PREPARATION.md)；新的实测结论将以具体运行证据记录。产品真实站仍显示待适配，不能把研究入口当已支持真实申请。
 
-修复版源码`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`包含CSP内遮罩、固定截图clip、测试辅助进程有限文件输出、实际公开查询门控；[PR自动检查39590567724](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590567724)实际通过：**63项源码/JSON另计；20+171=191项基础测试通过，0失败**。新增6项查询门控涵盖租户/站点、未知写路由、凭据/私密字段、JSON类型与边界，属于策略验证，不冒称真实岗位发现。
+## 失败历史与验证范围
 
-开发分支现在由PR事件执行一次自动检查（main仍有push检查）；显式调度浏览器仍单项串行、有总预算。修复了同一开发提交push/PR互相取消并占用队列的问题，没有放开并行浏览器，也未把取消的作业计为证据。
+| 运行 | 实际失败/不足与后续处理 |
+| --- | --- |
+| 39587500605 / 80ca5b9 | 官网HTTP200/正文/锚点已出现，但DOMContentLoaded等待超时导致误停；改为commit与有界实际DOM等待 |
+| 39588110817 / e7d5d5b | 后台9项过、浏览器安装完成，但外层辅助管道EOF等待100秒；改普通文件快照和进程exit，未称浏览器场景通过 |
+| 39589216338 / e7d5d5b | 图05最终像素断言失败，0申请POST，失败媒体未发布；定位CSP阻止style标签及原生dialog遮罩，修复后新演示通过 |
+| 39588958656 / e7d5d5b、39589796909 / c4255e1 | 官网→Moka成功，但全POST拦截使公开数据查询未完成；hash菜单不是详情，不谎称列表/ID通过，不归咎网站登录 |
+| 39590662611 / cd890f2 | 浏览器前三场景通过，第四场景进程/端口检查后读取未生成fixture台账ENOENT；修正合法空状态断言，最终9+4实际通过 |
 
-Windows第二轮[39590662611](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590662611)，源cd890f2：后台9项再次通过，实际Chromium145.0.7632.6与扩展已启动；前三条浏览器场景PASS（真实UI打开、停止重启同任务/安全暂停、CMD→UI同实例）。第四条的进程/端口释放断言已经执行通过，随后读取未生成的fixture状态文件报`ENOENT`，因此整体仍failure、不称4/4。fixture仅在状态变更时保存，无申请的暂停场景允许状态文件不存在。修复测试对合法空fixture的判断，不创建假数据、不移除进程归属/端口断言，之后重新执行最终4项。
+开发、自动检查、浏览器运行均在Cloud/GitHub托管runner；Cloud工作区`/workspace/job-application-assistant` / Linux Node24.19.0，未提供额外环境ID，不编造。api.github.com实际读写协作/调度成功。开发分支改为PR事件一次检查，main保留push，避免重复CI互相取消；取消作业不计证据。
 
-## 新演示实际通过（F2与最终像素遮罩）
+用户电脑现场、本人账号/登录、真实简历上传与真实投递尚未验证。当前用户配合**0项**：不要求安装、下载、代跑或注册。众行机器人想不起准确身份，列待确认、不追问、不替换近名公司、不阻塞。确实遇到本人登录或人工验证时，由PM一次性组织同执行profile的必要步骤，不接收密码、验证码、Cookie或会话导出。最终验收由PM记录。
 
-[39590989886](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886)／[browser119191683542](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886/job/119191683542)，源`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`：workflow与browser均success，实际7张PNG，手动详情/申请链接、同ID发现补充、补答、暂停和实际服务/profile重启均通过。正确来源为“C++ 开发工程师 / 虚构甲公司 / 上海”，独立HTTP申请POST、实际multipart接收、唯一回执各1，接收文件字节摘要与锁定版本一致。
+## PM-0011补充：真实首站与连续过程演示
 
-[新演示artifact12341287042](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886/artifacts/12341287042)：7张PNG、逐图摘要manifest与离线index，保留到**2026-10-24 19:20（北京时间）**。最终PNG不透明像素检查全部通过，图05任务标识区域有独立正向检查；这不是仅检查DOM或PNG文本元数据。脚本没有人工逐图视觉能力，Cloud的Azure下载限制仍存在，未冒称开发者人工看过新7张图；请PM审查该artifact。旧图05漏遮罩事实继续保留。
+阶段读取Issue发现[PM-0011](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6314222151)，替代固定第四范式首样本：允许选择任何官方公开招聘企业，不让一站阻塞；界面已获用户认可，保持现有方向。PM-0010修复继续交PM验收，新的真实站完整适配按公开岗位、表单识别、受控回放、本人确认后实际执行分阶段报告，公开入口调研不是最终产品完成。
 
-仅该Linux runner的52次采样：最多13个后代进程，采样RSS求和峰值1906MiB、Node206MiB，可能重复计算共享页；一个浏览器实例顺序重启。它不是用户Windows机器的内存承诺；隔离目录已回收。
+正在并行准备1–3分钟隔离虚构站**真实连续录屏**及其他官方招聘样本的岗位/申请表只读观察；尚未生成录屏前不把7张图称为视频。不会向真实企业填入/上传/投递虚构身份。暂停需保存原问题、选项、用途、来源、确认值与资料版本，恢复前核对页面与已有结果；不确定或已越提交边界不得重投。已验收的答案记忆仍是同站点、同岗位scope、同原文且默认不勾选，不能称为跨公司通用理解或模型训练。
+
+**当前没有已常驻部署、可点击运行的公开后台网址。** 产品仍是本机管理网站+插件，GitHub/Cloud开发执行不是产品常驻部署；不提供失效localhost，不把静态index冒充后台，不为演示新建收费服务或公开真实管理端。后续连续录屏会作为可查看过程证据。
+
+当前产品基础路径不调用GPT/其他大模型API，不需要GPT API key；开发使用Codex的消耗另计，也不宣称全部云资源免费。没有新增付费AI或上传完整简历的调用。若以后加入可选AI辅助，由用户先选择用途、数据和费用上限。
