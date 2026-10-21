@@ -8,7 +8,7 @@
 
 ## PM-0010单浏览器补证（2026-10-21）
 
-[首轮真实浏览器39587500605](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39587500605)已观察到官网HTTP200与真实锚点，但因`domcontentloaded`等待误停；修复后[第二轮39588958656](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588958656)实际使用官网href进入Moka社招（302→200），标题“第四范式（北京）技术有限公司 - 社会招聘”。第二轮仍为**`STOPPED / DETAIL_OR_STABLE_ID_NOT_VERIFIED`**：可读正文96／171字符，无已核实列表、详情或稳定ID；GET/HEAD边界下19次POST尝试均被阻止。没有据此推断必须登录，也没有猜API、开放未知写请求或向真实站投递。workflow/browser success仅证明采集器完成。两轮实际证据、完整安全URL与公开摘要的差异见[第四范式只读预研](docs/4PARADIGM_READONLY.md)。以下无浏览器GET结果为历史来源，不用新运行覆盖旧302事实；最新停止点以本段为准。
+[首轮真实浏览器39587500605](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39587500605)已观察到官网HTTP200与真实锚点，但因`domcontentloaded`等待误停；修复后[第二轮39588958656](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588958656)实际使用官网href进入Moka社招（302→200），标题“第四范式（北京）技术有限公司 - 社会招聘”。第二轮仍为**`STOPPED / DETAIL_OR_STABLE_ID_NOT_VERIFIED`**：可读正文96／171字符，无已核实列表、详情或稳定ID；GET/HEAD边界下19次POST尝试均被阻止。没有据此推断必须登录，也没有猜API、开放未知写请求或向真实站投递。workflow/browser success仅证明采集器完成。[第三轮诊断39589796909](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909)实际观察到页面自行发出的公开配置／岗位查询POST及其JSON键名，确认全拦POST是采集器限制，不能当外站阻碍；已据此增加精确只读查询策略，真实列表结果仍待下一轮实测。各轮实际证据、完整安全URL与公开摘要的差异见[第四范式只读预研](docs/4PARADIGM_READONLY.md)。以下无浏览器GET结果为历史来源，不用新运行覆盖旧302事实；最新停止点以本段为准。
 
 ## 证据与观测时间
 

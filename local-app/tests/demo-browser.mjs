@@ -40,14 +40,12 @@ async function rememberPrivateBindings(){
 }
 async function capture(file,caption,page,selector='body',extraMask=[]){
   currentStage='capture '+file;await rememberPrivateBindings();
-  // Persistent CSS and retagging cover normal dashboard polling between review
-  // and capture. Only presentation changes; the real task/form state is intact.
+  // CSSOM presentation masks live inside the actual native dialog top layer.
+  // The dashboard CSP forbids injected style tags; computed styles and final
+  // pixels must both confirm opacity. Real task/form state is never changed.
   await page.evaluate(({markers,extraMask})=>{
     const sensitive=/\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/i;
     globalThis.__demoPrivacy={markers,extraMask};
-    if(!document.getElementById('demo-privacy-style')){
-      const style=document.createElement('style');style.id='demo-privacy-style';style.textContent='[data-demo-private]{background:#cbd5e1!important;color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important;border-radius:0!important;box-shadow:none!important}[data-demo-private] *{visibility:hidden!important}';document.head.append(style);
-    }
     const tag=()=>{
       const {markers,extraMask}=globalThis.__demoPrivacy;
       const privateText=value=>sensitive.test(value)||markers.some(marker=>value.includes(marker));
@@ -56,6 +54,15 @@ async function capture(file,caption,page,selector='body',extraMask=[]){
       document.querySelectorAll('input,textarea,select').forEach(node=>{if(privateText(node.value))node.setAttribute('data-demo-private','true');});
       document.querySelectorAll('.meta-label').forEach(node=>{if(['原始岗位页面','当前执行页面','任务标识','去重依据','站点回执'].includes(node.textContent.trim()))node.parentElement.querySelector('.meta-value')?.setAttribute('data-demo-private','true');});
       for(const selector of ['p[data-session-status]',...extraMask])document.querySelectorAll(selector).forEach(node=>node.setAttribute('data-demo-private','true'));
+      for(const node of document.querySelectorAll('[data-demo-private]')){
+        for(const [name,value] of Object.entries({'background-color':'#cbd5e1',color:'transparent','-webkit-text-fill-color':'transparent','text-shadow':'none','border-radius':'0','box-shadow':'none'}))node.style.setProperty(name,value,'important');
+        if(['INPUT','TEXTAREA','SELECT'].includes(node.tagName))continue;
+        if(getComputedStyle(node).position==='static')node.style.setProperty('position','relative','important');
+        for(const child of node.children)if(!child.hasAttribute('data-demo-mask-overlay'))child.style.setProperty('visibility','hidden','important');
+        let overlay=[...node.children].find(child=>child.hasAttribute('data-demo-mask-overlay'));
+        if(!overlay){overlay=document.createElement('span');overlay.setAttribute('data-demo-mask-overlay','true');overlay.setAttribute('aria-hidden','true');node.append(overlay);}
+        for(const [name,value] of Object.entries({position:'absolute',inset:'0',display:'block',visibility:'visible','background-color':'#cbd5e1','z-index':'2147483647','pointer-events':'none'}))overlay.style.setProperty(name,value,'important');
+      }
     };
     globalThis.__demoRetag=tag;tag();
     if(!globalThis.__demoObserver){globalThis.__demoObserver=new MutationObserver(()=>globalThis.__demoRetag());globalThis.__demoObserver.observe(document.body,{childList:true,characterData:true,subtree:true});}
@@ -68,25 +75,31 @@ async function capture(file,caption,page,selector='body',extraMask=[]){
       if(markers.some(marker=>node.textContent.includes(marker)))safe=false;
     }
     for(const node of root.querySelectorAll('input,textarea,select'))if(!masked(node)&&node.getClientRects().length&&markers.some(marker=>node.value.includes(marker)))safe=false;
-    return {privateValuesMasked:safe,noCredentialInputs:[...root.querySelectorAll('input[type=password],input[autocomplete=one-time-code]')].every(masked),profileJSONExcluded:!root.querySelector('[data-focus="profile-json"]')};
+    const cssomOpaqueMasks=[...root.querySelectorAll('[data-demo-private]')].every(node=>getComputedStyle(node).backgroundColor==='rgb(203, 213, 225)'&&([...node.children].find(child=>child.hasAttribute('data-demo-mask-overlay'))?getComputedStyle([...node.children].find(child=>child.hasAttribute('data-demo-mask-overlay'))).backgroundColor==='rgb(203, 213, 225)':['INPUT','TEXTAREA','SELECT'].includes(node.tagName)));
+    return {privateValuesMasked:safe,cssomOpaqueMasks,noCredentialInputs:[...root.querySelectorAll('input[type=password],input[autocomplete=one-time-code]')].every(masked),profileJSONExcluded:!root.querySelector('[data-focus="profile-json"]')};
   },{markers:[...privateValues],extraMask});
   assert.ok(Object.values(privacy).every(Boolean),'Visible demo content failed the pre-capture privacy review');
   const filePath=path.join(review,file);
   await page.locator(selector).scrollIntoViewIfNeeded();
-  const rectangles=await page.locator(selector).evaluate(root=>{
-    const clip=root.getBoundingClientRect();
-    return [...root.querySelectorAll('[data-demo-private]')].filter(node=>!node.parentElement.closest('[data-demo-private]')).flatMap(node=>{
+  const geometry=await page.locator(selector).evaluate(root=>{
+    const bounds=root.getBoundingClientRect(),left=Math.floor(bounds.left+scrollX),top=Math.floor(bounds.top+scrollY),right=Math.ceil(bounds.right+scrollX),bottom=Math.ceil(bounds.bottom+scrollY);
+    const clip={x:left,y:top,width:right-left,height:bottom-top};
+    const rectangles=[...root.querySelectorAll('[data-demo-private]')].filter(node=>!node.parentElement.closest('[data-demo-private]')).flatMap(node=>{
       if(!node.getClientRects().length)return [];
-      const box=node.getBoundingClientRect();let left=Math.max(box.left,clip.left),top=Math.max(box.top,clip.top),right=Math.min(box.right,clip.right),bottom=Math.min(box.bottom,clip.bottom);
+      const box=node.getBoundingClientRect();let left=Math.max(box.left,bounds.left),top=Math.max(box.top,bounds.top),right=Math.min(box.right,bounds.right),bottom=Math.min(box.bottom,bounds.bottom);
       for(let parent=node.parentElement;parent&&parent!==root;parent=parent.parentElement){const style=getComputedStyle(parent),bounds=parent.getBoundingClientRect();if(/hidden|clip|auto|scroll/.test(style.overflowX)){left=Math.max(left,bounds.left);right=Math.min(right,bounds.right);}if(/hidden|clip|auto|scroll/.test(style.overflowY)){top=Math.max(top,bounds.top);bottom=Math.min(bottom,bounds.bottom);}}
       // Interior pixels avoid subpixel boundaries; all displayed sensitive text
       // is covered by the browser's opaque mask over the complete element.
-      const x=Math.ceil(left-clip.left)+1,y=Math.ceil(top-clip.top)+1,width=Math.floor(right-clip.left)-x-1,height=Math.floor(bottom-clip.top)-y-1;
+      const x=Math.ceil(left+scrollX-clip.x)+1,y=Math.ceil(top+scrollY-clip.y)+1,width=Math.floor(right+scrollX-clip.x)-x-1,height=Math.floor(bottom+scrollY-clip.y)-y-1;
       const label=node.parentElement.querySelector('.meta-label')?.textContent.trim();
       return width>0&&height>0?[{x,y,width,height,...(label?{label}:{})}]:[];
     });
+    return {clip,rectangles};
   });
-  await page.locator(selector).screenshot({path:filePath,animations:'disabled',mask:[page.locator('[data-demo-private]')],maskColor:'#cbd5e1',scale:'css'});
+  const {rectangles}=geometry;
+  // An explicit page clip performs no locator auto-scroll after the geometry
+  // measurement. Native-dialog masks remain its own opaque descendants.
+  await page.screenshot({path:filePath,fullPage:true,clip:geometry.clip,animations:'disabled',mask:[page.locator('[data-demo-private]')],maskColor:'#cbd5e1',scale:'css'});
   const bytes=await fs.readFile(filePath),image=decodeScreenshotPng(bytes);
   for(const marker of privateValues)assert.ok(!bytes.includes(Buffer.from(marker)),'Screenshot metadata must not contain private bindings');
   if(file==='05-paused-task.png')assert.ok(rectangles.some(rectangle=>rectangle.label==='任务标识'),'The previously exposed task identifier must be in the final pixel-reviewed mask');
@@ -209,7 +222,7 @@ try{
 }catch(error){
   process.exitCode=1;
   await fs.rm(destination,{recursive:true,force:true});
-  notice('Fictional demonstration failure',{status:'FAIL',stage:currentStage,errorType:error.name,code:typeof error.code==='string'&&/^[A-Z_]+$/.test(error.code)?error.code:null,frames:String(error.stack||'').split('\n').filter(line=>/^\s+at /.test(line)).slice(0,5),httpPosts:h.posts().length});
+  notice('Fictional demonstration failure',{status:'FAIL',stage:currentStage,errorType:error.name,code:typeof error.code==='string'&&/^[A-Z_]+$/.test(error.code)?error.code:null,...(error.demoMask?{pixelDiagnostic:error.demoMask}:{}),frames:String(error.stack||'').split('\n').filter(line=>/^\s+at /.test(line)).slice(0,5),httpPosts:h.posts().length});
 }finally{
   clearTimeout(watchdog);clearInterval(resourceTimer);
   await h.closeBrowser();await h.closeApp();await removeTestDirectory(h.isolated);

@@ -45,16 +45,17 @@ export function decodeScreenshotPng(bytes){
 
 export function verifyOpaqueMaskPixels(image,rectangles,color=[203,213,225]){
   let checkedPixels=0;
-  for(const rectangle of rectangles){
+  for(const [rectangleIndex,rectangle] of rectangles.entries()){
     const {x,y,width,height}=rectangle;
     for(const value of [x,y,width,height])assert.equal(Number.isInteger(value),true,'Mask pixel bounds must be integers');
     assert.ok(width>0&&height>0&&x>=0&&y>=0&&x+width<=image.width&&y+height<=image.height,'Mask pixel bounds leave the screenshot');
     for(let row=y;row<y+height;row++)for(let column=x;column<x+width;column++){
       const index=(row*image.width+column)*image.channels;
-      assert.equal(image.pixels[index],color[0],'Screenshot mask has an unmasked red pixel');
-      assert.equal(image.pixels[index+1],color[1],'Screenshot mask has an unmasked green pixel');
-      assert.equal(image.pixels[index+2],color[2],'Screenshot mask has an unmasked blue pixel');
-      if(image.channels===4)assert.equal(image.pixels[index+3],255,'Screenshot mask must be opaque');
+      const actual=[image.pixels[index],image.pixels[index+1],image.pixels[index+2],image.channels===4?image.pixels[index+3]:255];
+      if(actual[0]!==color[0]||actual[1]!==color[1]||actual[2]!==color[2]||actual[3]!==255){
+        const error=new Error('Screenshot mask must be opaque and have no unmasked pixels');error.code='DEMO_MASK_PIXEL';
+        error.demoMask={rectangleIndex,x:column,y:row,expected:[...color,255],actual,width:image.width,height:image.height};throw error;
+      }
       checkedPixels++;
     }
   }

@@ -2,6 +2,7 @@ name: Cloud checks
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -29,7 +30,8 @@ on:
 permissions:
   contents: read
 
-# One workflow run for this project. needs below also serializes its two jobs.
+# Feature branches are checked through PRs to avoid duplicate push/PR runs.
+# One workflow run for this project; browser selections remain explicit.
 concurrency:
   group: cloud-checks-${{ github.repository }}
   cancel-in-progress: true

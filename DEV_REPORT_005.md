@@ -31,3 +31,15 @@ Cloud工作区为`/workspace/job-application-assistant`，Linux / Node24.19.0；
 候选candidate.2 ZIP 434624字节，SHA-256 `ca7f817bd747eb6b8744958892215b06b9df3753fb6b3e8c8008769c0facaf38`，与Cloud独立生成值相同。此轮为真实失败历史，后续最终候选应以最新实际运行来源为准。
 
 托管Windows实际安装锁定Playwright与Chromium145.0.7632.6/revision1208后，第一条场景在外层Node等待PowerShell辅助进程管道关闭时达到100秒`HELPER_TIMEOUT`；尚无已完成的可见浏览器场景，不能把脚本声明的headed/realExtension字段当实际通过。问题定位为背景后台继承外层输出管道，等待`close`仍依赖EOF。修复为受控普通文件捕获输出、等待辅助进程自身`exit`和有界快照读取，补固定操作/耗时诊断后再实际运行。后台9项不受此测试辅助问题推翻。最终`managedCleanup=true`、`cleanup=true`，保留失败事实，不报整轮成功。
+
+## 新演示首轮像素检查拒绝发布
+
+[39589216338](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589216338)，同源`e7d5d5b1d6e968adc5de1e4962c4d1234178906f`：[browser119185787379](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589216338/job/119185787379)在`capture 05-paused-task.png`的最终不透明RGB像素检查失败（前4张已通过其检查），实际申请POST为0。作业failure，失败媒体没有进入独立演示artifact。不能把这一轮当新演示或遮罩通过；定位并修复弹窗截图坐标后重新实测，不放宽像素断言或移除任务标识区域检查。
+
+后续定位：管理台CSP为`style-src 'self'`，注入的`<style>`遮罩没有生效；浏览器外层截图遮罩也不能可靠覆盖原生dialog顶层。修复采用敏感元素内部的CSSOM不透明覆盖层，保留CSP，检查计算样式，并在固定页面clip中逐像素验证；不会改变任务、问题答案或申请状态。实际新图仍须以后续托管运行通过为准。
+
+## 第四范式进一步观察与查询方法校正
+
+第二轮[39588958656](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588958656)同源e7d5d5b，实际官网200→Moka302→200，Moka标题“第四范式（北京）技术有限公司 - 社会招聘”。列表/详情/稳定ID仍未核实，曾跟随的hash菜单链接不当作岗位详情。第三轮诊断[39589796909](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909)，源`c4255e1526e61de1d5a3c02dfff56612c866983c`，实际看到“职位列表”“热招职位”，记录浏览器发出的公开功能、部门、职位模块查询及参数键名；全POST拦截使这些查询未完成，**这是本轮工具限制，不能报告为网站必须登录或外部访问受限**。
+
+后续只允许当次浏览器实际发出的、已观察到的精确公开查询路由；校验4paradigm/102013、JSON字段与类型、分页及请求总预算。未知路由、登录、上传、申请或额外敏感字段继续拒绝，不自行构造/重放API。此门控6项与URL语义4项回归通过，只有新运行中的实际DOM与来源能够证明岗位发现。实际观察到的公开JS来源曾一次Cloud GET返回403，没有重试或声称读过其正文。Cloud下载JSON artifact被Azure跳转403拒绝，读取到的Checks与下载全文分别报告。

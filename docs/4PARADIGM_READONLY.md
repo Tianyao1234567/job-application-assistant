@@ -39,6 +39,29 @@
 
 下一步可验证入口仍是官网人才页→当次实际社招href。需要继续观察公开页面实际的只读数据加载方式，先取得可审查的请求语义与DOM，再决定是否允许某个确认为只读的查询请求或编写页面解析；本轮没有取得该证据，不推测供应商API。若之后实际出现登录／人工验证，由PM组织同profile最小操作，不绕过。
 
+## 第三轮：定位实际公开数据请求，未把方法限制当外站阻碍
+
+诊断运行[39589796909](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909)，来源[`c4255e1526e61de1d5a3c02dfff56612c866983c`](https://github.com/Tianyao1234567/job-application-assistant/commit/c4255e1526e61de1d5a3c02dfff56612c866983c)。[browser作业119187692719](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909/job/119187692719)于2026-10-21 **19:09:15–19:10:03**实际success，业务为`STOPPED / PUBLIC_DATA_NOT_OBSERVED_WITH_QUERY_METHODS_BLOCKED`。已读取该作业[全部分组Checks摘要](https://api.github.com/repos/Tianyao1234567/job-application-assistant/check-runs/119187692719/annotations)，没有仅取首条摘要或因artifact下载受限而忽略后续诊断。
+
+本轮仍为单个实际浏览器；官网与Moka公司身份再次成立。社招正文96字符，实际可见“社会招聘、职位列表、内部推荐、校园招聘、关于范式、登录、AI之旅 邀你同行、热招职位”，没有具体岗位；未再把“职位列表”hash菜单称作岗位详情。GET尝试98次，POST尝试16次，POST均在发出前拦截。它们包括如下由**实际页面自己发出**的请求，并非开发者猜接口：
+
+| Moka实际POST路径 | 实际观测的JSON键名（不公开值） |
+| --- | --- |
+| `/api/outer/ats-jc-apply/website/feature-switches` | orgId |
+| `/api/outer/ats-apply/privacy-policy/get` | orgId、scope、locale、businessId |
+| `/api/outer/ats-apply/website/group-by-job` | orgId、siteId、locale |
+| `/api/outer/ats-apply/website/jobs/departments/flat` | orgId、siteId、locale |
+| `/api/outer/ats-apply/website/jobs/departments/structure` | orgId、siteId、locale |
+| `/api/outer/ats-apply/website/jobs/module` | keyword、limit、offset、departmentIds、commitments、siteId、orgId、needGroupType、moduleId、jobEnableFields、enableBrandIcon、websitePageId |
+
+另观察到`listCountryCallingCodes`、Google统计和Sentry POST；它们不因出现就获准执行。现有GET/HEAD策略拦住了公开配置／岗位查询，因此这次停止属于**采集器限制**，不能交付成外站登录墙、重定向循环或目标没有岗位。未注册、填写、上传或投递，`applicationRequestsSent=0`，隔离目录已回收。
+
+页面实际加载了Moka CDN的`recruitmentWeb-20261019-1741-eccf3-release.js`等脚本。一次Cloud轻量GET该已观察的公共JS返回403，没有重复尝试，不声称已审查其正文。第二轮artifact下载另遇Azure403，已读取的Checks与未下载的artifact正文仍分别报告。
+
+第三轮[public-browser-readonly artifact 12340519917](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909/artifacts/12340519917)的ZIP为3602字节，保留至2026-10-28 **19:09:58**。公开记录仅保留安全端点、键名和脱敏可见正文；请求值、Cookie和完整追踪参数不进入报告。
+
+据这些新观察补充精确只读查询策略：仅在同一匿名浏览器的已观察Moka公司页面，让浏览器本来发出的上述公开查询继续；固定HTTPS origin、公司`4paradigm`、涉及siteId时固定`102013`，约束JSON键与类型、分页上限，拒绝未知字段、身份错误及所有其他POST。不会构造／重放API，未放开注册、登录、上传或提交路由。策略6项加URL4项Cloud单元测试10/10通过，包含恶意siteId对象回归；这仍不是下一轮真实列表运行的通过证据。
+
 ## 接入方案与当前验证边界
 
 只读发现入口固定从上述已核实官网人才页开始，读取当次实际社招href，再使用完整安全URL跟随；不手工构造API、不绕过登录或人工验证。URL身份与公开脱敏显示分开，凭据／不合适目的地仍拒绝。只有真正观察到租户与岗位页面后，才据页面实现该站解析。

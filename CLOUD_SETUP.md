@@ -6,7 +6,7 @@
 
 `.github/workflows/cloud-checks.yml` 使用 GitHub 托管的 `ubuntu-24.04`、Node.js 24，每个仓库同一时刻仅一个工作流运行，后来的运行取消旧运行；每个作业最长 10 分钟，基础检查与按需浏览器作业依次执行。没有 self-hosted runner、测试矩阵、真实账号、生产会话或用户资料。仓库令牌只有读取代码权限，不持久化到 checkout。
 
-push 和 PR 默认仅执行以下必要检查，不安装测试依赖、不下载浏览器：
+main 的push及开发分支的PR默认仅执行以下必要检查，不安装测试依赖、不下载浏览器。开发分支已有PR时只保留PR事件，避免同一次提交的push/PR互相取消占用队列；未建PR的分支可显式调度browser=none：
 
 ```sh
 node scripts/cloud-check.mjs
@@ -28,7 +28,7 @@ node local-app/server.mjs --data-dir .runtime/dev-data
 
 后台仅监听 `127.0.0.1:17321`，虚构招聘测试站监听 `127.0.0.1:17322`；Ctrl+C 同时关闭服务，数据保留。配对密钥在数据目录内生成，不写进版本库或日志。`/` 应返回包含配对 meta 的后台 HTML；未经配对的 `/api/state` 必须返回 401。这不代表插件已连接。后台显示实际连接和任务状态；演示资料只能显式初始化到没有任务的新数据目录。
 
-云端自动化浏览器仅使用 GitHub 托管 Actions 的隔离 profile；不要启动或清空 `.runtime/browser/production` 来跑测试。Windows 原有启动入口保留给未来本机验收，本轮没有在 Windows 执行验证。真实网站仍待适配。
+云端自动化浏览器仅使用 GitHub 托管 Actions 的隔离 profile；不要启动或清空 `.runtime/browser/production` 来跑测试。Windows入口的实际后台/浏览器结果以DEV_REPORT_005分层记录；托管测试只使用隔离候选副本。真实网站仍待适配。
 
 ## 按需的一项浏览器回归
 
@@ -55,7 +55,7 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 
 完成仓库连接后，在 Codex 的云端工作入口选择该仓库和分支，并记录真实云端任务入口、提交及运行结果。Windows 启停脚本只保留为将来本机验收入口，Linux 云端不调用 PowerShell、Win32_Process 或 node.exe。不能因为 GitHub 已有代码就声称本机对话已变成云端任务。Codex Cloud 连接操作由迁移负责人按当前实际可用界面核实。
 
-真实 Windows 插件安装、可见执行浏览器、本人登录与真实网站行为仍待按需本机验收。真实投递运行地点没有随开发迁移自动改变。
+本人Windows现场、本人登录与真实网站行为仍待按需由PM组织轻量验收，不能由托管Windows结果代称。真实投递运行地点没有随开发迁移自动改变。
 
 ## 配置依据
 
@@ -82,3 +82,8 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 - `browser=candidate`：同次有界任务组合上述交付；仅演示子任务会开浏览器。各结果和未执行/skipped作业仍分别报告。
 
 新候选运行依赖单独放`runtime-deps`，只锁定Playwright 1.58.2；源码/JSON检查也覆盖该目录。开发测试仍用完整Git checkout的原依赖。用户当前无需运行本机安装/测试。
+
+
+## PM-0010新增显式选择
+
+`browser=windows-browser`从本轮源码候选包在GitHub托管Windows安装锁定运行依赖/Chromium，实际验证管理台与CMD共用的可见执行浏览器、扩展连接与停止重启；不会使用用户电脑。初始无扩展UI控制浏览器仅用于点击真实管理台，响应就绪后立即关闭；仅一个浏览器执行扩展。`browser=public-site-browser`在托管Linux使用单个隔离浏览器，只读观察官网实际出链与公开页面，方法拦截限制须与外部限制分开报告。实际通过与失败以DEV_REPORT_005和对应源码/运行记录为准。

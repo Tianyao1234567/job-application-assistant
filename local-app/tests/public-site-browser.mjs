@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot} from '../../autofill-extension/tests/runtime.mjs';
 import {acceptResearchUrl,researchUrlKey,publicResearchUrl} from '../../scripts/research-url.mjs';
+import {classifyObservedMokaRead} from '../../scripts/research-readonly.mjs';
 
 const IMAGE='mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0';
 if(process.env.GITHUB_ACTIONS!=='true'||process.platform!=='linux'||process.env.REAL_SITE_READONLY!=='1'||process.env.CLOUD_PLAYWRIGHT_IMAGE!==IMAGE)throw new Error('Use only the explicitly selected hosted Linux public-site observation job.');
@@ -17,10 +18,18 @@ assert.equal(proof.image,IMAGE);assert.equal(proof.playwright,'1.58.2');assert.e
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const display=url=>publicResearchUrl(url,{maxLength:650});
 const official='https://www.4paradigm.com/about/hr.html';
-const evidence={schema:1,status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',scope:'One isolated browser; actual public page observation only. No extension, account, form, upload or application submission.',resources:{maxBrowserInstances:1},requestMethods:{},blockedMethods:[],blockedUnsafeRequests:0,documentResponses:[],navigationAttempts:[],observations:[],facts:{officialHiringSourceObserved:false,actualSocialHrefObserved:false,publicListVerified:false,detailVerified:false,stableJobIdVerified:false,fullNavigationIdentityPreserved:true,applicationRequestsSent:0},outcome:'STOPPED',stopReason:null};
+const evidence={schema:1,status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',scope:'One isolated browser; actual public page observation only. No extension, account, form, upload or application submission.',resources:{maxBrowserInstances:1},requestMethods:{},blockedMethods:[],allowedReadQueries:[],readQueryResponses:[],blockedUnsafeRequests:0,documentResponses:[],navigationAttempts:[],observations:[],facts:{officialHiringSourceObserved:false,actualSocialHrefObserved:false,publicListVerified:false,detailVerified:false,stableJobIdVerified:false,fullNavigationIdentityPreserved:true,applicationRequestsSent:0},outcome:'STOPPED',stopReason:null};
 let browser,context,page,timer,phase='environment',requestCount=0,documentCount=0;
-const repeatedNavigation=new Map(),blockedRequestKeys=new Set();
-function linkEvidence(href){const url=acceptResearchUrl(href);return url?{publicUrl:display(url.href),fullUrlSha256:digest(url.href),publicDisplayIsComplete:display(url.href)===url.href,hashPresent:Boolean(url.hash)}:null;}
+const repeatedNavigation=new Map(),blockedRequestKeys=new Set(),allowedQueryKeys=new Set(),approvedQueryRequests=new WeakSet();
+function linkEvidence(href){
+  const url=acceptResearchUrl(href);if(!url)return null;
+  const item={publicUrl:display(url.href),fullUrlSha256:digest(url.href),publicDisplayIsComplete:display(url.href)===url.href,hashPresent:Boolean(url.hash)};
+  // This is the observed anonymous public tenant, not an arbitrary route or
+  // credential fragment. Publish the full simple route only when safe.
+  if(url.origin==='https://app.mokahr.com'&&/^\/social-recruitment\/4paradigm\/102013\/?$/.test(url.pathname)&&!url.search&&(!url.hash||/^#\/(?:[A-Za-z0-9_-]+\/?){0,8}$/.test(url.hash)))item.fullPublicUrl=url.href;
+  return item;
+}
+
 function notice(value){
   let note={status:evidence.status,sourceSHA:evidence.sourceSHA,outcome:evidence.outcome,stopReason:evidence.stopReason,facts:evidence.facts,requestMethods:evidence.requestMethods,blockedMethods:evidence.blockedMethods.slice(0,4).map(({method,resourceType,url})=>({method,resourceType,url})),documents:evidence.documentResponses.slice(-5),navigation:evidence.navigationAttempts,observations:evidence.observations.map(item=>({...item,headings:item.headings?.slice(0,2),links:item.links?.slice(0,2),jobLines:item.jobLines?.slice(0,3)})),cleanup:evidence.cleanup};
   if(Buffer.byteLength(JSON.stringify(note))>3600)for(const item of note.observations){delete item.headings;delete item.links;item.jobLines=item.jobLines?.slice(0,1);}
@@ -47,7 +56,7 @@ function requestShape(request){
     try{
       const value=JSON.parse(body);bodyType=Array.isArray(value)?'json-array':value===null?'json-null':typeof value==='object'?'json-object':'json-scalar';
       if(bodyType==='json-object'){
-        bodyKeys=Object.keys(value).filter(safeKey).slice(0,12);
+        bodyKeys=Object.keys(value).filter(safeKey).slice(0,24);
         for(const key of bodyKeys.slice(0,3))if(value[key]&&typeof value[key]==='object'&&!Array.isArray(value[key]))nestedKeys[key]=Object.keys(value[key]).filter(safeKey).slice(0,6);
       }
     }catch{
@@ -58,7 +67,11 @@ function requestShape(request){
   }
   // Deliberately retain key names/types only. No body values, credentials,
   // cookies, request headers or full query values enter public evidence.
-  return {method:request.method(),resourceType:request.resourceType(),url:endpoint,queryKeys,contentType,bodyType,bodyKeys,nestedKeys};
+  const bodyValueTypes={};
+  if(bodyType==='json-object'){
+    const value=JSON.parse(body);for(const key of bodyKeys)bodyValueTypes[key]=value[key]===null?'null':Array.isArray(value[key])?'array':typeof value[key];
+  }
+  return {method:request.method(),resourceType:request.resourceType(),url:endpoint,queryKeys,contentType,bodyType,bodyKeys,nestedKeys,bodyValueTypes};
 }
 function diagnosticNotices(){
   function publishRecords(title,records){
@@ -69,13 +82,20 @@ function diagnosticNotices(){
       assert.ok(Buffer.byteLength(note)<=3750);
       console.log('::notice title='+title+'::'+note.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
     };
-    for(const item of records){
+    for(const original of records){
+      let item=original;
+      if(Buffer.byteLength(JSON.stringify(item))>3200){
+        const shape=item.bodyShape||item;
+        item={endpoint:item.endpoint||item.url,diagnosticTruncated:true,bodyKeys:shape.bodyKeys?.slice(0,16),bodyValueTypes:shape.bodyValueTypes};
+      }
       if(Buffer.byteLength(JSON.stringify({sourceSHA:evidence.sourceSHA,records:[...chunk,item]}))>3500){publish(chunk);chunk=[];}
       chunk.push(item);
     }
     publish(chunk);
   }
   publishRecords('Observed blocked public request shapes',evidence.blockedMethods);
+  publishRecords('Allowed observed public read queries',evidence.allowedReadQueries);
+  publishRecords('Observed public read query responses',evidence.readQueryResponses);
   const social=evidence.observations.find(item=>item.phase==='actual-social-href');
   if(social){
     publishRecords('Observed public recruitment DOM',social.bodyLines.map(text=>({phase:social.phase,text})));
@@ -139,13 +159,22 @@ async function probe(){
   context=await browser.newContext({viewport:{width:1280,height:900},acceptDownloads:false,serviceWorkers:'block'});
   await context.route('**/*',async route=>{
     const request=route.request(),method=request.method();requestCount++;evidence.requestMethods[method]=(evidence.requestMethods[method]||0)+1;
+    if(requestCount>250){evidence.blockedUnsafeRequests++;return route.abort('blockedbyclient');}
     const accepted=acceptResearchUrl(request.url());
     if(!['GET','HEAD'].includes(method)){
-      const shape=requestShape(request),key=JSON.stringify(shape);
+      const read=classifyObservedMokaRead({url:request.url(),method,resourceType:request.resourceType(),contentType:request.headers()['content-type'],postData:request.postData()});
+      const current=acceptResearchUrl(page?.url()||'');
+      let mainFrame=false;try{mainFrame=request.frame()===page?.mainFrame();}catch{}
+      if(read.allowed&&accepted&&mainFrame&&current?.origin==='https://app.mokahr.com'&&current.pathname==='/social-recruitment/4paradigm/102013'){
+        approvedQueryRequests.add(request);
+        if(!allowedQueryKeys.has(read.endpoint)){allowedQueryKeys.add(read.endpoint);evidence.allowedReadQueries.push({endpoint:read.endpoint,reason:read.reason,bodyShape:requestShape(request)});}
+        return route.continue();
+      }
+      const shape={...requestShape(request),policyReason:read.reason},key=JSON.stringify(shape);
       if(!blockedRequestKeys.has(key)&&evidence.blockedMethods.length<20){blockedRequestKeys.add(key);evidence.blockedMethods.push(shape);}
       return route.abort('blockedbyclient');
     }
-    if(!accepted||requestCount>250){evidence.blockedUnsafeRequests++;return route.abort('blockedbyclient');}
+    if(!accepted){evidence.blockedUnsafeRequests++;return route.abort('blockedbyclient');}
     if(request.isNavigationRequest()&&request.frame()===page?.mainFrame()){
       documentCount++;const count=(repeatedNavigation.get(accepted.href)||0)+1;repeatedNavigation.set(accepted.href,count);
       if(count>6||documentCount>20){evidence.navigationLimitReached=true;return route.abort('blockedbyclient');}
@@ -155,6 +184,21 @@ async function probe(){
   page=await context.newPage();page.on('download',download=>download.cancel());
   context.on('page',popup=>{if(popup!==page)popup.close().catch(()=>{});});
   page.on('response',response=>{if(response.request().isNavigationRequest()&&response.frame()===page.mainFrame()&&evidence.documentResponses.length<16){const safe=acceptResearchUrl(response.url());evidence.documentResponses.push({status:response.status(),url:safe?display(safe.href):'[URL refused]'});}});
+  page.on('response',async response=>{
+    if(!approvedQueryRequests.has(response.request())||evidence.readQueryResponses.length>=20)return;
+    const item={endpoint:new URL(response.url()).pathname,status:response.status()};
+    evidence.readQueryResponses.push(item);
+    try{
+      const value=await response.json();
+      if(value&&typeof value==='object'&&!Array.isArray(value)){
+        item.keys=Object.keys(value).filter(safeKey).slice(0,16);
+        if(value.data&&typeof value.data==='object'){
+          item.dataKeys=Object.keys(value.data).filter(safeKey).slice(0,20);
+          item.arrayLengths=Object.fromEntries(Object.entries(value.data).filter(([key,value])=>safeKey(key)&&Array.isArray(value)).slice(0,6).map(([key,value])=>[key,value.length]));
+        }
+      }
+    }catch{item.bodyShape='UNREADABLE_OR_NON_JSON';}
+  });
   const home=await navigate(official,'official-hiring-page');
   const source=await observe('official-hiring-page');
   if(!home.ok||home.status>=400){evidence.stopReason=home.error||'OFFICIAL_HTTP_'+home.status;return;}
