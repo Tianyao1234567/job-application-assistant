@@ -1,6 +1,6 @@
 # 真实招聘站接入准备（PM-0009 E／PM-0010／PM-0011）
 
-截至2026-10-21（Asia/Shanghai，北京时间），已确认梅卡曼德官网→BOSS公司页、第四范式官网→Moka社招／校招入口两组招聘来源链。五家均未完成真实招聘站适配；岗位列表、详情、申请与回执尚无完整可验证链路。第四范式已在真实单浏览器中从官方人才页进入Moka社招并核实页面公司标题，但尚未读到岗位，尚非已完成的发现适配器。按PM-0011，首个真实样本不限这五家或第四范式，其他官方来源、岗位清楚、流程可访问的企业可并行选择，不能让持续受阻的Moka阻塞完整适配。本项目当前只支持自有虚构站 `local-v1`，其余网站仍为待适配。
+最新实际阶段：第四范式官网→Moka社招的5项列表、一个岗位详情及稳定ID已读取；PM-0011新增Mattermost官网→Greenhouse岗位及27个空白申请控件已读取，详见[真实适配阶段001](docs/REAL_ADAPTER_STAGE_001.md)。这些是公开只读证据，真实填写、上传、提交和可靠回执均未验证，未完成真实招聘站完整适配。本项目生产执行仍只支持自有虚构站 `local-v1`，其余网站保持待适配。以下五家公司早期入口观测保留为历史，不覆盖最新实测结果。
 
 当前补充：[PM-0011](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6314222151)已替代第四范式固定首样本安排，目标推进到首个真实站完整适配，允许按真实流程分阶段交付。此文保留各公司只读来源证据，不把入口调查当最终交付；公开读取、申请表识别、受控回放与真实提交分别验收，虚构资料不向真实企业注册／投递。连续虚构站录屏及整体验证由DEV_REPORT_005汇总。
 
@@ -8,11 +8,11 @@
 
 原准备依据：[PM-0009 E要求](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6291239731)。下一阶段分支 `dev/pm9-demo-windows-readiness` 以已验收的云端虚构站交付head `b6cfdee0bbded79010bb97866fd1ad538275270f` 为基线。本报告是开发准备结论，待PM复核；不代表真实账号、Windows浏览器或真实投递已验收。
 
-最新第六轮已实际读取第四范式5项岗位列表及至少一个真实详情、稳定ID，申请发出0；完整来源/链接/失败历史见[第四范式只读报告](docs/4PARADIGM_READONLY.md)。PM-0011已允许其他官方企业，不再限定这一首站；公开发现不是完整适配。
+最新第六轮已实际读取第四范式5项岗位列表及至少一个真实详情、稳定ID，申请发出0；完整来源/链接/失败历史见[第四范式只读报告](docs/4PARADIGM_READONLY.md)。Mattermost样本已进一步读到文件格式、公司动机、工作许可等真实申请结构；这是适配开发样本，不是给用户推荐日本工作许可要求的岗位。PM-0011已允许其他官方企业，不再限定这一首站；公开发现不是完整适配。
 
 ## PM-0010单浏览器补证（2026-10-21）
 
-[首轮真实浏览器39587500605](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39587500605)已观察到官网HTTP200与真实锚点，但因`domcontentloaded`等待误停；修复后[第二轮39588958656](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588958656)实际使用官网href进入Moka社招（302→200），标题“第四范式（北京）技术有限公司 - 社会招聘”。第二轮仍为**`STOPPED / DETAIL_OR_STABLE_ID_NOT_VERIFIED`**：可读正文96／171字符，无已核实列表、详情或稳定ID；GET/HEAD边界下19次POST尝试均被阻止。没有据此推断必须登录，也没有猜API、开放未知写请求或向真实站投递。workflow/browser success仅证明采集器完成。[第三轮诊断39589796909](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909)实际观察到页面自行发出的公开配置／岗位查询POST及其JSON键名，确认全拦POST是采集器限制，不能当外站阻碍；已据此增加精确只读查询策略，真实列表结果仍待下一轮实测。各轮实际证据、完整安全URL与公开摘要的差异见[第四范式只读预研](docs/4PARADIGM_READONLY.md)。以下无浏览器GET结果为历史来源，不用新运行覆盖旧302事实；最新停止点以本段为准。
+[首轮真实浏览器39587500605](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39587500605)已观察到官网HTTP200与真实锚点，但因`domcontentloaded`等待误停；[第二轮39588958656](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588958656)进入Moka社招并核实公司标题，全POST拦截使列表未加载。[第三轮诊断39589796909](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909)观察到页面自行发出的公开查询POST；随后按真实路由/参数加精确只读门控，第六轮[39593353603](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39593353603)实际读到5项列表与“大模型系统优化工程师”详情，稳定ID为`733c2666-1b8d-4ad4-bf80-5635647f13a9`。申请表、填写和提交仍未验证，实际申请发出0。各轮完整来源、停止点和失败历史见[第四范式只读预研](docs/4PARADIGM_READONLY.md)，不把旧302、查询拦截或人工验证概括成同一种障碍。
 
 ## 证据与观测时间
 

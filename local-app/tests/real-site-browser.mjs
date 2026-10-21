@@ -5,6 +5,7 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot} from '../../autofill-extension/tests/runtime.mjs';
 import {acceptResearchUrl,publicResearchUrl} from '../../scripts/research-url.mjs';
+import {greenhouseIdentity,readPublicApplication,preparePublicApplication} from '../../scripts/greenhouse-readonly.mjs';
 const IMAGE='mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0';
 if(process.env.GITHUB_ACTIONS!=='true'||process.platform!=='linux'||process.env.REAL_SITE_READONLY!=='1'||process.env.CLOUD_PLAYWRIGHT_IMAGE!==IMAGE)throw new Error('EXPLICIT_HOSTED_READONLY_REQUIRED');
 const require=createRequire(new URL('../../autofill-extension/package.json',import.meta.url));
@@ -70,6 +71,10 @@ async function run(){
     if(apply){await navigate(apply.href);form=await observe();}
     item.stages.push({phase:'blank-application',url:publicUrl(form.url),title:form.title,verification:form.verification});
     item.form={url:publicUrl(form.url),verification:form.verification,fields:form.fields,forms:form.forms.map(value=>({...value,action:publicUrl(value.action)})),visibleFieldCount:form.fields.length,uploadObserved:form.fields.some(field=>field.type==='file'),noValuesEntered:true};
+    if(/^(?:job-boards|boards)\.greenhouse\.io$/.test(new URL(form.url).hostname)){
+      const identity=greenhouseIdentity(item.role.url);
+      item.preparation=preparePublicApplication(await page.evaluate(readPublicApplication),{...identity,company:source.company});
+    }
     item.outcome=form.fields.some(field=>/name|email/i.test(field.name+' '+field.label))?'PUBLIC_FORM_OBSERVED':form.verification?'MANUAL_VERIFICATION_REQUIRED':'PUBLIC_ROLE_OBSERVED';
     if(item.outcome==='PUBLIC_FORM_OBSERVED')break;
   }
@@ -82,4 +87,5 @@ finally{
   await fs.writeFile(path.join(evidenceRoot,'real-site-browser.json'),JSON.stringify(result,null,2));
   notice('Real site public observation',{sourceSHA:result.sourceSHA,status:result.status,applicationPostsSent:0,cleanup:result.cleanup,candidates:result.candidates.map(({company,outcome,stop,officialSource,officialATSHref,role,form})=>({company,outcome,stop,officialSource,officialATSHref,role:role&&{id:role.id,url:role.url,title:role.title},form:form&&{url:form.url,visibleFieldCount:form.visibleFieldCount,uploadObserved:form.uploadObserved,verification:form.verification}}))});
   for(const item of result.candidates){for(let i=0;i<(item.form?.fields.length||0);i+=4)notice('Observed blank application controls',{company:item.company,roleId:item.role.id,fields:item.form.fields.slice(i,i+4)});if(item.publicLinks)notice('Observed official hiring links',{company:item.company,links:item.publicLinks});}
+  for(const item of result.candidates)if(item.preparation){const value=item.preparation;notice('Greenhouse preparation scope',{sourceSHA:result.sourceSHA,identity:value.identity,structureVersion:value.structureVersion,executionEnabled:false,productionSupported:false,verificationVisible:value.verificationVisible,fieldCount:value.fields.length,requiredCount:value.fields.filter(field=>field.required).length,unresolvedCount:value.fields.filter(field=>field.unresolved).length,applicationPostsSent:0});for(let i=0;i<value.fields.length;i+=2)notice('Greenhouse original question preparation',{fields:value.fields.slice(i,i+2)});}
 }

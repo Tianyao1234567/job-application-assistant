@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {spawn} from 'node:child_process';
@@ -101,7 +102,10 @@ async function demonstrate(){
   h.context.on('response',response=>{if(response.request().method()==='POST'&&response.url()===FIXTURE+'/site/alpha/apply/cpp-001')applicationResponses.push(response.status());});
   h.dashboard.once('dialog',dialog=>dialog.accept());await h.dashboard.getByRole('button',{name:'准备虚构演示资料',exact:true}).click();
   const initial=await until('fictional profile prepared',h.state,value=>value.profile.version===1&&value.resume?.version===1);
-  await h.api('/settings',{settings:{...initial.settings,dailyLimit:1},sites:initial.sites.map(site=>({...site,enabled:site.id==='local-alpha'}))});
+  // The real Start action discovers other jobs too. Keep the product quota at
+  // one and explicitly select the intended role, so another eligible job cannot
+  // spend it while this task waits for the operator's answer.
+  await h.api('/settings',{settings:{...initial.settings,dailyLimit:1,keywords:['C++ 开发工程师']},sites:initial.sites.map(site=>({...site,enabled:site.id==='local-alpha'}))});
   await (await h.login('alpha','demo')).close();
   const added=await h.action('add',{url:FIXTURE+'/site/alpha/jobs/cpp-001'}),id=added.task.id;
   for(const value of [id,(await h.state()).connection.profileId,await h.dashboard.locator('meta[name="local-key"]').getAttribute('content')]){privateValues.add(value);h.protect(value);}
@@ -123,6 +127,8 @@ async function demonstrate(){
   await h.dashboard.getByRole('button',{name:'开始投递',exact:true}).click();
   await until('original task waits for a missing answer',h.state,value=>value.tasks.find(task=>task.id===id)?.status==='waiting_answer');
   const application=h.context.pages().find(page=>page.url()===FIXTURE+'/site/alpha/apply/cpp-001');assert.ok(application);
+  assert.ok(await application.locator('[name="education.0.school"]').inputValue());assert.ok(await application.locator('[name="education.1.school"]').inputValue());
+  assert.equal(await application.locator('[name="experience.0.company"]').inputValue(),'虚构机器人实验室');assert.equal(await application.locator('[name="experience.1.company"]').inputValue(),'虚构软件工作室');
   await front(application);await application.locator('[name="education.0.school"]').scrollIntoViewIfNeeded();await step('实际填写教育与经历，缺答前暂停');await delay(7000);
   assert.equal(h.posts().length,0);const pinned=h.app.store.task(id).resumeSnapshot;
   await application.locator('input[type=file]').scrollIntoViewIfNeeded();assert.equal(await application.locator('input[type=file]').evaluate(node=>node.files[0]?.size),pinned.size);await step('真实虚构附件已选择，未提交');await delay(7000);
@@ -131,7 +137,7 @@ async function demonstrate(){
   await h.dashboard.getByRole('textbox',{name:'确认答案',exact:true}).fill('这是虚构演示操作者确认的答案：希望参与机器人系统测试与可靠性开发。');await delay(4000);
   await step('操作者确认答案并恢复同一任务');await h.dashboard.getByRole('button',{name:'确认答案并继续原任务',exact:true}).click();
   const submitted=await until('reliable receipt on original task',async()=>{if(recordFailure)throw recordFailure;const value=await h.state();if(value.tasks.find(task=>task.id===id)?.status==='unknown')throw new Error('VIDEO_TASK_RECEIPT_UNKNOWN');return value;},value=>value.tasks.find(task=>task.id===id)?.status==='submitted');assert.equal(submitted.tasks.find(task=>task.id===id).title,'C++ 开发工程师');
-  const fixture=await h.fixture();assert.equal(h.posts().length,1);assert.equal(fixture.submitRequests.length,1);assert.equal(fixture.receipts.length,1);assert.equal(fixture.receipts[0].sha256,pinned.sha256);assert.equal(hash(await fs.readFile(path.join(h.dataDir,'fixture','uploads',fixture.receipts[0].id+'.bin'))),pinned.sha256);
+  const fixture=await h.fixture();assert.equal(h.posts().length,1);assert.equal(h.posts('alpha','cpp-001').length,1);assert.equal(h.posts('alpha','cpp-002').length,0);assert.equal(fixture.submitRequests.length,1);assert.equal(fixture.receipts.length,1);assert.equal(fixture.receipts[0].jobId,'cpp-001');assert.equal(fixture.receipts[0].sha256,pinned.sha256);assert.equal(hash(await fs.readFile(path.join(h.dataDir,'fixture','uploads',fixture.receipts[0].id+'.bin'))),pinned.sha256);
   const receipt=h.context.pages().find(page=>page.url()===FIXTURE+'/site/alpha/receipt/cpp-001');assert.ok(receipt);await front(receipt);await step('站点实际回执，一次接收');await delay(7000);
   await show('queue');await h.dashboard.getByRole('button',{name:'已核实提交',exact:true}).click();await step('后台同任务显示真实结果');
   while(Date.now()-started<80000){if(recordFailure)throw recordFailure;await delay(500);}
@@ -143,6 +149,14 @@ async function demonstrate(){
 }
 try{
   await Promise.race([demonstrate(),new Promise((_,reject)=>{watchdog=setTimeout(()=>reject(new Error('VIDEO_GROUP_TIMEOUT')),230000);})]);
+  // Decode the actual completed WebM in the same single Chromium, after capture
+  // stops. Frame counters alone do not prove a viewer can play the artifact.
+  const playerPath=path.join(review,'player-check.html');await fs.writeFile(playerPath,'<!doctype html><video muted src="continuous-fictional.webm"></video>');
+  const player=await h.context.newPage();await player.goto(pathToFileURL(playerPath).href);
+  await player.waitForFunction(()=>{const video=document.querySelector('video');return video.readyState>=1&&Number.isFinite(video.duration);},null,{timeout:15000});
+  const media=await player.locator('video').evaluate(async node=>{await node.play();return {duration:node.duration,width:node.videoWidth,height:node.videoHeight};});
+  await player.waitForFunction(()=>document.querySelector('video').currentTime>0.2,null,{timeout:10000});await player.close();
+  assert.equal(media.width,WIDTH);assert.equal(media.height,HEIGHT);assert.ok(Math.abs(media.duration-manifest.recording.durationSeconds)<1);manifest.recording.actualChromiumPlayback={...media,decodedAndAdvanced:true};
   await h.verifyPrivateEvidence();await h.closeBrowser();await h.closeApp();
   const bytes=await fs.readFile(video);assert.ok(bytes.length>10000&&bytes.length<80*1024*1024);for(const value of privateValues)assert.ok(!bytes.includes(Buffer.from(value)));
   manifest.file={name:'continuous-fictional.webm',bytes:bytes.length,sha256:hash(bytes)};manifest.cleanup={onlyIsolatedTarget:true};
