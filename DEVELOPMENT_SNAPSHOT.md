@@ -1,5 +1,7 @@
 # v0.2.0 开发中快照
 
+2026-10-22 PM-0011阶段：PR #5已有约80秒真实连续虚构站视频，run39635267114 / source dbc495e，完整目标POST/接收/回执各1，实际WebM开始播放验证；到期北京时间10/25 00:32。Mattermost官方招聘页→Greenhouse5381946008的27控件已观察，增强只读准备记录原题/选项/必填证据/限定scope，真实执行仍禁用。完整真实站填写/附件/恢复/提交回执未验证，继续分阶段开发；见DEV_REPORT_005与docs/REAL_ADAPTER_STAGE_001.md。Windows后台9+实际可见浏览器4的开发验证已通过、待PM复核，不能用下方历史“尚未验证”描述覆盖最新结果。无常驻公开后台，当前用户配合0项。
+
 2026-10-21 PM-0010接续：当前分支`dev/pm9-demo-windows-readiness` / PR #5继续draft。PM已接收candidate.1完整性、Windows后台9项及公开入口准备；F1已在托管Windows实际9+4通过，最终候选来源`a605bb1be89250a48a027e94134bf82c49d6debc`；F2新7图演示来源`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`，岗位资料与图05最终像素实际通过；F3完整URL已修复，第四范式只读逐项结果见`DEV_REPORT_005.md`及`docs/4PARADIGM_READONLY.md`。这是开发验证、待PM验收，不能替PM记录通过。众行机器人待确认、不追问、不阻塞；无需用户电脑安装或代跑。
 
 状态：PM-0009已验收`dev/local-workflow-foundation` / PR #4的云端虚构站最低闭环，交付head为`b6cfdee0bbded79010bb97866fd1ad538275270f`；PR #4仍draft、未合并。下一阶段从该head建立独立`dev/pm9-demo-windows-readiness`分支，准备演示、Windows候选与真实站只读方案。开发、安装和自动测试在Cloud或GitHub托管runner执行，不使用用户电脑代跑。

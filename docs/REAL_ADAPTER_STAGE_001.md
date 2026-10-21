@@ -2,6 +2,12 @@
 
 状态：已取得实际公开页面证据，交产品经理分阶段复核；**完整真实站适配尚未完成**。当前生产执行器仍只支持虚构站 `local-v1`。本阶段没有向真实企业填写、上传、注册或投递，也不要求用户安装或处理账号。
 
+最新增强实测：[39635783354](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39635783354)，来源`dbc495ede26ab65fa364ca1b4e1ea4a671962eb8`，workflow/browser success；[browser119345877787](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39635783354/job/119345877787)实际读取同一Mattermost岗位的27控件准备记录。结构版本`3e285cdeb31be9c4bef6f7a3ed0e8fdf4b399a803d4dbbd719c8ecea8d9c47e5`，20控件有至少一种必填证据、17控件因自定义选项或缺标识/标签仍待核实；这些数包括辅助输入，不能解释成20个独立必填业务问题或17个独立问题。
+
+增强[artifact12361601177](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39635783354/artifacts/12361601177)为4233字节外层ZIP，到期**北京时间2026-10-29 00:34:13**。实际读取Checks范围摘要及完整托管原始日志中的27条字段记录；Actions每步notice注释限额导致API只保留部分字段，未把API的一个字段当完整27条。完整日志实际读到了未裁剪的日本赞助问题：`Do you now, or will you in the future, require employer sponsorship to obtain or maintain work authorization in Japan (e.g., Work Visa, Specified Skilled Worker Visa, Engineer/Specialist in Humanities/International Services Visa, or other residence status permitting employment)?*`。没有冒称下载artifact ZIP正文。
+
+自定义选择未展开，本轮选项集合仍未核实；`optionsComplete=false`保留实际不足。`resume/cover_letter`的原生label均为`Attach`，未观察到native/ARIA/该label星号必填证据，**不能据此判断简历可选**，分组标题与业务必填对应仍须补核。全部27控件`alreadyPopulated=false`；真实填写、附件和提交仍为零，CAPTCHA未交互、隔离清理完成。生产支持/执行均为false。
+
 ## 官方来源与实际观察
 
 实际运行 [39632928709](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39632928709)，来源 [`fd383e866a54484833b84934df408a0903ab622c`](https://github.com/Tianyao1234567/job-application-assistant/commit/fd383e866a54484833b84934df408a0903ab622c)。[browser 作业 119335797698](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39632928709/job/119335797698)于北京时间 **2026-10-22 00:14:21–00:15:04** success；业务结果为 `PUBLIC_FORM_OBSERVED`。已读取该作业的[分组 Checks 原始摘要](https://api.github.com/repos/Tianyao1234567/job-application-assistant/check-runs/119335797698/annotations)，没有以 workflow success 代替页面观察。
@@ -46,7 +52,9 @@
 - 为字段记录来源 URL、结构版本和限定 `scope`，绑定站点、租户、岗位及字段版本；默认不记忆答案，不返回输入值、隐藏 token 或会话。
 - 输出 `executionEnabled=false`、`productionSupported=false`，没有网络写入、填写、附件上传或提交能力。
 
-这是只读适配准备，不能由模块存在或其后单元测试通过推导真实填写／提交支持。本轮历史 artifact 的 27 控件摘要也不会被改称新模块已实际完整读取问题原文与选项；增强记录的实际云端结果须在后续运行中单列。
+这是只读适配准备，不能由模块存在或单元测试通过推导真实填写／提交支持。新增6项必要回归覆盖身份变化、标签/ARIA必填、题目与选项变更的scope、未知自定义控件/原值、250项完整选项与预算拒绝、剔除输入值和选项额外属性。超过60控件、2000字符题目或300选项的预算明确停止，不静默裁剪后声称完整；公开日志若过大只省略日志中的选项列表，完整记录留在当次artifact并明确标注。
+
+历史 artifact 的27控件摘要不会被改称新模块已实际完整读取问题原文与选项；增强记录按上面的39635783354独立交付。实际采集只是当次DOM可见结构，不保证招聘站保存草稿、账号已核实、选项完整或可提交。
 
 ## 保留的失败事实与接续验收
 

@@ -1,5 +1,7 @@
 # 云端开发完整交接
 
+2026-10-22 PM-0011阶段：仍沿`dev/pm9-demo-windows-readiness` / PR #5，禁止从main重做。连续虚构站视频已在`dbc495ede26ab65fa364ca1b4e1ea4a671962eb8`实际通过，run39635267114、artifact12361800263，约80秒、目标POST/接收/回执各1、实际WebM开始播放；到北京时间10/25 00:32。真实站样本Mattermost官方→Greenhouse5381946008的27控件已读取，增强原题/选项/必填/版本准备模块仍禁用执行，具体最新证据见DEV_REPORT_005及docs/REAL_ADAPTER_STAGE_001.md。下一阶段继续受控回放与完整适配，不能把只读观察标为真实申请已支持。无公开常驻后台、无需GPT API key、当前用户配合0项；此前Windows9+4和candidate.2仍按其实际a605来源报告。全部云端，不让用户电脑代跑。
+
 2026-10-21 PM-0010接续：当前分支`dev/pm9-demo-windows-readiness` / PR #5继续draft。PM已接收candidate.1完整性、Windows后台9项及公开入口准备；F1已在托管Windows实际9+4通过，最终候选来源`a605bb1be89250a48a027e94134bf82c49d6debc`；F2新7图演示来源`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`，岗位资料与图05最终像素实际通过；F3完整URL已修复，第四范式只读逐项结果见`DEV_REPORT_005.md`及`docs/4PARADIGM_READONLY.md`。这是开发验证、待PM验收，不能替PM记录通过。众行机器人待确认、不追问、不阻塞；无需用户电脑安装或代跑。
 
 当前接续更新：2026-10-21（北京时间）。PM-0009已验收云端虚构站16项最低闭环，基线为`b6cfdee0bbded79010bb97866fd1ad538275270f`（PR #4仍draft、未合并）。下一阶段在独立`dev/pm9-demo-windows-readiness` / PR #5交付，实际演示、候选包、Windows后台9项验证和真实站只读准备见DEV_REPORT_004。接续当前分支及Issue最新有效消息，不从旧main重做，不重复已关闭缺口。

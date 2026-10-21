@@ -87,3 +87,5 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 ## PM-0010新增显式选择
 
 `browser=windows-browser`从本轮源码候选包在GitHub托管Windows安装锁定运行依赖/Chromium，实际验证管理台与CMD共用的可见执行浏览器、扩展连接与停止重启；不会使用用户电脑。初始无扩展UI控制浏览器仅用于点击真实管理台，响应就绪后立即关闭；仅一个浏览器执行扩展。`browser=public-site-browser`在托管Linux使用单个隔离浏览器，只读观察官网实际出链与公开页面，方法拦截限制须与外部限制分开报告。实际通过与失败以DEV_REPORT_005和对应源码/运行记录为准。
+
+PM-0011显式选项：`browser=video`在同一锁定镜像内使用已有官方ffmpeg和实际扩展浏览器，生成单段连续虚构流程WebM；编码前审查JPEG源帧，完成文件在Chromium验证开始播放，仅成功才上传`fictional-continuous-video`、保留3天。`browser=real-site-browser`单匿名浏览器沿官方实际出链读取公开岗位/空白表单，GET/HEAD之外全部阻止；Greenhouse准备记录保存实际原题/选项/必填证据/版本，生产执行仍禁用，证据`public-browser-readonly`保留7天。两个选项分别手动调度，先等自动PR检查结束，不在同一全局并发组中互相取消。普通CI不启动浏览器或媒体捕获，不安装用户电脑依赖。
