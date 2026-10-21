@@ -23,6 +23,8 @@ on:
           - windows-candidate
           - demo
           - candidate
+          - windows-browser
+          - public-site-browser
 
 permissions:
   contents: read
@@ -62,7 +64,7 @@ jobs:
         run: node --test local-app/tests/*.test.mjs
   browser:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","acceptance-a","acceptance-b","acceptance-c","demo","candidate"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
@@ -89,6 +91,7 @@ jobs:
       CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
       # Screenshots are opt-in only for this reviewed fictional demonstration.
       CLOUD_DEMO_CAPTURE: ${{ (inputs.browser == 'demo' || inputs.browser == 'candidate') && 'reviewed-fictional' || '' }}
+      REAL_SITE_READONLY: ${{ inputs.browser == 'public-site-browser' && '1' || '' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -110,6 +113,8 @@ jobs:
         run: |
           if [[ "$CLOUD_BROWSER_CHECK" == demo || "$CLOUD_BROWSER_CHECK" == candidate ]]; then
             xvfb-run --auto-servernum node local-app/tests/demo-browser.mjs
+          elif [[ "$CLOUD_BROWSER_CHECK" == public-site-browser ]]; then
+            xvfb-run --auto-servernum node local-app/tests/public-site-browser.mjs
           else
             xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
           fi
@@ -129,6 +134,14 @@ jobs:
           path: /workspace/.runtime/tests/evidence/demo-reviewed/
           if-no-files-found: error
           retention-days: 3
+      - name: Preserve bounded public browser observations
+        if: ${{ always() && inputs.browser == 'public-site-browser' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: public-browser-readonly
+          path: /workspace/.runtime/tests/evidence/public-site-browser.json
+          if-no-files-found: error
+          retention-days: 7
 
   site-readiness:
     needs: source-and-unit
@@ -158,7 +171,7 @@ jobs:
 
   candidate-package:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -181,7 +194,7 @@ jobs:
 
   candidate-windows:
     needs: candidate-package
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.browser == 'windows-candidate' || inputs.browser == 'candidate') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["windows-candidate","candidate","windows-browser"]'), inputs.browser) }}
     runs-on: windows-2025
     timeout-minutes: 10
     steps:
@@ -214,11 +227,20 @@ jobs:
           }
           Write-Host '::notice title=Windows native ZIP extraction::All manifest files match after PowerShell Expand-Archive; visible browser installation is not tested.'
           & scripts/test-windows-candidate.ps1 -CandidateRoot $candidateRoot
+      - name: Exercise the actual managed Windows browser through dashboard and CMD
+        if: ${{ inputs.browser == 'windows-browser' }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateRoot = Join-Path $PWD '.runtime/delivery/candidate smoke/job-application-assistant'
+          & scripts/test-windows-browser.ps1 -CandidateRoot $candidateRoot
       - name: Preserve bounded Windows evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6
         with:
           name: windows-candidate-evidence
-          path: .runtime/tests/evidence/windows-candidate.json
+          path: |
+            .runtime/tests/evidence/windows-candidate.json
+            .runtime/tests/evidence/windows-browser.json
           if-no-files-found: warn
           retention-days: 7

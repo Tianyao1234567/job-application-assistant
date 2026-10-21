@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {acceptResearchUrl as acceptable,publicResearchUrl as publicUrl} from './research-url.mjs';
 
 if(process.env.GITHUB_ACTIONS!=='true'||process.platform!=='linux'||process.env.SITE_RESEARCH_READONLY!=='1')throw new Error('Use the explicit hosted Linux read-only research job.');
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
@@ -16,20 +17,11 @@ const companies=[
   {id:'roborock',name:'石头科技',identity:'Candidate brand roots; verify corporate identity and official hiring links.',roots:['https://www.roborock.com/','https://cn.roborock.com/']}
 ];
 const employment=/招聘|加入我们|招贤|人才|社会招聘|校园招聘|careers?|recruit|join.?us|job(?:s|\/|\.|_|-)|zhaopin|zhiye|mokahr|feishu|beisen|hotjob|moka/i;
-const safeQuery=new Set(['q','lang','language','page','position','jobid','job_id','job','category','campus','tenant','project','channel','locale','limit','city','reqid','type','id','languagecode']);
-function acceptable(value,base){
-  try{
-    const url=new URL(value,base);
-    if(url.protocol!=='https:'||url.username||url.password||url.port||url.hostname==='localhost'||url.hostname.endsWith('.local')||/^\d+(?:\.\d+){3}$/.test(url.hostname)||url.hostname.includes(':'))return null;
-    if([...url.searchParams.keys()].some(key=>/^(?:access_token|token|password|secret|cookie|session|sessionid|auth|authorization|credential|signature|ticket|nonce|code|sso|sid)$/i.test(key)))return null;
-    if(/\.(?:zip|exe|pdf|docx?|xlsx?|png|jpe?g|mp4|webm)$/i.test(url.pathname))return null;
-    return url;
-  }catch{return null;}
-}
-function publicUrl(value){
-  const url=new URL(value);url.hash='';
-  for(const key of [...url.searchParams.keys()])if(!safeQuery.has(key.toLowerCase()))url.searchParams.delete(key);
-  return url.href.slice(0,350);
+function publicEvidence(value,key=''){
+  if(typeof value==='string'&&/^(?:url|requestedUrl|finalUrl|from|to|crossReference|roots|scriptSources)$/.test(key))return publicUrl(value);
+  if(Array.isArray(value))return value.map(item=>publicEvidence(item,key));
+  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([name,item])=>[name,publicEvidence(item,name)]));
+  return value;
 }
 const decode=value=>String(value).replace(/&(?:amp|quot|apos|lt|gt|nbsp);|&#(?:x[0-9a-f]+|\d+);/gi,item=>{
   const named={'&amp;':'&','&quot;':'"','&apos;':"'",'&lt;':'<','&gt;':'>','&nbsp;':' '};
@@ -46,30 +38,30 @@ function extract(html,base){
     if(!href)continue;
     const label=plain(match[2]).slice(0,180),url=acceptable(decode(href[1]??href[2]??href[3]),base);
     if(!url)continue;
-    const key=publicUrl(url.href);if(seen.has(key))continue;seen.add(key);
+    const key=url.href;if(seen.has(key))continue;seen.add(key);
     if(employment.test(label+' '+url.href)&&links.length<18)links.push({text:label,url:key});
     else if(/关于|公司简介|About (?:Us|Roborock)|Global Site|中国|China/i.test(label)&&discoveryLinks.length<6)discoveryLinks.push({text:label,url:key});
   }
   const scriptSources=[];
   for(const match of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)){
-    const url=acceptable(decode(match[1]),base);if(url&&scriptSources.length<4)scriptSources.push(publicUrl(url.href));
+    const url=acceptable(decode(match[1]),base);if(url&&scriptSources.length<4)scriptSources.push(url.href);
   }
   const visibleSignals={login:/登录|登入|sign.?in|log.?in/i.test(text),registration:/注册|register|sign.?up/i.test(text),captcha:/验证码|captcha|人机验证/i.test(text),apply:/申请职位|立即申请|立即投递|投递简历|apply.?now/i.test(text),receipt:/申请记录|投递记录|我的申请|application.?status/i.test(text)};
   const identities=[...text.matchAll(/[^。；！？]{0,55}(?:有限公司|股份有限公司|版权所有|Copyright|All Rights Reserved)[^。；！？]{0,90}/gi)].map(match=>match[0].trim().slice(0,180)).slice(-3);
   return {title,textStart:text.slice(0,2200),textEnd:text.length>2200?text.slice(-1000):'',identityExcerpts:identities,visibleSignals,links,discoveryLinks,scriptSources,emptyShell:text.length<180};
 }
 async function requestPage(url,kind){
-  const item={requestedUrl:publicUrl(url),kind,redirects:[]};
   let current=acceptable(url);
+  const item={requestedUrl:current?.href??null,kind,redirects:[]};
   if(!current){item.outcome='URL_REFUSED';return item;}
   try{
     for(let count=0;count<5;count++){
       if(Date.now()>=deadline){item.outcome='GLOBAL_DEADLINE';return item;}
       const response=await fetch(current,{method:'GET',redirect:'manual',headers:{'User-Agent':'Mozilla/5.0 (compatible; public-readiness-research/1.0)','Accept':'text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8'},signal:AbortSignal.timeout(Math.min(12_000,deadline-Date.now()))});
-      item.status=response.status;item.finalUrl=publicUrl(current.href);
+      item.status=response.status;item.finalUrl=current.href;
       if([301,302,303,307,308].includes(response.status)){
         const next=acceptable(response.headers.get('location')||'',current.href);
-        item.redirects.push({status:response.status,from:item.finalUrl,to:next?publicUrl(next.href):null});
+        item.redirects.push({status:response.status,from:item.finalUrl,to:next?.href??null});
         await response.body?.cancel();
         if(!next){item.outcome='REDIRECT_REFUSED';return item;}current=next;continue;
       }
@@ -88,7 +80,7 @@ async function requestPage(url,kind){
 function annotation(company){
   // GitHub workflow-command annotation messages are limited to 4096 UTF-8
   // bytes, not 12k JavaScript characters. Keep essential source chains intact.
-  const pages=company.pages.map(page=>({url:page.requestedUrl,kind:page.kind,status:page.status||null,finalUrl:page.finalUrl||null,outcome:page.outcome,title:page.title?.slice(0,95),identity:page.identityExcerpts?.slice(-1),redirects:page.redirects?.slice(-1),links:page.links?.slice(0,4),discoveryLinks:page.discoveryLinks?.slice(0,2),signals:page.visibleSignals,emptyShell:page.emptyShell,errorType:page.errorType}));
+  const pages=publicEvidence(company.pages.map(page=>({url:page.requestedUrl,kind:page.kind,status:page.status||null,finalUrl:page.finalUrl||null,outcome:page.outcome,title:page.title?.slice(0,95),identity:page.identityExcerpts?.slice(-1),redirects:page.redirects?.slice(-1),links:page.links?.slice(0,4),discoveryLinks:page.discoveryLinks?.slice(0,2),signals:page.visibleSignals,emptyShell:page.emptyShell,errorType:page.errorType})));
   const note={company:company.name,id:company.id,pages};
   const bytes=()=>Buffer.byteLength(JSON.stringify(note));
   if(bytes()>3750){note.compact=true;for(const page of pages){delete page.discoveryLinks;delete page.redirects;page.links=page.links?.slice(0,2);page.identity=page.identity?.map(text=>text.slice(0,100));}}
@@ -99,7 +91,7 @@ function annotation(company){
   const value=JSON.stringify(note);
   console.log('::notice title=Read-only hiring '+company.id+'::'+value.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }
-const evidence={schema:1,sourceSha:process.env.GITHUB_SHA||null,runId:process.env.GITHUB_RUN_ID||null,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',displayDate:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',dateStyle:'short'}).format(new Date()),method:'GET only; no cookies, account, form or application API; public HTML signals are observations, not verified login/application capability.',companies:[]};
+const evidence={schema:2,sourceSha:process.env.GITHUB_SHA||null,runId:process.env.GITHUB_RUN_ID||null,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',displayDate:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',dateStyle:'short'}).format(new Date()),method:'GET only; no cookies, account, form or application API; public HTML signals are observations, not verified login/application capability.',urlPolicy:'Navigation and deduplication use complete accepted hrefs. Published URLs are redacted display values and never reused for navigation.',companies:[]};
 // Two company workers bound concurrency and keep the whole job below its deadline.
 let index=0;
 async function worker(){
@@ -119,5 +111,5 @@ async function worker(){
 }
 await Promise.all([worker(),worker()]);
 evidence.finishedAt=new Date().toISOString();
-await fs.writeFile(path.join(directory,'recruitment-readiness.json'),JSON.stringify(evidence,null,2));
+await fs.writeFile(path.join(directory,'recruitment-readiness.json'),JSON.stringify(publicEvidence(evidence),null,2));
 console.log('Read-only public readiness collection completed: '+evidence.companies.length+' companies. Public identity/ATS conclusions require source review; unsuccessful GETs are retained.');
