@@ -12,10 +12,14 @@ export function greenhouseIdentity(value) {
 export function readPublicApplication() {
   const visible=node=>!!node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden';
   const text=node=>(node?.innerText||node?.textContent||'').trim();
-  const fields=[...document.querySelectorAll('input,textarea,select')].filter(node=>node.type!=='hidden'&&(visible(node)||node.type==='file')).slice(0,60).map(node=>{
+  const controls=[...document.querySelectorAll('input,textarea,select')].filter(node=>node.type!=='hidden'&&(visible(node)||node.type==='file'));
+  if(controls.length>60)throw new Error('GREENHOUSE_FIELD_BUDGET');
+  const fields=controls.map(node=>{
     const labelled=(node.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean).map(id=>document.getElementById(id)).filter(Boolean);
     const label=[...(node.labels||[])].map(text).join('\n')||labelled.map(text).join('\n')||node.getAttribute('aria-label')||'';
-    return {id:node.id||'',name:node.name||'',tag:node.tagName,type:node.type||'',label:label.slice(0,2000),nativeRequired:!!node.required,ariaRequired:node.getAttribute('aria-required')==='true',labelRequired:/\*/.test(label),accept:node.accept||'',empty:!node.value,options:node.tagName==='SELECT'?[...node.options].slice(0,60).map(option=>({text:text(option).slice(0,300),disabled:option.disabled})):[],optionsComplete:node.tagName==='SELECT',customControl:node.getAttribute('role')==='combobox'||node.getAttribute('aria-haspopup')==='listbox'};
+    if(label.length>2000||(node.tagName==='SELECT'&&node.options.length>300))throw new Error('GREENHOUSE_QUESTION_BUDGET');
+    const options=node.tagName==='SELECT'?[...node.options].map(option=>{const label=text(option);if(label.length>300)throw new Error('GREENHOUSE_OPTION_BUDGET');return {text:label,disabled:option.disabled};}):[];
+    return {id:node.id||'',name:node.name||'',tag:node.tagName,type:node.type||'',label,nativeRequired:!!node.required,ariaRequired:node.getAttribute('aria-required')==='true',labelRequired:/\*/.test(label),accept:node.accept||'',empty:!node.value,options,optionsComplete:node.tagName==='SELECT',customControl:node.getAttribute('role')==='combobox'||node.getAttribute('aria-haspopup')==='listbox'};
   });
   return {url:location.href,title:document.title,fields,verificationVisible:[...document.querySelectorAll('iframe[src*=captcha i],iframe[src*=verify i],input[type=password],input[autocomplete=one-time-code]')].some(visible)};
 }
@@ -36,8 +40,9 @@ export function preparePublicApplication(snapshot,expected) {
   if(identity.tenant!==expected.tenant||identity.jobId!==expected.jobId||!snapshot.title.toLowerCase().includes(expected.company.toLowerCase()))throw new Error('GREENHOUSE_SCOPE_CHANGED');
   if(!Array.isArray(snapshot.fields)||snapshot.fields.length===0||snapshot.fields.length>60)throw new Error('GREENHOUSE_FIELDS');
   const fields=snapshot.fields.map(field=>{
-    if(typeof field.label!=='string'||field.label.length>2000||!['INPUT','TEXTAREA','SELECT'].includes(field.tag))throw new Error('GREENHOUSE_FIELD');
-    const descriptor={id:field.id,name:field.name,tag:field.tag,type:field.type,originalQuestion:field.label,requiredEvidence:{native:field.nativeRequired===true,aria:field.ariaRequired===true,labelAsterisk:field.labelRequired===true},accept:field.accept,options:field.options,optionsComplete:field.optionsComplete===true,customControl:field.customControl===true};
+    if(typeof field.label!=='string'||field.label.length>2000||!['INPUT','TEXTAREA','SELECT'].includes(field.tag)||!['id','name','type','accept'].every(key=>typeof field[key]==='string'&&field[key].length<=300)||!Array.isArray(field.options)||field.options.length>300)throw new Error('GREENHOUSE_FIELD');
+    const options=field.options.map(option=>{if(typeof option.text!=='string'||option.text.length>300)throw new Error('GREENHOUSE_OPTION');return {text:option.text,disabled:option.disabled===true};});
+    const descriptor={id:field.id,name:field.name,tag:field.tag,type:field.type,originalQuestion:field.label,requiredEvidence:{native:field.nativeRequired===true,aria:field.ariaRequired===true,labelAsterisk:field.labelRequired===true},accept:field.accept,options,optionsComplete:field.optionsComplete===true,customControl:field.customControl===true};
     const version=digest(descriptor),category=purpose(field);
     return {...descriptor,required:Object.values(descriptor.requiredEvidence).some(Boolean),purpose:category,source:identity.url,version,scope:`greenhouse:${identity.tenant}:${identity.jobId}:${field.id||field.name||'unidentified'}:${version}`,defaultRemember:false,nextAction:category==='confirmed-profile-fact'?'match-confirmed-profile-before-any-write':category==='attachment'?'verify-selected-file-before-any-upload':'pause-for-exact-question-confirmation',unresolved:!field.label||(!field.id&&!field.name)||(field.customControl&&!field.optionsComplete),alreadyPopulated:field.empty!==true};
   });

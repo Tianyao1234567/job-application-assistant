@@ -31,3 +31,13 @@ test('unknown choices, unlabeled controls and existing values do not become writ
   assert.equal(result.executionEnabled,false);assert.equal(result.productionSupported,false);assert.equal(result.verificationVisible,true);assert.equal(result.applicationPostsSent,0);
   assert.equal('answer' in result.fields[0],false);
 });
+test('large complete native choices are preserved; oversized evidence stops instead of truncating',()=>{
+  const input=snapshot();input.fields[0]={...field,tag:'SELECT',type:'select-one',optionsComplete:true,options:Array.from({length:250},(_,index)=>({text:'Fictional choice '+index,disabled:false}))};
+  const result=preparePublicApplication(input,expected);assert.equal(result.fields[0].options.length,250);assert.equal(result.fields[0].optionsComplete,true);
+  input.fields[0].options.push(...Array.from({length:51},()=>({text:'Excess',disabled:false})));assert.throws(()=>preparePublicApplication(input,expected));
+  const long=snapshot();long.fields[0].label='x'.repeat(2001);assert.throws(()=>preparePublicApplication(long,expected));
+});
+test('descriptor whitelist excludes input values and option extras',()=>{
+  const input=snapshot();input.fields[0].value='FICTIONAL_PRIVATE_VALUE';input.fields[0].options=[{text:'Public option',disabled:false,value:'FICTIONAL_OPTION_VALUE',token:'FICTIONAL_TOKEN'}];
+  const output=JSON.stringify(preparePublicApplication(input,expected));assert.equal(output.includes('FICTIONAL_'),false);assert.ok(output.includes('Public option'));
+});

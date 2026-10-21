@@ -69,10 +69,15 @@ async function protect(page){
 async function reviewedFrame(){
   const worker=h.context.serviceWorkers()[0];let active;
   if(worker)active=await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({active:true,lastFocusedWindow:true});return tabs[0]?.url;}).catch(()=>null);
-  const page=h.context.pages().find(page=>page.url()===active)||h.dashboard;
-  if(page.isClosed())throw new Error('ACTIVE_PAGE_CLOSED');
+  const page=h.context.pages().find(page=>page.url()===active);
+  // During navigation keep the last reviewed live frame, never silently show
+  // an unrelated dashboard instead of the selected execution tab.
+  if(!page)throw new Error('navigation: active page temporarily unavailable');
+  if(page.isClosed())throw new Error('VIDEO_TRANSIENT_PAGE_CLOSED');
   if(page.viewportSize()?.width!==WIDTH||page.viewportSize()?.height!==HEIGHT)await page.setViewportSize({width:WIDTH,height:HEIGHT});
-  const rectangles=await protect(page),jpeg=await page.screenshot({type:'jpeg',quality:85,scale:'css',animations:'disabled'});
+  let rectangles,jpeg;
+  try{rectangles=await protect(page);jpeg=await page.screenshot({type:'jpeg',quality:85,scale:'css',animations:'disabled',timeout:5000});}
+  catch(error){if(page.isClosed())throw new Error('VIDEO_TRANSIENT_PAGE_CLOSED');throw error;}
   const check=await page.evaluate(async({base64,rectangles,width,height})=>{
     const bytes=Uint8Array.from(atob(base64),x=>x.charCodeAt(0)),image=await createImageBitmap(new Blob([bytes],{type:'image/jpeg'}));
     if(image.width!==width||image.height!==height)throw new Error('VIDEO_FRAME_SIZE');
@@ -87,7 +92,7 @@ async function record(){let previous;
   while(!stopping){
     const target=started+frameCount*1000/FPS;if(Date.now()<target)await delay(target-Date.now());
     let frame;
-    try{frame=await reviewedFrame();}catch(error){if(/Execution context was destroyed|navigation|Target closed/i.test(String(error.message))&&previous){await writeFrame(previous);duplicates++;continue;}throw error;}
+    try{frame=await reviewedFrame();}catch(error){if(/Execution context was destroyed|navigation|Target closed|VIDEO_TRANSIENT_PAGE_CLOSED/i.test(String(error.message))&&previous){await writeFrame(previous);duplicates++;continue;}throw error;}
     const due=Math.floor((Date.now()-started)*FPS/1000);
     while(previous&&frameCount<due){await writeFrame(previous);duplicates++;}
     await writeFrame(frame);previous=frame;
@@ -136,7 +141,7 @@ async function demonstrate(){
   const checkbox=h.dashboard.getByRole('checkbox',{name:'保存为本站相同原文、相同限定用途的确认答案',exact:true});assert.equal(await checkbox.isChecked(),false);
   await h.dashboard.getByRole('textbox',{name:'确认答案',exact:true}).fill('这是虚构演示操作者确认的答案：希望参与机器人系统测试与可靠性开发。');await delay(4000);
   await step('操作者确认答案并恢复同一任务');await h.dashboard.getByRole('button',{name:'确认答案并继续原任务',exact:true}).click();
-  const submitted=await until('reliable receipt on original task',async()=>{if(recordFailure)throw recordFailure;const value=await h.state();if(value.tasks.find(task=>task.id===id)?.status==='unknown')throw new Error('VIDEO_TASK_RECEIPT_UNKNOWN');return value;},value=>value.tasks.find(task=>task.id===id)?.status==='submitted');assert.equal(submitted.tasks.find(task=>task.id===id).title,'C++ 开发工程师');
+  const submitted=await until('reliable receipt on original task',async()=>{if(recordFailure)throw recordFailure;const value=await h.state();if(value.tasks.find(task=>task.id===id)?.status==='unknown')throw new Error('VIDEO_TASK_RECEIPT_UNKNOWN');return value;},value=>value.tasks.find(task=>task.id===id)?.status==='submitted');const sameTask=submitted.tasks.find(task=>task.id===id);assert.equal(sameTask.title,'C++ 开发工程师');assert.equal(sameTask.company,'虚构甲公司');assert.equal(sameTask.location,'上海');
   const fixture=await h.fixture();assert.equal(h.posts().length,1);assert.equal(h.posts('alpha','cpp-001').length,1);assert.equal(h.posts('alpha','cpp-002').length,0);assert.equal(fixture.submitRequests.length,1);assert.equal(fixture.receipts.length,1);assert.equal(fixture.receipts[0].jobId,'cpp-001');assert.equal(fixture.receipts[0].sha256,pinned.sha256);assert.equal(hash(await fs.readFile(path.join(h.dataDir,'fixture','uploads',fixture.receipts[0].id+'.bin'))),pinned.sha256);
   const receipt=h.context.pages().find(page=>page.url()===FIXTURE+'/site/alpha/receipt/cpp-001');assert.ok(receipt);await front(receipt);await step('站点实际回执，一次接收');await delay(7000);
   await show('queue');await h.dashboard.getByRole('button',{name:'已核实提交',exact:true}).click();await step('后台同任务显示真实结果');
@@ -152,10 +157,8 @@ try{
   // Decode the actual completed WebM in the same single Chromium, after capture
   // stops. Frame counters alone do not prove a viewer can play the artifact.
   const playerPath=path.join(review,'player-check.html');await fs.writeFile(playerPath,'<!doctype html><video muted src="continuous-fictional.webm"></video>');
-  const player=await h.context.newPage();await player.goto(pathToFileURL(playerPath).href);
-  await player.waitForFunction(()=>{const video=document.querySelector('video');return video.readyState>=1&&Number.isFinite(video.duration);},null,{timeout:15000});
-  const media=await player.locator('video').evaluate(async node=>{await node.play();return {duration:node.duration,width:node.videoWidth,height:node.videoHeight};});
-  await player.waitForFunction(()=>document.querySelector('video').currentTime>0.2,null,{timeout:10000});await player.close();
+  const player=await h.context.newPage();let playbackWatchdog;
+  const media=await Promise.race([(async()=>{await player.goto(pathToFileURL(playerPath).href);await player.waitForFunction(()=>{const video=document.querySelector('video');return video.readyState>=1&&Number.isFinite(video.duration);},null,{timeout:15000});const result=await player.locator('video').evaluate(async node=>{await node.play();return {duration:node.duration,width:node.videoWidth,height:node.videoHeight};});await player.waitForFunction(()=>document.querySelector('video').currentTime>0.2,null,{timeout:10000});return result;})(),new Promise((_,reject)=>{playbackWatchdog=setTimeout(()=>reject(new Error('VIDEO_PLAYBACK_TIMEOUT')),25000);})]).finally(()=>clearTimeout(playbackWatchdog));await player.close();
   assert.equal(media.width,WIDTH);assert.equal(media.height,HEIGHT);assert.ok(Math.abs(media.duration-manifest.recording.durationSeconds)<1);manifest.recording.actualChromiumPlayback={...media,decodedAndAdvanced:true};
   await h.verifyPrivateEvidence();await h.closeBrowser();await h.closeApp();
   const bytes=await fs.readFile(video);assert.ok(bytes.length>10000&&bytes.length<80*1024*1024);for(const value of privateValues)assert.ok(!bytes.includes(Buffer.from(value)));
