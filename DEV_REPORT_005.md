@@ -23,3 +23,11 @@ Cloud工作区为`/workspace/job-application-assistant`，Linux / Node24.19.0；
 旧演示图05漏出隔离任务UUID的事实保留，PM曾逐张查看旧7张图。旧artifact不改称遮罩通过。新演示必须校验最终PNG实际遮罩区域像素；脚本自动检查不等于开发者逐张人工视觉复核，也不代替PM验收。
 
 真实站只读观察不注册、不填表、不上传、不投递。公开列表、详情、稳定岗位ID与自动申请分别报告；未经观察的页面不猜API或构造解析器。真实账号、本人Windows现场与真实投递未验证。当前无需用户配合；众行机器人身份待确认、不追问、不替换近名公司、不阻塞其余工作。后续若实际需要本人登录，由PM一次性组织同执行profile的必要步骤，不索要密码/验证码/Cookie。
+
+## 托管Windows首轮：后台通过，浏览器测试辅助进程失败
+
+运行[39588110817](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588110817)，来源`e7d5d5b1d6e968adc5de1e4962c4d1234178906f`。source-and-unit与candidate-package成功；[candidate-windows 119183469665](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588110817/job/119183469665)后台9项全部通过，实际59个源码文件经Windows原生解包逐项摘要核验。
+
+候选candidate.2 ZIP 434624字节，SHA-256 `ca7f817bd747eb6b8744958892215b06b9df3753fb6b3e8c8008769c0facaf38`，与Cloud独立生成值相同。此轮为真实失败历史，后续最终候选应以最新实际运行来源为准。
+
+托管Windows实际安装锁定Playwright与Chromium145.0.7632.6/revision1208后，第一条场景在外层Node等待PowerShell辅助进程管道关闭时达到100秒`HELPER_TIMEOUT`；尚无已完成的可见浏览器场景，不能把脚本声明的headed/realExtension字段当实际通过。问题定位为背景后台继承外层输出管道，等待`close`仍依赖EOF。修复为受控普通文件捕获输出、等待辅助进程自身`exit`和有界快照读取，补固定操作/耗时诊断后再实际运行。后台9项不受此测试辅助问题推翻。最终`managedCleanup=true`、`cleanup=true`，保留失败事实，不报整轮成功。

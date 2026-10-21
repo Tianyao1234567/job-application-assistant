@@ -19,18 +19,36 @@ const {chromium}=require('playwright');
 const helper=path.join(sourceRoot,'scripts','test-windows-browser.ps1');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const result={status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,platform:process.platform,node:process.version,headed:true,realExtension:true,managedBrowserInstalled:true,candidateArchiveInput:true,scenarios:[],resources:{maxConcurrentExecutionBrowsers:1,initialUIController:'Transient headed UI controller without extensions; closed after real browser-open response confirms readiness. Overlaps managed browser startup; only the managed browser executes the extension.'}};
-let key,taskId,current='prepare',controller,managed,watchdog;
+let key,taskId,current='prepare',controller,managed,watchdog,helperSequence=0;
 async function until(name,read,predicate,timeout=60_000){
   const end=Date.now()+timeout;
   while(Date.now()<end){const value=await read();if(predicate(value))return value;await delay(200);}
   const error=new Error('BOUND_CONDITION');error.code='WAIT_TIMEOUT';error.condition=name;throw error;
 }
 async function helperCall(extra,timeout=100_000){
-  const child=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',helper,'-CandidateRoot',candidate,...extra],{cwd:candidate,windowsHide:true,stdio:['ignore','pipe','pipe'],env:process.env});
-  // The helper uses regular files for its own CMD child. Its result is finite JSON.
-  let stdout='',stderr='';child.stdout.on('data',value=>{if(stdout.length<16_000)stdout+=value;});child.stderr.on('data',value=>{if(stderr.length<1000)stderr+=value;});
-  const code=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{child.kill();const error=new Error('HELPER_TIMEOUT');error.code='HELPER_TIMEOUT';reject(error);},timeout);child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',value=>{clearTimeout(timer);resolve(value);});});
-  if(code!==0){const error=new Error('FIXED_HELPER_FAILED');error.code='HELPER_FAILED';error.markers=[...new Set((stdout+'\n'+stderr).match(/\b[A-Z][A-Z0-9_]+(?=:)/g)||[])].slice(0,6);throw error;}
+  const entryIndex=extra.indexOf('-Entry'),operation=extra.includes('-CommandOnly')?'command-'+extra[entryIndex+1]+(extra.includes('-BackendOnly')?'-backend-only':''):'process-status';
+  const started=Date.now(),directory=path.join(runtime,'browser-test-helpers'),sequence=++helperSequence;
+  await fs.mkdir(directory,{recursive:true});
+  let stdoutFile,stderrFile,stdout='',stderr='',code,failure;
+  result.lastHelper={operation,status:'RUNNING'};
+  console.log('Windows browser helper: '+operation);
+  try{
+    stdoutFile=await fs.open(path.join(directory,sequence+'.stdout.log'),'w+');
+    stderrFile=await fs.open(path.join(directory,sequence+'.stderr.log'),'w+');
+    // A long-lived server launched through CMD can inherit PowerShell's output
+    // handles. Wait for this finite helper's process exit, never pipe EOF. Both
+    // output levels use controlled regular files, which remain privately ignored.
+    const child=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',helper,'-CandidateRoot',candidate,...extra],{cwd:candidate,windowsHide:true,stdio:['ignore',stdoutFile.fd,stderrFile.fd],env:process.env});
+    try{
+      code=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{child.kill();const error=new Error('HELPER_TIMEOUT');error.code='HELPER_TIMEOUT';reject(error);},timeout);child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('exit',value=>{clearTimeout(timer);resolve(value);});});
+    }catch(error){failure=error;}
+    async function snapshot(file,limit){const buffer=Buffer.alloc(limit),{bytesRead}=await file.read(buffer,0,limit,0);return buffer.subarray(0,bytesRead).toString('utf8');}
+    stdout=await snapshot(stdoutFile,16_000);stderr=await snapshot(stderrFile,1000);
+  }finally{await stdoutFile?.close();await stderrFile?.close();}
+  result.lastHelper={operation,status:failure?'TIMEOUT_OR_ERROR':code===0?'PASS':'FAIL',exitCode:code??null,elapsedMs:Date.now()-started};
+  const markers=[...new Set((stdout+'\n'+stderr).match(/\b[A-Z][A-Z0-9_]+(?=:)/g)||[])].slice(0,6);
+  if(failure){failure.command=operation;failure.markers=markers;throw failure;}
+  if(code!==0){const error=new Error('FIXED_HELPER_FAILED');error.code='HELPER_FAILED';error.command=operation;error.markers=markers;throw error;}
   const lines=stdout.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
   const value=lines.reverse().find(line=>line.startsWith('{')&&line.endsWith('}'));assert.ok(value,'HELPER_RESULT_REQUIRED');return JSON.parse(value);
 }
@@ -107,7 +125,7 @@ async function run(){
   result.status='PASS';
 }
 try{await Promise.race([run(),new Promise((_,reject)=>{watchdog=setTimeout(()=>{const error=new Error('WINDOWS_BROWSER_GROUP_TIMEOUT');error.code='GROUP_TIMEOUT';reject(error);},420_000);})]);}
-catch(error){result.status='FAIL';process.exitCode=1;result.failure={scenario:current,type:error.name,code:error.code||null,condition:error.condition||null,command:error.command||null,markers:error.markers||[],frames:String(error.stack||'').split('\n').filter(line=>/^\s+at /.test(line)).slice(0,4)};}
+catch(error){result.status='FAIL';process.exitCode=1;result.failure={scenario:current,type:error.name,code:error.code||null,condition:error.condition||null,command:error.command||null,helper:result.lastHelper,markers:error.markers||[],frames:String(error.stack||'').split('\n').filter(line=>/^\s+at /.test(line)).slice(0,4)};}
 finally{
   clearTimeout(watchdog);try{await controller?.close();}catch{}
   try{await command('stop');const remaining=await processState();assert.equal(remaining.ownedLaunchers.length,0);assert.equal(remaining.ownedChrome.length,0);result.managedCleanup=true;}catch{result.managedCleanup=false;result.status='FAIL';process.exitCode=1;}
