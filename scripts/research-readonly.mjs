@@ -16,7 +16,7 @@ const routeSchemas=new Map([
     limit:value=>Number.isSafeInteger(value)&&value>=1&&value<=100,
     offset:value=>Number.isSafeInteger(value)&&value>=0&&value<=5000,
     departmentIds:nullable(identifierArray),commitments:nullable(identifierArray),
-    needGroupType:value=>typeof value==='boolean'||value===0||value===1,
+    needGroupType:value=>typeof value==='boolean'||value===0||value===1||typeof value==='string'&&/^[A-Za-z0-9_-]{0,80}$/.test(value),
     moduleId:nullable(safeIdentifier),jobEnableFields:nullable(identifierArray),
     enableBrandIcon:value=>typeof value==='boolean',websitePageId:nullable(safeIdentifier)
   },required:['orgId','siteId','keyword','limit','offset']}]
@@ -37,6 +37,7 @@ export function classifyObservedMokaRead(request){
   const names=Object.keys(body);
   if(names.some(name=>!Object.hasOwn(schema.fields,name)))return deny('UNKNOWN_QUERY_FIELD');
   if(schema.required.some(name=>!Object.hasOwn(body,name)))return deny('MISSING_QUERY_FIELD');
-  if(names.some(name=>!schema.fields[name](body[name])))return deny('UNSCOPED_OR_INVALID_QUERY_VALUE');
+  const invalidFields=names.filter(name=>!schema.fields[name](body[name]));
+  if(invalidFields.length)return {...deny('UNSCOPED_OR_INVALID_QUERY_VALUE'),invalidFields};
   return {allowed:true,reason:'OBSERVED_PUBLIC_READ_QUERY',endpoint:url.pathname};
 }

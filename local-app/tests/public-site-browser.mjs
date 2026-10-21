@@ -95,9 +95,9 @@ function diagnosticNotices(){
   publishRecords('Observed blocked public request shapes',evidence.blockedMethods);
   publishRecords('Allowed observed public read queries',evidence.allowedReadQueries);
   publishRecords('Observed public read query responses',evidence.readQueryResponses);
+  for(const document of evidence.observations.filter(item=>item.phase!=='official-hiring-page'))publishRecords('Observed public recruitment DOM',document.bodyLines.map(text=>({phase:document.phase,text})));
   const social=evidence.observations.find(item=>item.phase==='actual-social-href');
   if(social){
-    publishRecords('Observed public recruitment DOM',social.bodyLines.map(text=>({phase:social.phase,text})));
     publishRecords('Observed public script sources',social.scriptSources);
   }
 }
@@ -175,7 +175,7 @@ async function probe(){
         if(!allowedQueryKeys.has(read.endpoint)){allowedQueryKeys.add(read.endpoint);evidence.allowedReadQueries.push({endpoint:read.endpoint,reason:read.reason,bodyShape:requestShape(request)});}
         return route.continue();
       }
-      const shape={...requestShape(request),policyReason:read.reason},key=JSON.stringify(shape);
+      const shape={...requestShape(request),policyReason:read.reason,invalidFields:read.invalidFields},key=JSON.stringify(shape);
       if(!blockedRequestKeys.has(key)&&evidence.blockedMethods.length<20){blockedRequestKeys.add(key);evidence.blockedMethods.push(shape);}
       return route.abort('blockedbyclient');
     }
@@ -216,12 +216,23 @@ async function probe(){
   // Allow the already observed public SPA a bounded settle period; do not
   // infer a list from its navigation/menu or guess a data endpoint.
   await page.waitForTimeout(6000);
-  const list=await observe('actual-social-href');
+  let list=await observe('actual-social-href');
   if(!listNavigation.ok||listNavigation.status>=400){evidence.stopReason=evidence.navigationLimitReached?'BOUNDED_REPEATED_NAVIGATION':listNavigation.error||'SOCIAL_HTTP_'+listNavigation.status;return;}
   if(list.signals.passwordForm||list.signals.verificationField||list.signals.verificationFrame){evidence.stopReason='LOGIN_OR_MANUAL_VERIFICATION_OBSERVED';return;}
   if(!sameObservedTenant(list.current?.href||'',social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
   if(!/第四范式[（(]北京[）)]技术有限公司/.test(list.title)){evidence.stopReason='TENANT_IDENTITY_NOT_OBSERVED';return;}
   evidence.facts.tenantIdentityObserved=true;
+  const menu=list.links.find(link=>/^(?:职位列表|岗位列表)$/.test(link.text)&&researchUrlKey(link.href)!==researchUrlKey(list.current.href));
+  if(menu&&!list.links.some(link=>observedJobId(new URL(link.href),link.jobId)&&/工程师|研究员|架构师|算法|实习|经理/.test(link.text))){
+    if(!sameObservedTenant(menu.href,social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
+    evidence.observedListMenuHref=linkEvidence(menu.href);
+    const menuNavigation=await navigate(menu.href,'observed-position-list');
+    if(!sameObservedTenant(page.url(),social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
+    await page.waitForTimeout(6000);
+    list=await observe('observed-position-list');
+    if(!menuNavigation.ok||menuNavigation.status>=400){evidence.stopReason=menuNavigation.error||'LIST_HTTP_'+menuNavigation.status;return;}
+    if(list.signals.passwordForm||list.signals.verificationField||list.signals.verificationFrame){evidence.stopReason='LOGIN_OR_MANUAL_VERIFICATION_OBSERVED';return;}
+  }
   const baseKey=researchUrlKey(list.current?.href||social.href);
   const jobs=list.links.filter(link=>{const url=new URL(link.href);return url.origin===new URL(social.href).origin&&researchUrlKey(url.href)!==baseKey&&!/apply|application|register|login|passport|resume|privacy|policy|agreement/i.test(url.href+' '+link.text)&&/job|position|工程师|研究员|架构师|算法|实习|经理/i.test(url.href+' '+link.text);});
   const selected=jobs.find(link=>observedJobId(new URL(link.href),link.jobId)&&/工程师|研究员|架构师|算法|实习|产品经理|研发经理|开发经理/.test(link.text));
@@ -230,6 +241,7 @@ async function probe(){
   if(!sameObservedTenant(selected.href,social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
   const detailNavigation=await navigate(selected.href,'observed-job-detail');
   if(!sameObservedTenant(page.url(),social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
+  await page.waitForTimeout(6000);
   const detail=await observe('observed-job-detail');
   if(!detailNavigation.ok||detailNavigation.status>=400){evidence.stopReason=detailNavigation.error||'DETAIL_HTTP_'+detailNavigation.status;return;}
   if(detail.signals.passwordForm||detail.signals.verificationField||detail.signals.verificationFrame){evidence.stopReason='DETAIL_LOGIN_OR_MANUAL_VERIFICATION_OBSERVED';return;}

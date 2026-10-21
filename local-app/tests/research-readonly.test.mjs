@@ -52,3 +52,11 @@ test('list pagination and filters stay bounded and cannot carry object-shaped pr
   const body={...scope,keyword:'',limit:10,offset:0,departmentIds:[],commitments:[]};
   for(const patch of [{limit:1000000},{offset:-1},{offset:'all'},{departmentIds:[{email:'fictional@example.test'}]},{commitments:[{password:'FICTIONAL'}]},{keyword:'x'.repeat(10000)}])assert.equal(classify(modulePath,{...body,...patch}).allowed,false);
 });
+
+// The fourth actual hosted observation showed needGroupType is a string.
+// This verifies its bounded selector type, not a claim about its remote value.
+test('the observed module grouping selector accepts bounded strings and rejects private objects',()=>{
+  const body={...scope,keyword:'',limit:10,offset:0,departmentIds:[],commitments:[]};
+  for(const needGroupType of ['', 'department',true,false])assert.equal(classify(modulePath,{...body,needGroupType}).allowed,true);
+  for(const needGroupType of [{email:'fictional@example.test'},'x'.repeat(81),'https://example.test/'])assert.equal(classify(modulePath,{...body,needGroupType}).allowed,false);
+});
