@@ -235,7 +235,11 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
   } catch (error) { await fixture?.close(); throw error; }
   return {server, store, fixture, url: `http://127.0.0.1:${server.address().port}`, close() {
     if (!closing) closing = (async () => {
-      clearInterval(timer); store.state.paused = true; store.state.running = false; store.save();
+      clearInterval(timer);
+      // Stop creates the same durable hold as explicit pause. Re-closing an
+      // already held service must not keep revising unchanged queued tasks.
+      if (!store.state.manualPaused || !store.state.paused || store.state.running) store.pause();
+      store.save();
       let browserError;
       try {if (browserClose) await browserClose(); else await managedBrowser?.close();} catch (error) {browserError = error;}
       await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

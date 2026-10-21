@@ -100,12 +100,17 @@ async function run(){
     result.uiFirstOpen={actualUIButton:true,initialControllerWithoutExtension:true,extensionConnected:true,managedLauncherCount:1,actualReadyMarker:true};
   });
   await scenario('UI-owned browser stops fully and backend restart preserves original task and safe pause',async()=>{
+    // Resume an idle, explicitly skipped fictional task so stop must CREATE a
+    // durable manual hold, rather than merely retaining the earlier API pause.
+    // No runnable task remains and resume does not enqueue list discovery.
+    await api('/action',{action:'task-skip',taskId});await api('/action',{action:'resume'});
+    const active=await api();assert.equal(active.tasks.find(task=>task.id===taskId)?.status,'skipped');assert.equal(active.manualPaused,false);assert.equal(active.running,true);
     const owned=await processState(),captured=owned.ownedAll;assert.ok(captured.length>1);
     const stopped=await command('stop');assert.equal(stopped.exitCode,0);await assertStopped(captured);
     const stored=JSON.parse(await fs.readFile(path.join(runtime,'data','state.json'),'utf8'));assert.equal(stored.tasks.find(task=>task.id===taskId)?.id,taskId);assert.equal(stored.paused,true);assert.equal(stored.running,false);assert.equal(stored.manualPaused,true);
     await command('start',true);const restarted=await api();assert.equal(restarted.tasks.find(task=>task.id===taskId)?.id,taskId);assert.equal(restarted.paused,true);assert.equal(restarted.manualPaused,true);assert.equal(restarted.profile.version,1);assert.equal(restarted.resume.version,1);
     await command('stop');await assertStopped([]);
-    result.uiStopRestart={managedProcessesGone:true,portsReleased:true,sameTask:true,safePause:true,versionsRetained:true};
+    result.uiStopRestart={managedProcessesGone:true,portsReleased:true,sameTask:true,safePause:true,stopCreatedManualHold:true,idleResumeHadNoRunnableTasks:true,versionsRetained:true};
   });
   await scenario('CMD starts actual managed browser and repeated real UI opening reuses the same instance',async()=>{
     const started=await command('start');assert.equal(started.exitCode,0);await connected();const {page}=await attach();
@@ -119,8 +124,16 @@ async function run(){
   await scenario('CMD-owned managed browser and launcher close without project survivors',async()=>{
     const owned=await processState(),captured=owned.ownedAll;const stopped=await command('stop');assert.equal(stopped.exitCode,0);await assertStopped(captured);
     const stored=JSON.parse(await fs.readFile(path.join(runtime,'data','state.json'),'utf8'));assert.equal(stored.tasks.find(task=>task.id===taskId)?.id,taskId);assert.equal(stored.paused,true);assert.equal(stored.running,false);
-    const fixture=JSON.parse(await fs.readFile(path.join(runtime,'data','fixture','fixture-state.json'),'utf8'));assert.equal(fixture.submitRequests.length,0);assert.equal(Object.keys(fixture.receipts).length,0);
-    result.cmdStop={managedProcessesGone:true,portsReleased:true,sameTask:true,safePause:true,applicationPosts:0};
+    // This lifecycle journey never visits a fixture page. The fixture creates
+    // its persisted ledger only when it creates a session or receives a write,
+    // so an absent ledger is valid. Do not manufacture one or claim HTTP counts.
+    let fixtureLedger='absent';
+    try{
+      const fixture=JSON.parse(await fs.readFile(path.join(runtime,'data','fixture','fixture-state.json'),'utf8'));
+      assert.equal(fixture.submitRequests.length,0);assert.equal(Object.keys(fixture.receipts).length,0);fixtureLedger='present-empty';
+    }catch(error){if(error.code!=='ENOENT')throw error;}
+    assert.equal(stored.tasks.some(task=>task.submissionStarted===true),false);
+    result.cmdStop={managedProcessesGone:true,portsReleased:true,sameTask:true,safePause:true,persistedFixtureLedger:fixtureLedger,storedSubmissionFlagsClear:true};
   });
   result.status='PASS';
 }

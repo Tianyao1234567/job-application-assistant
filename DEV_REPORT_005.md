@@ -43,3 +43,19 @@ Cloud工作区为`/workspace/job-application-assistant`，Linux / Node24.19.0；
 第二轮[39588958656](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39588958656)同源e7d5d5b，实际官网200→Moka302→200，Moka标题“第四范式（北京）技术有限公司 - 社会招聘”。列表/详情/稳定ID仍未核实，曾跟随的hash菜单链接不当作岗位详情。第三轮诊断[39589796909](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39589796909)，源`c4255e1526e61de1d5a3c02dfff56612c866983c`，实际看到“职位列表”“热招职位”，记录浏览器发出的公开功能、部门、职位模块查询及参数键名；全POST拦截使这些查询未完成，**这是本轮工具限制，不能报告为网站必须登录或外部访问受限**。
 
 后续只允许当次浏览器实际发出的、已观察到的精确公开查询路由；校验4paradigm/102013、JSON字段与类型、分页及请求总预算。未知路由、登录、上传、申请或额外敏感字段继续拒绝，不自行构造/重放API。此门控6项与URL语义4项回归通过，只有新运行中的实际DOM与来源能够证明岗位发现。实际观察到的公开JS来源曾一次Cloud GET返回403，没有重试或声称读过其正文。Cloud下载JSON artifact被Azure跳转403拒绝，读取到的Checks与下载全文分别报告。
+
+## 修复版来源与基础检查
+
+修复版源码`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`包含CSP内遮罩、固定截图clip、测试辅助进程有限文件输出、实际公开查询门控；[PR自动检查39590567724](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590567724)实际通过：**63项源码/JSON另计；20+171=191项基础测试通过，0失败**。新增6项查询门控涵盖租户/站点、未知写路由、凭据/私密字段、JSON类型与边界，属于策略验证，不冒称真实岗位发现。
+
+开发分支现在由PR事件执行一次自动检查（main仍有push检查）；显式调度浏览器仍单项串行、有总预算。修复了同一开发提交push/PR互相取消并占用队列的问题，没有放开并行浏览器，也未把取消的作业计为证据。
+
+Windows第二轮[39590662611](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590662611)，源cd890f2：后台9项再次通过，实际Chromium145.0.7632.6与扩展已启动；前三条浏览器场景PASS（真实UI打开、停止重启同任务/安全暂停、CMD→UI同实例）。第四条的进程/端口释放断言已经执行通过，随后读取未生成的fixture状态文件报`ENOENT`，因此整体仍failure、不称4/4。fixture仅在状态变更时保存，无申请的暂停场景允许状态文件不存在。修复测试对合法空fixture的判断，不创建假数据、不移除进程归属/端口断言，之后重新执行最终4项。
+
+## 新演示实际通过（F2与最终像素遮罩）
+
+[39590989886](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886)／[browser119191683542](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886/job/119191683542)，源`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`：workflow与browser均success，实际7张PNG，手动详情/申请链接、同ID发现补充、补答、暂停和实际服务/profile重启均通过。正确来源为“C++ 开发工程师 / 虚构甲公司 / 上海”，独立HTTP申请POST、实际multipart接收、唯一回执各1，接收文件字节摘要与锁定版本一致。
+
+[新演示artifact12341287042](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39590989886/artifacts/12341287042)：7张PNG、逐图摘要manifest与离线index，保留到**2026-10-24 19:20（北京时间）**。最终PNG不透明像素检查全部通过，图05任务标识区域有独立正向检查；这不是仅检查DOM或PNG文本元数据。脚本没有人工逐图视觉能力，Cloud的Azure下载限制仍存在，未冒称开发者人工看过新7张图；请PM审查该artifact。旧图05漏遮罩事实继续保留。
+
+仅该Linux runner的52次采样：最多13个后代进程，采样RSS求和峰值1906MiB、Node206MiB，可能重复计算共享页；一个浏览器实例顺序重启。它不是用户Windows机器的内存承诺；隔离目录已回收。

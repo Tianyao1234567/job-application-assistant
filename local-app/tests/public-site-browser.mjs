@@ -18,7 +18,7 @@ assert.equal(proof.image,IMAGE);assert.equal(proof.playwright,'1.58.2');assert.e
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const display=url=>publicResearchUrl(url,{maxLength:650});
 const official='https://www.4paradigm.com/about/hr.html';
-const evidence={schema:1,status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',scope:'One isolated browser; actual public page observation only. No extension, account, form, upload or application submission.',resources:{maxBrowserInstances:1},requestMethods:{},blockedMethods:[],allowedReadQueries:[],readQueryResponses:[],blockedUnsafeRequests:0,documentResponses:[],navigationAttempts:[],observations:[],facts:{officialHiringSourceObserved:false,actualSocialHrefObserved:false,publicListVerified:false,detailVerified:false,stableJobIdVerified:false,fullNavigationIdentityPreserved:true,applicationRequestsSent:0},outcome:'STOPPED',stopReason:null};
+const evidence={schema:1,status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',scope:'One isolated browser; actual public page observation only. No extension, account, form, upload or application submission.',resources:{maxBrowserInstances:1},requestMethods:{},blockedMethods:[],allowedReadQueries:[],readQueryResponses:[],blockedUnsafeRequests:0,documentResponses:[],navigationAttempts:[],observations:[],facts:{officialHiringSourceObserved:false,actualSocialHrefObserved:false,tenantIdentityObserved:false,publicListVerified:false,detailVerified:false,stableJobIdVerified:false,fullNavigationIdentityPreserved:true,applicationRequestsSent:0},outcome:'STOPPED',stopReason:null};
 let browser,context,page,timer,phase='environment',requestCount=0,documentCount=0;
 const repeatedNavigation=new Map(),blockedRequestKeys=new Set(),allowedQueryKeys=new Set(),approvedQueryRequests=new WeakSet();
 function linkEvidence(href){
@@ -31,10 +31,7 @@ function linkEvidence(href){
 }
 
 function notice(value){
-  let note={status:evidence.status,sourceSHA:evidence.sourceSHA,outcome:evidence.outcome,stopReason:evidence.stopReason,facts:evidence.facts,requestMethods:evidence.requestMethods,blockedMethods:evidence.blockedMethods.slice(0,4).map(({method,resourceType,url})=>({method,resourceType,url})),documents:evidence.documentResponses.slice(-5),navigation:evidence.navigationAttempts,observations:evidence.observations.map(item=>({...item,headings:item.headings?.slice(0,2),links:item.links?.slice(0,2),jobLines:item.jobLines?.slice(0,3)})),cleanup:evidence.cleanup};
-  if(Buffer.byteLength(JSON.stringify(note))>3600)for(const item of note.observations){delete item.headings;delete item.links;item.jobLines=item.jobLines?.slice(0,1);}
-  if(Buffer.byteLength(JSON.stringify(note))>3600)note.documents=note.documents.slice(-2);
-  if(Buffer.byteLength(JSON.stringify(note))>3600)note.observations=note.observations.map(({phase,url,title,bodyCharacters,signals,jobLines,stableId})=>({phase,url,title,bodyCharacters,signals,jobLines,stableId}));
+  const note={status:evidence.status,sourceSHA:evidence.sourceSHA,outcome:evidence.outcome,stopReason:evidence.stopReason,facts:evidence.facts,requestMethods:evidence.requestMethods,cleanup:evidence.cleanup};
   const text=JSON.stringify(note);assert.ok(Buffer.byteLength(text)<=3750,'Public observation notice must remain below platform truncation');
   console.log('::notice title=Public recruitment read-only result::'+text.replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }
@@ -93,6 +90,8 @@ function diagnosticNotices(){
     }
     publish(chunk);
   }
+  publishRecords('Observed public navigation',evidence.navigationAttempts);
+  publishRecords('Observed public document facts',evidence.observations.map(({phase,url,title,bodyCharacters,signals,jobLines,stableId})=>({phase,url,title,bodyCharacters,signals,jobLines:jobLines.slice(0,3),stableId})));
   publishRecords('Observed blocked public request shapes',evidence.blockedMethods);
   publishRecords('Allowed observed public read queries',evidence.allowedReadQueries);
   publishRecords('Observed public read query responses',evidence.readQueryResponses);
@@ -107,7 +106,7 @@ async function observe(label){
   const raw=await page.evaluate(()=>{
     const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none';
     const body=document.body?.innerText||'',lines=body.split(/\n+/).map(text=>text.trim()).filter(Boolean);
-    const bodyLines=lines.slice(0,12).map(text=>text.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,'[email]').replace(/(?:\+?\d[\d ()-]{5,}\d)/g,'[number]').slice(0,100));
+    const bodyLines=lines.slice(0,40).map(text=>text.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,'[email]').replace(/(?:\+?\d[\d ()-]{5,}\d)/g,'[number]').slice(0,100));
     const scriptSources=[...document.querySelectorAll('script[src]')].map(node=>node.src).slice(0,12);
     const anchors=[...document.querySelectorAll('a[href]')].filter(visible).slice(0,800).map(node=>({href:node.getAttribute('href'),text:node.innerText.trim().replace(/\s+/g,' ').slice(0,130),jobId:node.getAttribute('data-job-id')||node.getAttribute('data-position-id')||null}));
     return {title:document.title.slice(0,160),bodyCharacters:body.length,bodyLines,scriptSources,headings:[...document.querySelectorAll('h1,h2,h3')].filter(visible).slice(0,5).map(node=>node.innerText.trim().slice(0,100)),anchors,jobLines:lines.filter(text=>text.length>=3&&text.length<=75&&/工程师|架构师|算法|研究员|实习生|产品经理|开发经理|研发经理|职位描述|岗位职责|任职要求|工作职责/.test(text)&&!/@|邮箱|电话|登录|注册|立即申请|投递简历/.test(text)).slice(0,10),signals:{passwordForm:[...document.querySelectorAll('input[type=password]')].some(visible),verificationField:[...document.querySelectorAll('input[autocomplete=one-time-code],input[name*=captcha i]')].some(visible),verificationFrame:[...document.querySelectorAll('iframe[src*=captcha i],iframe[src*=verify i]')].some(visible),loginText:/登录|sign.?in/i.test(body),verificationText:/验证码|人机验证|安全验证|captcha/i.test(body),detailSections:/职位描述|岗位职责|任职要求|工作职责/.test(body),loadingOnly:body.trim().length<180&&/加载|loading|please wait|请稍候/i.test(body)}};
@@ -147,6 +146,12 @@ async function navigate(href,label){
   }finally{attempt.elapsedMs=Date.now()-started;}
 }
 
+function sameObservedTenant(value,socialHref){
+  const actual=acceptResearchUrl(value),expected=acceptResearchUrl(socialHref);
+  if(!actual||!expected||actual.origin!==expected.origin)return false;
+  const base=expected.pathname.replace(/\/$/,'');
+  return actual.pathname===base||actual.pathname.startsWith(base+'/');
+}
 function observedJobId(url,anchorId){
   if(anchorId&&/^[a-zA-Z0-9_-]{2,100}$/.test(anchorId))return {value:anchorId,source:'observed DOM data-job-id/data-position-id'};
   for(const [name,value] of url.searchParams)if(/^(?:job_?id|position_?id|reqid)$/i.test(name)&&/^[a-zA-Z0-9_-]{2,100}$/.test(value))return {value,source:'observed URL query '+name};
@@ -214,12 +219,17 @@ async function probe(){
   const list=await observe('actual-social-href');
   if(!listNavigation.ok||listNavigation.status>=400){evidence.stopReason=evidence.navigationLimitReached?'BOUNDED_REPEATED_NAVIGATION':listNavigation.error||'SOCIAL_HTTP_'+listNavigation.status;return;}
   if(list.signals.passwordForm||list.signals.verificationField||list.signals.verificationFrame){evidence.stopReason='LOGIN_OR_MANUAL_VERIFICATION_OBSERVED';return;}
+  if(!sameObservedTenant(list.current?.href||'',social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
+  if(!/第四范式[（(]北京[）)]技术有限公司/.test(list.title)){evidence.stopReason='TENANT_IDENTITY_NOT_OBSERVED';return;}
+  evidence.facts.tenantIdentityObserved=true;
   const baseKey=researchUrlKey(list.current?.href||social.href);
   const jobs=list.links.filter(link=>{const url=new URL(link.href);return url.origin===new URL(social.href).origin&&researchUrlKey(url.href)!==baseKey&&!/apply|application|register|login|passport|resume|privacy|policy|agreement/i.test(url.href+' '+link.text)&&/job|position|工程师|研究员|架构师|算法|实习|经理/i.test(url.href+' '+link.text);});
   const selected=jobs.find(link=>observedJobId(new URL(link.href),link.jobId)&&/工程师|研究员|架构师|算法|实习|产品经理|研发经理|开发经理/.test(link.text));
   evidence.facts.publicListVerified=Boolean(selected&&list.jobLines.length>0);
   if(!selected){evidence.stopReason=list.signals.loadingOnly?'PUBLIC_LOADING_SHELL':evidence.blockedMethods.length?'PUBLIC_DATA_NOT_OBSERVED_WITH_QUERY_METHODS_BLOCKED':'PUBLIC_JOB_LINK_NOT_OBSERVED';return;}
+  if(!sameObservedTenant(selected.href,social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
   const detailNavigation=await navigate(selected.href,'observed-job-detail');
+  if(!sameObservedTenant(page.url(),social.href)){evidence.stopReason='TENANT_MISMATCH';return;}
   const detail=await observe('observed-job-detail');
   if(!detailNavigation.ok||detailNavigation.status>=400){evidence.stopReason=detailNavigation.error||'DETAIL_HTTP_'+detailNavigation.status;return;}
   if(detail.signals.passwordForm||detail.signals.verificationField||detail.signals.verificationFrame){evidence.stopReason='DETAIL_LOGIN_OR_MANUAL_VERIFICATION_OBSERVED';return;}

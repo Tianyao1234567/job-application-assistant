@@ -40,6 +40,41 @@ test('dashboard API preserves state across restart and never exposes resume stor
   assert.equal(state.paused, true); assert.equal(state.running, false);
 });
 
+test('explicit service stop creates a durable manual hold before a due schedule without clearing submission history', async t => {
+  let clock = Date.parse('2026-10-21T00:58:00Z'); // 08:58 in the documented schedule timezone.
+  const app = await setup(t, {now: () => clock});
+  app.store.demo();
+  const queued = app.store.manual('http://127.0.0.1:17322/site/alpha/jobs/cpp-001').task;
+  const boundary = app.store.manual('http://127.0.0.1:17322/site/alpha/jobs/cpp-002').task;
+  // Controlled state-machine input, not a claim that an HTTP submission occurred.
+  boundary.status = 'submitting'; boundary.submissionStarted = true;
+  app.store.state.settings.scheduleEnabled = true; app.store.state.settings.time = '09:00';
+  app.store.action({action: 'resume'});
+  assert.equal(app.store.state.manualPaused, false); assert.equal(app.store.state.running, true);
+  await app.close();
+  const saved = JSON.parse(await fs.readFile(path.join(app.dataDir, 'state.json'), 'utf8'));
+  assert.equal(saved.manualPaused, true); assert.equal(saved.paused, true); assert.equal(saved.running, false);
+  assert.equal(saved.tasks.find(task => task.id === boundary.id).submissionStarted, true);
+  clock = Date.parse('2026-10-22T01:30:00Z'); // Restart after the next day's scheduled time.
+  const restarted = await createApp({dataDir: app.dataDir, port: 0, startFixture: false, testMode: true, now: () => clock});
+  t.after(() => restarted.close());
+  restarted.store.tick();
+  const state = restarted.store.snapshot();
+  assert.equal(state.manualPaused, true); assert.equal(state.paused, true); assert.equal(state.running, false);
+  assert.equal(state.nextRun, null); assert.equal(state.lastSchedule, null, 'a stop must not consume a pending daily schedule');
+  assert.equal(state.tasks.find(task => task.id === queued.id).id, queued.id);
+  const unknown = state.tasks.find(task => task.id === boundary.id);
+  assert.equal(unknown.status, 'unknown'); assert.equal(unknown.submissionStarted, true);
+  assert.equal(unknown.canResume, false); assert.equal(unknown.canVerify, true);
+  assert.equal(restarted.store.poll({clientId: 'stopped-test-client', profileId: 'stopped-test-profile', extensionId: 'a'.repeat(32)}).command, null);
+  await restarted.close();
+  const held = await fs.readFile(path.join(app.dataDir, 'state.json'));
+  const heldRestart = await createApp({dataDir: app.dataDir, port: 0, startFixture: false, testMode: true, now: () => clock});
+  t.after(() => heldRestart.close());
+  await heldRestart.close();
+  assert.deepEqual(await fs.readFile(path.join(app.dataDir, 'state.json')), held, 'repeated stop while held preserves saved revisions and history');
+});
+
 test('management APIs reject missing key, hostile origin, mutation without origin and malformed bodies', async t => {
   const app = await setup(t);
   assert.equal((await fetch(app.url + '/api/state')).status, 401);
