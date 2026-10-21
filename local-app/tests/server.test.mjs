@@ -53,6 +53,47 @@ test('management APIs reject missing key, hostile origin, mutation without origi
   assert.equal((await app.request('/api/action', {action: 'browser-open'})).status, 409);
 });
 
+test('dashboard browser open waits for managed readiness and app close owns the managed shutdown once', async t => {
+  let allowReady, opened = 0, stopped = 0;
+  const ready = new Promise(resolve => {allowReady = resolve;});
+  const app = await setup(t, {testMode: false,
+    browserOpen: async () => {opened++; await ready;}, browserClose: async () => {stopped++;}});
+  let complete = false;
+  const response = app.request('/api/action', {action: 'browser-open'}).then(value => {complete = true; return value;});
+  while (!opened) await new Promise(resolve => setTimeout(resolve, 5));
+  await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(complete, false, 'a launch request alone cannot report success');
+  allowReady();
+  assert.deepEqual(await (await response).json(), {ok: true, ready: true});
+  await Promise.all([app.close(), app.close()]);
+  assert.equal(stopped, 1);
+  assert.equal(app.store.state.paused, true);
+  assert.equal(app.store.state.running, false);
+});
+
+test('failed managed browser open never returns ready and test services still refuse production browser calls', async t => {
+  let opened = 0;
+  const app = await setup(t, {testMode: false, browserOpen: async () => {opened++; throw new Error('BROWSER_OPEN_FAILED');}});
+  const response = await app.request('/api/action', {action: 'browser-open'});
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).ready, undefined);
+  const isolated = await setup(t, {browserOpen: async () => {opened++;}});
+  assert.equal((await isolated.request('/api/action', {action: 'browser-open'})).status, 409);
+  assert.equal(opened, 1);
+});
+
+test('managed browser shutdown failure is reported after backend has saved and released its listener', async t => {
+  const dataDir = await fs.mkdtemp(path.join(ROOT, '.runtime/tests/server-close-'));
+  const app = await createApp({dataDir, port: 0, startFixture: false, testMode: false,
+    browserClose: async () => {throw new Error('BROWSER_CLOSE_FAILED');}});
+  t.after(() => fs.rm(dataDir, {recursive: true, force: true}));
+  await assert.rejects(app.close(), /BROWSER_CLOSE_FAILED/);
+  assert.equal(app.server.listening, false);
+  const state = JSON.parse(await fs.readFile(path.join(dataDir, 'state.json'), 'utf8'));
+  assert.equal(state.paused, true);
+  assert.equal(state.running, false);
+});
+
 test('Host validation blocks rebinding and static routes cannot traverse the checkout', async t => {
   const app = await setup(t);
   const status = await new Promise((resolve, reject) => {

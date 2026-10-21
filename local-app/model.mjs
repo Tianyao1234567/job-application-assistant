@@ -152,15 +152,32 @@ export class Store {
     }
     if(!this.queue.some(c=>c.op===op&&c.siteId===site.id)&&!(this.command?.op===op&&this.command.siteId===site.id))this.queue.push({id:uid(),op,siteId:site.id,payload,control:true});
   }
+  jobMetadata(site,job,jobId){
+    if(!job||job.tenant!==site.tenant||job.jobId!==jobId)throw new Error('岗位资料与当前租户或岗位不符');
+    const parsed=new URL(job.url);
+    if(parsed.origin!==site.origin||parsed.username||parsed.password||parsed.hash||parsed.pathname!==`/site/${site.tenant}/jobs/${jobId}`)throw new Error('岗位资料来源与详情地址不符');
+    // Never spread page-controlled records into a task. Identity, state and the
+    // durable submission boundary are owned by the backend, not job metadata.
+    return {tenant:site.tenant,jobId,url:parsed.origin+parsed.pathname,title:short(job.title),company:short(job.company),location:short(job.location)};
+  }
+  mergeJobMetadata(t,site,job,source){
+    const metadata=this.jobMetadata(site,job,t.jobId);
+    const changed=['title','company','location'].filter(key=>metadata[key]&&metadata[key]!==t[key]);
+    for(const key of changed)t[key]=metadata[key];
+    // An absent source field stays unknown and never erases a verified value.
+    t.jobMetadata={...metadata,source,checkedAt:this.now()};
+    if(changed.length)this.step(t,'岗位资料已核实',source==='detail'?'从当前岗位详情读取标题、公司和城市':'从当前站点列表补充同一岗位资料');
+  }
   add(site,job,source='自动发现'){
     if(!job||typeof job.jobId!=='string'||!/^[\w-]{1,100}$/.test(job.jobId))throw new Error('岗位稳定标识无效');
-    const parsed=new URL(job.url);if(parsed.origin!==site.origin||parsed.pathname!==`/site/${site.tenant}/jobs/${job.jobId}`)throw new Error('岗位链接与站点租户不符');
+    const parsed=new URL(job.url);if(parsed.origin!==site.origin||parsed.username||parsed.password||parsed.hash||parsed.pathname!==`/site/${site.tenant}/jobs/${job.jobId}`)throw new Error('岗位链接与站点租户不符');
+    if(source!=='手动加入')this.jobMetadata(site,job,job.jobId);
     const dedupeKey=[site.origin,site.tenant,job.jobId,site.expectedAccount].join('|');
-    const existing=this.state.tasks.find(t=>t.dedupeKey===dedupeKey);if(existing)return {task:existing,duplicate:true};
+    const existing=this.state.tasks.find(t=>t.dedupeKey===dedupeKey);if(existing){if(source!=='手动加入')this.mergeJobMetadata(existing,site,job,'list');return {task:existing,duplicate:true};}
     const title=short(job.title)||'待读取岗位',city=short(job.location),s=this.state.settings;
     const accepted=source==='手动加入'||s.keywords.some(k=>title.toLowerCase().includes(k.toLowerCase()))&&s.cities.some(c=>city.includes(c));
-    const t={id:uid(),jobId:job.jobId,siteId:site.id,title,company:short(job.company)||site.name,location:city,url:parsed.origin+parsed.pathname,source,discoveredAt:this.now(),filterReason:source==='手动加入'?'手动加入，执行时仍检查站点、资料和账号':accepted?'符合关键词和城市筛选':'未符合关键词或城市筛选',dedupeKey,mode:site.mode,status:accepted?(site.adapter==='local-v1'?'queued':'waiting_user'):'skipped',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};
-    this.step(t,'岗位入队',t.filterReason);this.state.tasks.push(t);if(site.adapter!=='local-v1')this.issue(t,'adapter','网站待适配','尚未验证的网站不会自动填写或提交');return {task:t,duplicate:false};
+    const t={id:uid(),jobId:job.jobId,siteId:site.id,title,company:short(job.company),location:city,url:parsed.origin+parsed.pathname,source,discoveredAt:this.now(),filterReason:source==='手动加入'?'手动加入，执行时仍检查站点、资料和账号':accepted?'符合关键词和城市筛选':'未符合关键词或城市筛选',dedupeKey,mode:site.mode,status:accepted?(site.adapter==='local-v1'?'queued':'waiting_user'):'skipped',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};
+    this.step(t,'岗位入队',t.filterReason);this.state.tasks.push(t);if(source!=='手动加入')this.mergeJobMetadata(t,site,job,'list');if(site.adapter!=='local-v1')this.issue(t,'adapter','网站待适配','尚未验证的网站不会自动填写或提交');return {task:t,duplicate:false};
   }
   manual(url){
     let parsed;try{parsed=new URL(url);}catch{throw new Error('请输入完整岗位链接');}
@@ -171,7 +188,7 @@ export class Store {
       const t={id:uid(),jobId:stable,siteId:site.id,title:'待适配岗位',company:site.name,location:'',url:parsed.href,source:'手动加入',discoveredAt:this.now(),filterReason:'未接入的网站；岗位稳定标识须由后续适配器核实',dedupeKey:`${site.origin}|${site.tenant}|${stable}|${site.expectedAccount}`,mode:'real',status:'waiting_user',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};this.step(t,'手动加入','网站待适配');this.state.tasks.push(t);this.issue(t,'adapter','网站待适配','不能可靠识别岗位身份或执行表单；不会自动投递');this.save();return {task:t,duplicate:false};
     }
     const m=parsed.pathname.match(new RegExp(`^/site/${site.tenant}/(?:jobs|apply)/([a-zA-Z0-9_-]+)$`));if(!m)throw new Error('请加入岗位详情或申请页链接');
-    const result=this.add(site,{jobId:m[1],url:`${site.origin}/site/${site.tenant}/jobs/${m[1]}`,title:'待读取岗位',company:site.name,location:''},'手动加入');this.save();return result;
+    const result=this.add(site,{jobId:m[1],url:`${site.origin}/site/${site.tenant}/jobs/${m[1]}`,title:'待读取岗位',company:'',location:''},'手动加入');this.save();return result;
   }
   run(discover=true,{scheduled=false}={}){
     if(scheduled&&this.state.manualPaused)throw new Error('用户已全局暂停，请明确恢复后再执行每日计划');
@@ -322,6 +339,10 @@ export class Store {
     if(t&&c.op!=='submit'&&c.op!=='verify'&&(t.revision||0)!==c.revision){this.save();return {ok:true,ignored:true};}
     if(t){if(Number.isInteger(r.tabId))t.tabId=r.tabId;if(typeof r.url==='string'&&r.url.startsWith(site.origin+'/'))t.currentUrl=r.url;}
     if(r.login)r={...r,login:this.loginResult(site,r.login,c.profileId)};
+    if(t&&c.op==='inspect'&&r.jobMetadata!==undefined){
+      try{this.mergeJobMetadata(t,site,r.jobMetadata,'detail');}
+      catch{r={ok:false,kind:'structure',message:'岗位详情资料与当前租户、岗位或来源地址不符，已停止执行。',login:r.login};}
+    }
     if(c.op==='check'){
       if(!r.login)this.loginResult(site,{status:r.kind==='login'?'login':'unknown'},c.profileId);
     }else if(c.op==='open'){}else if(c.op==='discover'){

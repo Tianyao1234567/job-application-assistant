@@ -12,20 +12,72 @@ process.env.PLAYWRIGHT_BROWSERS_PATH=path.join(runtime,'browsers');
 const require=createRequire(path.join(root,'runtime-deps','package.json'));
 const {chromium}=require('playwright');
 const extension=path.join(root,'autofill-extension');
-const stopFile=path.join(runtime,'browser.stop');
-const context=await chromium.launchPersistentContext(path.join(runtime,'browser','production'),{
-  headless:false,channel:'chromium',downloadsPath:path.join(runtime,'downloads'),
-  artifactsDir:path.join(runtime,'tmp'),env:{...process.env},
-  args:['--disable-extensions-except='+extension,'--load-extension='+extension,'--no-first-run','--disable-breakpad','--disable-crash-reporter'],
-});
-context.on('page',page=>page.on('download',download=>download.saveAs(path.join(runtime,'downloads',path.basename(download.suggestedFilename()))).catch(()=>{})));
-let closed=false;
-context.once('close',()=>{closed=true});
-const page=context.pages()[0] || await context.newPage();
-await page.goto('http://127.0.0.1:17321/?autoconnect=1');
-// Keep the launcher alive so stop can close the exact dedicated browser gracefully.
-while(!closed){
-  try { await fs.access(stopFile); await context.close(); break; } catch {}
-  await new Promise(resolve=>setTimeout(resolve,500));
+const stopFile=path.join(runtime,'browser.stop'),readyFile=path.join(runtime,'browser.ready.json'),pidFile=path.join(runtime,'browser.pid');
+const browserTest=process.env.GITHUB_ACTIONS==='true' && process.env.JOB_ASSISTANT_BROWSER_TEST==='1';
+// This debugging endpoint exists only in an explicitly isolated hosted test copy.
+if(browserTest && !root.includes(path.sep+'.runtime'+path.sep)) throw new Error('BROWSER_TEST_ISOLATION_REQUIRED');
+const testArgs=browserTest ? ['--remote-debugging-address=127.0.0.1','--remote-debugging-port=17323'] : [];
+await fs.rm(readyFile,{force:true});
+let context,closed=false,closing=false;
+async function close(){
+  closing=true;
+  if(context && !closed) await context.close().catch(()=>{});
 }
-await fs.rm(stopFile,{force:true});
+const stopTimer=setInterval(async()=>{try{await fs.access(stopFile);}catch{return;}await close();},200);
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{void close();});
+try{
+  const started=Date.now();
+  const readyDeadline=started+30000;
+  const remaining=()=>Math.max(1,readyDeadline-Date.now());
+  context=await chromium.launchPersistentContext(path.join(runtime,'browser','production'),{
+    headless:false,channel:'chromium',timeout:20000,downloadsPath:path.join(runtime,'downloads'),
+    artifactsDir:path.join(runtime,'tmp'),env:{...process.env},
+    args:['--disable-extensions-except='+extension,'--load-extension='+extension,'--no-first-run','--disable-breakpad','--disable-crash-reporter',...testArgs],
+  });
+  context.once('close',()=>{closed=true;});
+  const downloads=page=>page.on('download',download=>download.saveAs(path.join(runtime,'downloads',path.basename(download.suggestedFilename()))).catch(()=>{}));
+  context.on('page',downloads);
+  for(const page of context.pages())downloads(page);
+  if(closing) await close();
+  else{
+    const page=context.pages()[0] || await context.newPage();
+    await page.goto('http://127.0.0.1:17321/?autoconnect=1',{timeout:remaining()});
+    const isRunner=page=>/^chrome-extension:\/\/[a-p]{32}\/runner\/index\.html$/.test(page.url());
+    // A newly-created extension tab may still be about:blank when the page event
+    // fires. Observe its eventual URL instead of losing that one event forever.
+    let runner;
+    while(!runner && Date.now()<readyDeadline && !closing){
+      runner=context.pages().find(isRunner);
+      if(!runner)await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    if(!runner)throw new Error('EXTENSION_RUNNER_REQUIRED');
+    let profileId;
+    while(!profileId && Date.now()<readyDeadline){
+      profileId=await runner.evaluate(async()=> (await chrome.storage.local.get('localBridge')).localBridge?.profileId).catch(()=>undefined);
+      if(!profileId)await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    if(typeof profileId!=='string' || !profileId)throw new Error('EXTENSION_PROFILE_REQUIRED');
+    // A PID or visible window is insufficient: await a fresh real extension heartbeat.
+    // The local pairing key stays inside the dashboard and is never printed or saved here.
+    await page.waitForFunction(async ({since,profileId})=>{
+      const key=document.querySelector('meta[name="local-key"]')?.content;
+      if(!key)return false;
+      try{
+        const response=await fetch('/api/state',{headers:{'X-Local-Key':key},cache:'no-store'});
+        if(!response.ok)return false;
+        const state=await response.json();
+        return state.connection?.connected===true && state.connection.profileId===profileId && Date.parse(state.connection.lastSeen)>=since;
+      }catch{return false;}
+    },{since:started,profileId},{timeout:remaining()});
+    if(!closing && !closed)await fs.writeFile(readyFile,JSON.stringify({pid:process.pid,ready:true,extensionConnected:true,profileId,headless:false}),{mode:0o600});
+    while(!closed && !closing)await new Promise(resolve=>setTimeout(resolve,200));
+  }
+}catch(error){
+  if(!closing){console.error('BROWSER_START_FAILED: 专用浏览器或真实扩展连接未就绪。'+(error?.name==='TimeoutError'?' READY_TIMEOUT':''));process.exitCode=1;}
+}finally{
+  clearInterval(stopTimer);
+  await close();
+  try{if(JSON.parse(await fs.readFile(readyFile,'utf8')).pid===process.pid)await fs.rm(readyFile,{force:true});}catch{}
+  try{if((await fs.readFile(pidFile,'utf8')).trim()===String(process.pid))await fs.rm(pidFile,{force:true});}catch{}
+  await fs.rm(stopFile,{force:true});
+}

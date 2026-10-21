@@ -11,6 +11,7 @@ const pendingActions = new Set();
 const pendingForms = new Set();
 const READ_TIMEOUT_MS = 8000;
 const WRITE_TIMEOUT_MS = 20000;
+const BROWSER_OPEN_TIMEOUT_MS = 45000;
 let state = null;
 let lastSignature = '';
 let renderedView = '';
@@ -108,7 +109,7 @@ async function api(path, body) {
     timer = setTimeout(() => {
       reject(new Error(readOnly ? '读取本机后台超时，将继续尝试同步。' : '操作等待超时，结果尚未确认；请先核对后台状态，再决定是否再次操作。'));
       controller.abort();
-    }, readOnly ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
+    }, readOnly ? READ_TIMEOUT_MS : path === '/api/action' && body?.action === 'browser-open' ? BROWSER_OPEN_TIMEOUT_MS : WRITE_TIMEOUT_MS);
   });
   const request = (async () => {
     let response;

@@ -6,13 +6,14 @@ PM-0009 已验收 v0.2.0 在 Linux 云端、实际加载扩展、虚构招聘站
 
 现在无需在用户电脑安装、下载浏览器、运行测试或注册账号。先查看本轮独立短期演示 artifact、候选包及清单，由 PM 组织下一次轻量试用。
 
-本轮已生成7张真实扩展演示图与来源清单；候选源码包按逐文件摘要核验，GitHub托管Windows对实际候选包的9项后台/脚本检查通过。Windows可见浏览器仍未安装或启动验证，真实站仅做公开只读准备；具体SHA、artifact到期时间、失败历史和最小配合清单见本轮交付报告。
+PM-0010已接收旧候选完整性及Windows后台9项。本轮沿PR #5修复管理台/CMD浏览器启停、手动岗位详情展示与演示遮罩，并继续第四范式单浏览器只读预研。当前实际通过、失败和未验证项目以 [DEV_REPORT_005.md](DEV_REPORT_005.md) 为准；不沿用旧包证明新业务代码。
 
 - [产品规格](SPEC.md)
 - [开发进度与缺项](DEVELOPMENT_SNAPSHOT.md)
 - [可靠性与自检优化报告](DEV_REPORT_002.md)
 - [已验收云端闭环与16项证据](DEV_REPORT_003.md)
 - [演示、Windows候选和真实站准备交付](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/DEV_REPORT_004.md)
+- [PM-0010修复与云端实证](DEV_REPORT_005.md)
 - [Windows候选版中文使用说明](WINDOWS_START_001.md)
 - [候选源码包与校验清单](CANDIDATE_PACKAGE.md)
 - [协作规范](AGENTS.md)

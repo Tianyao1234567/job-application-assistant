@@ -1,6 +1,6 @@
 # 候选源码包与文件校验
 
-版本为 `0.2.0-candidate.1`。这是待复核的源码候选包，不含已安装的 Node、浏览器、运行依赖或个人数据。能解压和通过文件校验不代表 Windows 可见浏览器已安装、真实招聘站已接入或已经可以真实投递。当前无需在用户电脑运行旧“安装运行环境.cmd”；先查看演示及本轮报告，由 PM 组织后续轻量试用。
+本轮候选版本为 `0.2.0-candidate.2`，包含PM-0010修复；来源SHA、实际生成包和本轮Windows浏览器结果以DEV_REPORT_005为准，不能沿用candidate.1旧包。这是待复核的源码候选包，不含已安装的 Node、浏览器、运行依赖或个人数据。能解压和通过文件校验不代表 Windows 可见浏览器已安装、真实招聘站已接入或已经可以真实投递。当前无需在用户电脑运行旧“安装运行环境.cmd”；先查看演示及本轮报告，由 PM 组织后续轻量试用。
 
 ## 来源与内容
 
@@ -12,9 +12,9 @@
 
 清单排除 `.runtime`、`node_modules`、测试目录/输出、缓存、日志、截图/录像、真实资料、密钥及浏览器配置目录；即使这些路径被意外加入 Git，也不在候选 allowlist 内。不会通过归档整个仓库把运行数据一起带入。演示图像是另一份短期托管 artifact，不在本包或源码 Git 历史中。
 
-输出目录为 `.runtime/delivery/0.2.0-candidate.1-<来源SHA前12位>/`：
+输出目录为 `.runtime/delivery/0.2.0-candidate.2-<来源SHA前12位>/`：
 
-- `job-application-assistant-0.2.0-candidate.1-<来源SHA前12位>.zip`：UTF-8 源码 ZIP，内部单个 `job-application-assistant/` 目录。
+- `job-application-assistant-0.2.0-candidate.2-<来源SHA前12位>.zip`：UTF-8 源码 ZIP，内部单个 `job-application-assistant/` 目录。
 - `SOURCE.json`：与 ZIP 内同名文件完全一致，记录完整来源 SHA、验收基线 SHA、候选版本、依赖边界，以及每个源文件的相对路径、字节数和 SHA-256。生成的 SOURCE 本身不递归计入自身清单。
 - `SHA256SUMS.txt`：ZIP 与 SOURCE 的独立 SHA-256。浏览器下载后可据报告中同来源 SHA 的 CI 校验值核对。
 
@@ -38,4 +38,4 @@ node scripts/package-candidate.mjs verify <候选ZIP路径> --source <完整来�
 - 日常执行需要本地后台与一个专用执行浏览器保持运行。关闭浏览器不等于停止后台；停止入口保留任务、设置和专用登录目录。停止时未知结果仍只核对，不重投。
 - 托管 Windows 的路径、依赖检测和服务启停证据，与用户电脑可见浏览器/真实账号验收分别记录。云端演示进程和内存只作该 runner 的参考，不承诺用户机器相同占用。
 
-实际包、演示、Windows 验证与未验证项目以同一轮 [DEV_REPORT_004.md](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/DEV_REPORT_004.md) 和独立 PR 的运行链接为准；此文件不预先声称尚未完成的运行通过。
+实际包、演示、Windows 验证与未验证项目以本轮 [DEV_REPORT_005.md](DEV_REPORT_005.md) 和独立 PR 的运行链接为准；此文件不预先声称尚未完成的运行通过。

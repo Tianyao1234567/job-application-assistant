@@ -17,12 +17,12 @@ assert.equal(proof.image,IMAGE);assert.equal(proof.playwright,'1.58.2');assert.e
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const display=url=>publicResearchUrl(url,{maxLength:650});
 const official='https://www.4paradigm.com/about/hr.html';
-const evidence={schema:1,status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',scope:'One isolated browser; actual public page observation only. No extension, account, form, upload or application submission.',resources:{maxBrowserInstances:1},requestMethods:{},blockedMethods:[],blockedUnsafeRequests:0,documentResponses:[],observations:[],facts:{officialHiringSourceObserved:false,actualSocialHrefObserved:false,publicListVerified:false,detailVerified:false,stableJobIdVerified:false,fullNavigationIdentityPreserved:true,applicationRequestsSent:0},outcome:'STOPPED',stopReason:null};
+const evidence={schema:1,status:'RUNNING',sourceSHA:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,observedAt:new Date().toISOString(),timezone:'Asia/Shanghai',scope:'One isolated browser; actual public page observation only. No extension, account, form, upload or application submission.',resources:{maxBrowserInstances:1},requestMethods:{},blockedMethods:[],blockedUnsafeRequests:0,documentResponses:[],navigationAttempts:[],observations:[],facts:{officialHiringSourceObserved:false,actualSocialHrefObserved:false,publicListVerified:false,detailVerified:false,stableJobIdVerified:false,fullNavigationIdentityPreserved:true,applicationRequestsSent:0},outcome:'STOPPED',stopReason:null};
 let browser,context,page,timer,phase='environment',requestCount=0,documentCount=0;
 const repeatedNavigation=new Map();
 function linkEvidence(href){const url=acceptResearchUrl(href);return url?{publicUrl:display(url.href),fullUrlSha256:digest(url.href),publicDisplayIsComplete:display(url.href)===url.href,hashPresent:Boolean(url.hash)}:null;}
 function notice(value){
-  let note={status:evidence.status,sourceSHA:evidence.sourceSHA,outcome:evidence.outcome,stopReason:evidence.stopReason,facts:evidence.facts,requestMethods:evidence.requestMethods,blockedMethods:evidence.blockedMethods.slice(0,4),documents:evidence.documentResponses.slice(-5),observations:evidence.observations.map(item=>({...item,headings:item.headings?.slice(0,2),links:item.links?.slice(0,2),jobLines:item.jobLines?.slice(0,3)})),cleanup:evidence.cleanup};
+  let note={status:evidence.status,sourceSHA:evidence.sourceSHA,outcome:evidence.outcome,stopReason:evidence.stopReason,facts:evidence.facts,requestMethods:evidence.requestMethods,blockedMethods:evidence.blockedMethods.slice(0,4),documents:evidence.documentResponses.slice(-5),navigation:evidence.navigationAttempts,observations:evidence.observations.map(item=>({...item,headings:item.headings?.slice(0,2),links:item.links?.slice(0,2),jobLines:item.jobLines?.slice(0,3)})),cleanup:evidence.cleanup};
   if(Buffer.byteLength(JSON.stringify(note))>3600)for(const item of note.observations){delete item.headings;delete item.links;item.jobLines=item.jobLines?.slice(0,1);}
   if(Buffer.byteLength(JSON.stringify(note))>3600)note.documents=note.documents.slice(-2);
   if(Buffer.byteLength(JSON.stringify(note))>3600)note.observations=note.observations.map(({phase,url,title,bodyCharacters,signals,jobLines,stableId})=>({phase,url,title,bodyCharacters,signals,jobLines,stableId}));
@@ -44,9 +44,33 @@ async function observe(label){
 async function navigate(href,label){
   const accepted=acceptResearchUrl(href);assert.ok(accepted,'Only safe full public URLs may be navigated');
   assert.equal(researchUrlKey(accepted.href),accepted.href);phase=label;
-  try{const response=await page.goto(accepted.href,{waitUntil:'domcontentloaded',timeout:30000});await page.waitForTimeout(3500);return {ok:true,status:response?.status()??null};}
-  catch(error){return {ok:false,error:/ERR_TOO_MANY_REDIRECTS/.test(String(error.message))?'BROWSER_REDIRECT_LIMIT':error.name==='TimeoutError'?'NAVIGATION_TIMEOUT':'NAVIGATION_FAILED'};}
+  const started=Date.now(),deadline=started+30000;
+  const attempt={phase:label,url:linkEvidence(accepted.href),committed:false,domReady:false};
+  evidence.navigationAttempts.push(attempt);
+  try{
+    // The first real observation reached the official HTTP200 and readable
+    // recruiting DOM, while domcontentloaded still timed out. Navigation
+    // commit plus the actual visible DOM avoids waiting for unrelated assets.
+    const response=await page.goto(accepted.href,{waitUntil:'commit',timeout:Math.min(15000,deadline-Date.now())});
+    attempt.committed=true;attempt.status=response?.status()??null;
+    try{
+      await page.waitForFunction(()=>{
+        const body=document.body;
+        return body&&body.getClientRects().length&&document.title.trim()&&body.innerText.trim().length>=80;
+      },null,{timeout:Math.max(1,deadline-Date.now())});
+      attempt.domReady=true;
+    }catch(error){
+      attempt.domWait=error.name==='TimeoutError'?'BOUNDED_DOM_TIMEOUT':'DOM_CONTEXT_CHANGED';
+    }
+    // Even a short loading/login document is observed and reported after a
+    // committed navigation. It cannot be promoted to a verified job list.
+    return {ok:true,status:attempt.status,domReady:attempt.domReady};
+  }catch(error){
+    attempt.error=/ERR_TOO_MANY_REDIRECTS/.test(String(error.message))?'BROWSER_REDIRECT_LIMIT':error.name==='TimeoutError'?'NAVIGATION_TIMEOUT':'NAVIGATION_FAILED';
+    return {ok:false,error:attempt.error};
+  }finally{attempt.elapsedMs=Date.now()-started;}
 }
+
 function observedJobId(url,anchorId){
   if(anchorId&&/^[a-zA-Z0-9_-]{2,100}$/.test(anchorId))return {value:anchorId,source:'observed DOM data-job-id/data-position-id'};
   for(const [name,value] of url.searchParams)if(/^(?:job_?id|position_?id|reqid)$/i.test(name)&&/^[a-zA-Z0-9_-]{2,100}$/.test(value))return {value,source:'observed URL query '+name};

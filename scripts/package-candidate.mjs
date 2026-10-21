@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 
-export const VERSION='0.2.0-candidate.1';
+export const VERSION='0.2.0-candidate.2';
 export const BASELINE='b6cfdee0bbded79010bb97866fd1ad538275270f';
 export const PREFIX='job-application-assistant/';
 export const SOURCE_PATHS=Object.freeze([
@@ -13,7 +13,7 @@ export const SOURCE_PATHS=Object.freeze([
   'GITHUB_MIGRATION_STATUS.md','DEV_REPORT_003.md','WINDOWS_START_001.md','CANDIDATE_PACKAGE.md',
   '启动.cmd','停止.cmd','打开投递浏览器.cmd','安装运行环境.cmd',
   'scripts/runtime.ps1','scripts/start.ps1','scripts/stop.ps1','scripts/open-browser.ps1','scripts/setup.ps1',
-  'scripts/browser.mjs','scripts/windows-service.mjs','scripts/package-candidate.mjs','runtime-deps/package.json','runtime-deps/package-lock.json',
+  'scripts/browser.mjs','scripts/windows-service.mjs','scripts/windows-browser-control.mjs','scripts/package-candidate.mjs','runtime-deps/package.json','runtime-deps/package-lock.json',
   'local-app/CONTRACT.md','local-app/server.mjs','local-app/model.mjs','local-app/fixture.mjs','local-app/paths.mjs',
   'local-app/public/index.html','local-app/public/app.js','local-app/public/style.css',
   'autofill-extension/package.json','autofill-extension/manifest.json','autofill-extension/profile.example.json',
@@ -26,7 +26,7 @@ export const SOURCE_PATHS=Object.freeze([
   'autofill-extension/shared/ui.js','autofill-extension/shared/style.css',
   'autofill-extension/workspace/index.html','autofill-extension/workspace/workspace.js'
 ]);
-const OPTIONAL_PATHS=Object.freeze(['DEV_REPORT_004.md','REAL_SITE_PREPARATION.md']);
+const OPTIONAL_PATHS=Object.freeze(['DEV_REPORT_004.md','DEV_REPORT_005.md','REAL_SITE_PREPARATION.md']);
 const ALLOWED=new Set([...SOURCE_PATHS,...OPTIONAL_PATHS]);
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
 const sha256=value=>createHash('sha256').update(value).digest('hex');

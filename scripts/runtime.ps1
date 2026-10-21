@@ -50,6 +50,7 @@ function Start-ProjectNode([string]$name) {
     $entryPath = Get-ProjectEntry $name
     $staleStop = Join-Path $runtimeRoot ($name + '.stop')
     if (Test-Path -LiteralPath $staleStop) { Remove-Item -LiteralPath $staleStop -Force }
+    if ($name -eq 'browser') { Remove-Item -LiteralPath (Join-Path $runtimeRoot 'browser.ready.json') -Force -ErrorAction SilentlyContinue }
     $logPath = Join-Path $runtimeRoot ('logs\' + $name + '.log')
     $errorPath = Join-Path $runtimeRoot ('logs\' + $name + '.error.log')
     $started = Start-Process -FilePath $nodeExecutable -ArgumentList @('"' + $entryPath + '"') -WorkingDirectory $taskRoot -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errorPath -PassThru
@@ -87,4 +88,49 @@ try {
     if ($LASTEXITCODE -eq 21) { throw 'PLAYWRIGHT_REQUIRED: 尚未安装项目浏览器依赖。请查看 WINDOWS_START_001.md；启动入口不会自行下载。' }
     if ($LASTEXITCODE -eq 22) { throw 'CHROMIUM_REQUIRED: 尚未下载项目专用 Chromium。请查看 WINDOWS_START_001.md；启动入口不会自行下载。' }
     if ($LASTEXITCODE -ne 0) { throw 'PLAYWRIGHT_VERSION: 项目需要锁定的 Playwright 1.58.2，请查看 WINDOWS_START_001.md。' }
+}
+
+# A launcher PID is only ownership. Readiness additionally requires a current real
+# extension heartbeat, checked privately through this copy's authenticated backend.
+function Test-ProjectBrowserReady {
+    $owned = Get-ProjectProcess 'browser'
+    if (-not $owned) { return $false }
+    try {
+        $ready = Get-Content -LiteralPath (Join-Path $runtimeRoot 'browser.ready.json') -Raw | ConvertFrom-Json
+        if ($ready.pid -ne $owned.ProcessId -or $ready.ready -ne $true -or $ready.extensionConnected -ne $true -or $ready.headless -ne $false) { return $false }
+        $privateKey = (Get-Content -LiteralPath (Join-Path $runtimeRoot 'data\local-key') -Raw).Trim()
+        if ($privateKey -notmatch '^[A-Za-z0-9_-]{32,256}$') { return $false }
+        $state = Invoke-RestMethod -Uri 'http://127.0.0.1:17321/api/state' -Headers @{'X-Local-Key'=$privateKey} -TimeoutSec 2
+        if ($state.connection.connected -ne $true -or -not $state.connection.lastSeen -or $state.connection.profileId -ne $ready.profileId) { return $false }
+        $lastSeen = [DateTimeOffset]::Parse([string]$state.connection.lastSeen)
+        return (([DateTimeOffset]::UtcNow - $lastSeen).TotalSeconds -lt 6)
+    } catch { return $false }
+}
+
+function Stop-ProjectBrowser([switch]$LockHeld) {
+    $closeLock = $null
+    if (-not $LockHeld) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while (-not $closeLock -and [DateTime]::UtcNow -lt $deadline) {
+            try { $closeLock = [IO.File]::Open((Join-Path $runtimeRoot 'browser-start.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+            catch { Start-Sleep -Milliseconds 100 }
+        }
+        if (-not $closeLock) { throw 'BROWSER_CLOSE_IN_PROGRESS: 投递浏览器管理入口尚未释放，请保留数据后检查。' }
+    }
+    try {
+        $pidFile = Join-Path $runtimeRoot 'browser.pid'
+        $owned = Get-ProjectProcess 'browser'
+        if ($owned) {
+            [IO.File]::WriteAllText((Join-Path $runtimeRoot 'browser.stop'), 'stop')
+            for ($attempt = 0; $attempt -lt 80; $attempt++) {
+                if (-not (Get-ProjectProcess 'browser')) { break }
+                Start-Sleep -Milliseconds 150
+            }
+            if (Get-ProjectProcess 'browser') { throw 'STOP_TIMEOUT: browser 尚未正常关闭，保留PID和数据供检查；未强制结束其他程序。' }
+        } elseif (Test-Path -LiteralPath $pidFile) {
+            Write-Host 'STALE_PID: browser PID不属于本项目，未停止该程序。'
+        }
+        if (Test-Path -LiteralPath $pidFile) { Remove-Item -LiteralPath $pidFile -Force }
+        Remove-Item -LiteralPath (Join-Path $runtimeRoot 'browser.ready.json') -Force -ErrorAction SilentlyContinue
+    } finally { if ($closeLock) { $closeLock.Dispose() } }
 }

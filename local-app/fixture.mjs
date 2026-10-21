@@ -248,7 +248,7 @@ export async function createFixture({dataDir,port=17322,testMode=false,testKey}=
       }
       if(route==='jobs' && request.method==='GET') {
         if(!jobId)return html('虚构岗位列表','<ul>'+JOBS[tenant].map(item=>`<li><a data-job-id="${item.id}" data-title="${escape(item.title)}" data-company="${escape(item.company)}" data-location="${escape(item.location)}" href="/site/${tenant}/jobs/${item.id}">${escape(item.title)}</a> · ${escape(item.company)} · ${escape(item.location)}</li>`).join('')+'</ul>');
-        return html(job.title,`<p>${escape(job.company)} · ${escape(job.location)}</p><p>此岗位和公司均为虚构。</p><a data-apply-link href="/site/${tenant}/apply/${job.id}">申请这个虚构岗位</a>`);
+        return html(job.title,`<section data-job-detail data-tenant="${tenant}" data-job-id="${job.id}" data-title="${escape(job.title)}" data-company="${escape(job.company)}" data-location="${escape(job.location)}"><p><span data-job-title>${escape(job.title)}</span> · <span data-job-company>${escape(job.company)}</span> · <span data-job-location>${escape(job.location)}</span></p><p>此岗位和公司均为虚构。</p><a data-apply-link href="/site/${tenant}/apply/${job.id}">申请这个虚构岗位</a></section>`);
       }
       if(!['apply','receipt'].includes(route))throw new RequestError(405,'请求方法不支持。');
       const currentReceipt=()=>state.receipts[keyFor(tenant,job.id,session.account)];

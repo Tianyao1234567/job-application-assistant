@@ -1,5 +1,7 @@
 # v0.2.0 开发中快照
 
+2026-10-21 PM-0010接续：当前分支`dev/pm9-demo-windows-readiness` / PR #5继续draft。PM已接收candidate.1完整性、Windows后台9项及公开入口准备；本轮修复F1浏览器统一管理、F2岗位详情/截图像素遮罩、F3完整URL与摘要分离。实际证据与未验证项目见`DEV_REPORT_005.md`。众行机器人待确认、不追问、不阻塞；无需用户电脑安装或代跑。
+
 状态：PM-0009已验收`dev/local-workflow-foundation` / PR #4的云端虚构站最低闭环，交付head为`b6cfdee0bbded79010bb97866fd1ad538275270f`；PR #4仍draft、未合并。下一阶段从该head建立独立`dev/pm9-demo-windows-readiness`分支，准备演示、Windows候选与真实站只读方案。开发、安装和自动测试在Cloud或GitHub托管runner执行，不使用用户电脑代跑。
 
 本地 HTTP 后台、虚构招聘测试站和管理界面已实现。后台与测试站仅监听 loopback；管理台显示实际 API、扩展连接和任务状态。Manifest V3 扩展执行岗位发现、通用保护填写、多段经历、真实附件上传、缺答暂停与恢复、网站登录准备及结果核对。Windows 启停入口保留，尚未实际验收。

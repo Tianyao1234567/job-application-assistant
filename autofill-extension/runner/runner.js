@@ -149,13 +149,21 @@ async function execute(command) {
       safeUrl(tab.url,expect,'apply');
       await authorize(command);
       const verificationTab=await chrome.tabs.create({url:safeUrl(at('receipt/'+expect.jobId),expect,'receipt'),active:true});
-      let verified;
+      let verified,detail;
       try{
         await waitTab(verificationTab.id);
         verified=await read(verificationTab,expect,'verify');
+        if(verified.ok && !verified.receipt){
+          // Read metadata in the temporary tab as well: the retained application
+          // keeps the user's fields and selected attachment throughout recovery.
+          await authorize(command);
+          const detailsTab=await chrome.tabs.update(verificationTab.id,{url:safeUrl(command.task.url,expect,'detail'),active:true});
+          detail=await read(detailsTab,expect,'detail');
+        }
       }finally{await chrome.tabs.remove(verificationTab.id).catch(()=>{});}
       if(!verified.ok || verified.receipt)return {...verified,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
-      return read(tab,expect);
+      if(!detail.ok)return {...detail,tabId:tab.id,url:safeUrl((await chrome.tabs.get(tab.id)).url,expect)};
+      return {...await read(tab,expect),jobMetadata:detail.jobMetadata};
     }
     // GET-only receipt check comes before any application editing, including recovery after login.
     tab=await navigate(command,expect,at('receipt/'+expect.jobId),'receipt',tab);
@@ -165,7 +173,7 @@ async function execute(command) {
     const detail=await read(tab,expect,'detail');
     if(!detail.ok || detail.receipt)return detail;
     tab=await navigate(command,expect,detail.applyUrl,'apply',tab);
-    return read(tab,expect);
+    return {...await read(tab,expect),jobMetadata:detail.jobMetadata};
   }
   if(!tab)throw new Stop('structure','原申请页面已关闭，请重新检查后继续。');
   safeUrl(tab.url,expect,'apply');

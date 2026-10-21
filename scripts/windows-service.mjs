@@ -3,12 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createApp} from '../local-app/server.mjs';
+import {createWindowsBrowserControl} from './windows-browser-control.mjs';
 
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
 const runtime=path.join(root,'.runtime'),stopFile=path.join(runtime,'server.stop'),closedFile=path.join(runtime,'server.stopped');
 await fs.mkdir(runtime,{recursive:true});
 await fs.rm(closedFile,{force:true});
-const app=await createApp();
+const browserControl=createWindowsBrowserControl();
+const app=await createApp({browserOpen:()=>browserControl.open(),browserClose:()=>browserControl.close()});
 let closing=false;
 async function close(){
   if(closing)return;closing=true;clearInterval(timer);
