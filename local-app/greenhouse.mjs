@@ -38,6 +38,10 @@ export function greenhouseAnswer(q,value) {
 export function validNetworkReceipt(site,task,r) {
   const proof=r?.evidence,source=greenhouseJob(site,task.url).url,replay=greenhouseReplay(site);
   if(r?.kind!==(replay?'greenhouse-network-replay':'greenhouse-production')||r.tenant!==site.tenant||!proof||proof.rule!=='greenhouse-response-ok-v1'||proof.fixture!==replay||proof.source!==source||proof.taskId!==task.id||proof.profileId!==task.executionProfileId||proof.requestBound!==true||proof.confirmationObserved!==true||!Number.isInteger(proof.status)||proof.status<200||proof.status>=300||typeof proof.requestId!=='string'||!proof.requestId||r.id!=='gh-network:'+proof.requestId)return false;
+  if(proof.fileBinding==='native-upload-reference'){
+    const upload=proof.uploadBinding;
+    if(!upload||upload.rule!=='greenhouse-upload-object-v1'||upload.taskId!==task.id||upload.profileId!==task.executionProfileId||upload.source!==source||upload.tabId!==task.tabId||!upload.documentId||upload.fileName!==r.fileName||upload.fileSize!==r.fileSize||upload.sha256!==r.sha256||!Number.isInteger(upload.status)||upload.status<200||upload.status>=300||!/^[a-f0-9]{64}$/.test(upload.referenceSha256||'')||proof.referenceSha256!==upload.referenceSha256)return false;
+  }
   try {
     const submit=new URL(proof.submitUrl),confirmation=new URL(proof.confirmationUrl),expected=new URL(source);
     return !submit.username&&!submit.password&&submit.pathname===expected.pathname&&(submit.origin===site.origin||!replay&&submit.origin==='https://boards.greenhouse.io')&&confirmation.origin===site.origin&&confirmation.pathname===expected.pathname+'/confirmation';

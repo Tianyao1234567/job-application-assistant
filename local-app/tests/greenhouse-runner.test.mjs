@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import {captureUploadReference,verifiedUpload} from '../../autofill-extension/greenhouse-receipts.js';
 import {readFile} from 'node:fs/promises';
 import {webcrypto} from 'node:crypto';
 
@@ -21,7 +22,9 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
     async prepare(method,expected,args){h.prepared.push({method,expected,args});if(prepareGate){prepareGate.enter();await prepareGate.ready;}return {ok:true,token:method};},
     commit(expected,token){if(token==='submit')h.clicks++;else h.writes++;return {ok:token!=='submit',attempted:token==='submit',filled:1};}
   }};
-  const context=vm.createContext({URL,Date,AbortSignal,definitions:{},crypto:webcrypto,console,
+  if(!replay)h.storage.greenhouseUploadProofs={task:{rule:'greenhouse-upload-object-v1',taskId:'task',profileId:'fictional-profile',tabId:7,source:tabs.get(7).url,fileName:file.name,fileSize:file.size,sha256:file.sha256,status:204,documentId:'document-fixture',referenceSha256:'b'.repeat(64)}};
+  page.location={get href(){return tabs.get(7).url;}};
+  const context=vm.createContext({URL,Date,AbortSignal,definitions:{},captureUploadReference,verifiedUpload,crypto:webcrypto,console,
     document:{getElementById:()=>({textContent:''})},setTimeout:callback=>{queueMicrotask(callback);return 1;},
     async fetch(url){assert.equal(url,'http://127.0.0.1:17321/api/bridge/authorize');h.authorizations++;return {ok:true,json:async()=>({allowed:h.allowed})};},
     chrome:{runtime:{id:'fictional-extension',onMessage:{addListener(){}}},tabs:{
@@ -36,10 +39,10 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
       assert.equal(request.world,'ISOLATED');
       if(request.files){assert.equal(request.files.at(-1),'runner/greenhouse-adapter.js');return [{result:null}];}
       const fn=vm.runInNewContext('('+request.func.toString()+')',page);
-      return [{result:await fn(...request.args)}];
+      return [{result:await fn(...(request.args||[])),documentId:'document-fixture'}];
     }}}
   });
-  vm.runInContext(source.replace(/^import[^\n]+\n/,'').replace(/start\(\)\.catch\([\s\S]*$/,'globalThis.run=execute;globalThis.policy={expected,greenhouseUrl,greenhouseEntries};'),context);
+  vm.runInContext(source.replace(/^import[^\n]+\n/gm,'').replace(/start\(\)\.catch\([\s\S]*$/,'globalThis.run=execute;globalThis.policy={expected,greenhouseUrl,greenhouseEntries};'),context);
   vm.runInContext("bridge={key:'fictional-bridge-key',profileId:'fictional-profile'};",context);
   h.command=op=>({id:'command-'+op,op,site:{adapter:replay?'greenhouse-replay-v1':'greenhouse-v1',origin,tenant,company,expectedAccount:'fictional@example.invalid',mode:replay?'demo':'real',listUrl:origin+prefix,loginUrl:origin+prefix},
     task:{id:'task',jobId:'1234567',url:origin+prefix+'/jobs/1234567',mode:replay?'demo':'real',applicantConfirmed:true,executionProfileId:'fictional-profile',confirmedProfileKeys:['personal.email','personal.phone']},
@@ -93,4 +96,12 @@ test('unknown Greenhouse result is never clicked twice or returned as success',a
 test('Greenhouse recovery checks replay receipts separately and preserves the live application',async()=>{
   const h=harness();assert.equal((await h.run('inspect')).ok,true);
   assert.equal(h.created.length,1);assert.match(h.created[0],/\/jobs\/1234567\/receipt$/);assert.deepEqual(h.removed,[8]);assert.equal(h.updated.length,0);assert.equal(h.writes,0);
+});
+
+test('missing or stale exact upload proof pauses before preflight and before the durable submit boundary',async()=>{
+ for(const change of [h=>delete h.storage.greenhouseUploadProofs,h=>h.storage.greenhouseUploadProofs.task.documentId='different-document',h=>h.storage.greenhouseUploadProofs.task.sha256='c'.repeat(64),h=>h.storage.greenhouseUploadProofs.task.profileId='different-profile']){
+  const h=harness({replay:false});change(h);
+  for(const op of ['preflight','submit']){const result=await h.run(op);assert.equal(result.ok,false);assert.equal(result.kind,'manual');}
+  assert.equal(h.clicks,0);assert.equal(h.writes,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
+ }
 });

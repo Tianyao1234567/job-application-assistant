@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 
-export const VERSION='0.2.0-candidate.4';
+export const VERSION='0.2.0-candidate.5';
 export const BASELINE='b6cfdee0bbded79010bb97866fd1ad538275270f';
 export const PREFIX='job-application-assistant/';
 export const SOURCE_PATHS=Object.freeze([

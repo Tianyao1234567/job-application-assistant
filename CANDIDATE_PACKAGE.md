@@ -1,8 +1,8 @@
 # 候选源码包与文件校验
 
-当前候选版本为 `0.2.0-candidate.4`，加入实际自定义选择、人工验证后同任务恢复、上传后输入框移除适配及网络回执核验，运行源文件62个。来源与验证见 [Greenhouse 交付002](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/GREENHOUSE_DELIVERY_002.md)，生成包以 `SOURCE.json` 的完整来源 SHA 为准。包不含已安装的 Node、浏览器、运行依赖或个人数据；本轮未重跑 Windows，未验证生产真实申请。Manager 应先提供该版本和下述运行前提，再按实际界面组织使用；不让用户电脑承担云端开发测试。
+当前修复候选为 `0.2.0-candidate.5`，运行源文件62个。绑定原生上传实际File字节、精确对象引用摘要和成功响应；提交引用必须逐字节匹配该摘要，并绑定任务/profile/页面/源文件。缺证提交前暂停；跨界后结果未知不重投。修复交付及实际下载来源见 [交付003](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/GREENHOUSE_DELIVERY_003.md)。它仍需Node24及锁定运行依赖，不是免安装成品。
 
-当前实际下载：[candidate.4 / source-candidate](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547/artifacts/12413073425)，来源 `ff528ecb4535fc5d9d0d3ed75edf6485a9c923e0`，62文件，内层ZIP551593字节，SHA-256 `207f2cf505f5de499f7d7578642e1aec68411e6746cc70db2031878aed11786c`；2026-10-29 08:46:41 UTC到期。GitHub登录下载外层artifact后，再解压内部ZIP。109项必要测试、实际加载MV3两个新增场景及包回读核验通过；真实企业申请未执行。构建后文档提交不改变包的来源SHA。
+**candidate.4 不放行首次真实申请**：同名S3对象绑定存在P1缺陷，旧下载与109项/MV3证据不代表该缺陷通过。candidate.5仍待Manager定点验收；真实企业完整投递未执行。其余通过部分沿用原来源，不重跑旧MV3/Windows/录屏。
 
 历史 candidate.2 交付：[source-candidate artifact12342167482](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/artifacts/12342167482)，来源`a605bb1be89250a48a027e94134bf82c49d6debc`，59个源码文件加SOURCE。内层ZIP444113字节，SHA-256 `46b46ce813bc92ad772dd9a422d3b5f7051b0c2f958b3494426d523edc5c0305`，北京时间2026-10-28 19:24:39到期。实际Windows原生解包核验、后台9项及可见浏览器4项均通过，待PM验收。包内文档为打包时快照，构建后结论见仓库最新报告；研究脚本与测试工具仍只在完整开发仓库，不在运行源码候选中。
 
@@ -16,9 +16,9 @@
 
 清单排除 `.runtime`、`node_modules`、测试目录/输出、缓存、日志、截图/录像、真实资料、密钥及浏览器配置目录；即使这些路径被意外加入 Git，也不在候选 allowlist 内。不会通过归档整个仓库把运行数据一起带入。演示图像是另一份短期托管 artifact，不在本包或源码 Git 历史中。
 
-输出目录为 `.runtime/delivery/0.2.0-candidate.4-<来源SHA前12位>/`：
+输出目录为 `.runtime/delivery/0.2.0-candidate.5-<来源SHA前12位>/`：
 
-- `job-application-assistant-0.2.0-candidate.4-<来源SHA前12位>.zip`：UTF-8 源码 ZIP，内部单个 `job-application-assistant/` 目录。
+- `job-application-assistant-0.2.0-candidate.5-<来源SHA前12位>.zip`：UTF-8 源码 ZIP，内部单个 `job-application-assistant/` 目录。
 - `SOURCE.json`：与 ZIP 内同名文件完全一致，记录完整来源 SHA、验收基线 SHA、候选版本、依赖边界，以及每个源文件的相对路径、字节数和 SHA-256。生成的 SOURCE 本身不递归计入自身清单。
 - `SHA256SUMS.txt`：ZIP 与 SOURCE 的独立 SHA-256。浏览器下载后可据报告中同来源 SHA 的 CI 校验值核对。
 
@@ -42,4 +42,4 @@ node scripts/package-candidate.mjs verify <候选ZIP路径> --source <完整来�
 - 日常执行需要本地后台与一个专用执行浏览器保持运行。关闭浏览器不等于停止后台；停止入口保留任务、设置和专用登录目录。停止时未知结果仍只核对，不重投。
 - 托管 Windows 的路径、依赖检测和服务启停证据，与用户电脑可见浏览器/真实账号验收分别记录。云端演示进程和内存只作该 runner 的参考，不承诺用户机器相同占用。
 
-当前交付见 [Greenhouse 交付002](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/GREENHOUSE_DELIVERY_002.md)；candidate.2 的 Windows 历史证据仍以 [DEV_REPORT_005.md](DEV_REPORT_005.md) 为准，不转算为本轮验证。
+当前交付见 [Greenhouse 交付003](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/GREENHOUSE_DELIVERY_003.md)；candidate.2 的 Windows 历史证据仍以 [DEV_REPORT_005.md](DEV_REPORT_005.md) 为准，不转算为本轮验证。

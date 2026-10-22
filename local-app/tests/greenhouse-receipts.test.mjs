@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
-import {receiptScope,boundApplication,networkReceipt,registerGreenhouseReceipts} from '../../autofill-extension/greenhouse-receipts.js';
+import {receiptScope,boundApplication,networkReceipt,registerGreenhouseReceipts,verifiedUpload} from '../../autofill-extension/greenhouse-receipts.js';
 import {validNetworkReceipt} from '../greenhouse.mjs';
 const bytes=Buffer.from('Fictional applicant attachment only.');
 const spec={taskId:'task-fixture',profileId:'profile-fixture',tabId:7,tenant:'mattermost',jobId:'5381946008',account:'fictional@example.invalid',source:'https://job-boards.greenhouse.io/mattermost/jobs/5381946008',submitUrl:'https://boards.greenhouse.io/mattermost/jobs/5381946008',confirmationUrl:'https://job-boards.greenhouse.io/mattermost/jobs/5381946008/confirmation',replay:false,file:{name:'fictional.txt',size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}};
@@ -50,7 +50,27 @@ test('real listener ordering binds a task request, excludes tokens from storage 
 test('official uploaded-reference protocol requires our completed upload, exact filename and a bounded safe URL',async()=>{
  const body={job_application:{email:spec.account,resume_url_filename:spec.file.name,resume_url:'https://boards-fixture.s3.amazonaws.com/private-fictional-resume'}};
  assert.equal(await boundApplication(spec,body),false);
- const uploaded={...spec,uploadedResumeConfirmed:true};assert.equal(await boundApplication(uploaded,body),true);
+ const uploadProof={rule:'greenhouse-upload-object-v1',taskId:spec.taskId,profileId:spec.profileId,tabId:spec.tabId,source:spec.source,fileName:spec.file.name,fileSize:spec.file.size,sha256:spec.file.sha256,status:204,documentId:'document-1',referenceSha256:createHash('sha256').update(body.job_application.resume_url).digest('hex')};
+ const uploaded={...spec,uploadedResumeConfirmed:true,documentId:uploadProof.documentId,uploadProof};assert.equal(await boundApplication(uploaded,body),true);
  for(const url of ['https://attacker.invalid/resume','https://user@boards-fixture.s3.amazonaws.com/resume','http://boards-fixture.s3.amazonaws.com/resume','https://boards-fixture.s3.amazonaws.com/resume?secret=value'])assert.equal(await boundApplication(uploaded,{job_application:{...body.job_application,resume_url:url}}),false);
  assert.equal(await boundApplication(uploaded,{job_application:{...body.job_application,resume_url_filename:'other.txt'}}),false);
+});
+
+test('same-name different S3 object never certifies the locked resume or produces success after 2xx',async()=>{
+ const reference='https://boards-fixture.s3.amazonaws.com/object-a',wrong='https://boards-fixture.s3.amazonaws.com/different-object-b';
+ const uploadProof={rule:'greenhouse-upload-object-v1',taskId:spec.taskId,profileId:spec.profileId,tabId:spec.tabId,source:spec.source,fileName:spec.file.name,fileSize:spec.file.size,sha256:spec.file.sha256,status:204,documentId:'document-1',referenceSha256:createHash('sha256').update(reference).digest('hex')};
+ const pinned={...spec,uploadedResumeConfirmed:true,documentId:uploadProof.documentId,uploadProof};
+ const body=url=>({job_application:{email:spec.account,resume_url_filename:spec.file.name,resume_url:url}});
+ const observed=async url=>({spec:pinned,request:{id:'actual-native-request',startedAt:100,status:200,fileBinding:'native-upload-reference',referenceSha256:createHash('sha256').update(url).digest('hex'),bound:await boundApplication(pinned,body(url))},confirmedAt:200});
+ const correct=networkReceipt(await observed(reference));assert.ok(correct);
+ assert.equal(await boundApplication(pinned,body(wrong)),false);assert.equal(networkReceipt(await observed(wrong)),null);
+ assert.equal(networkReceipt({...await observed(wrong),request:{... (await observed(wrong)).request,bound:true}}),null,'receipt checks exact reference independently of the bound flag');
+ const site={adapter:'greenhouse-v1',origin:'https://job-boards.greenhouse.io',tenant:spec.tenant},task={id:spec.taskId,jobId:spec.jobId,url:spec.source,executionProfileId:spec.profileId,tabId:spec.tabId};
+ assert.equal(validNetworkReceipt(site,task,correct),true);
+ const legacy=structuredClone(correct);delete legacy.evidence.uploadBinding;assert.equal(validNetworkReceipt(site,task,legacy),false);
+ const substituted=structuredClone(correct);substituted.evidence.referenceSha256=createHash('sha256').update(wrong).digest('hex');assert.equal(validNetworkReceipt(site,task,substituted),false);
+ for(const key of ['taskId','profileId','source','tabId','sha256','fileName','fileSize','status','documentId']){
+   const changed=structuredClone(pinned);changed.uploadProof[key]=key==='status'?400:'different';assert.equal(verifiedUpload(changed),false,key);assert.equal(await boundApplication(changed,body(reference)),false,key);
+ }
+ assert.equal(await boundApplication({...spec,uploadedResumeConfirmed:true},body(reference)),false,'legacy filename-only proof is never sufficient');
 });

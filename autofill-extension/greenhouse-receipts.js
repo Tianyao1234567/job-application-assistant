@@ -10,18 +10,79 @@ export function receiptScope(spec) {
   }catch{return false;}
 }
 const hex=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(n=>n.toString(16).padStart(2,'0')).join('');
+export function verifiedUpload(spec,proof=spec?.uploadProof) {
+  return !!proof&&proof.rule==='greenhouse-upload-object-v1'&&
+    ['taskId','profileId','tabId','source','documentId'].every(key=>proof[key]===spec[key])&&
+    proof.fileName===spec.file?.name&&proof.fileSize===spec.file?.size&&proof.sha256===spec.file?.sha256&&
+    /^[a-f0-9]{64}$/.test(proof.referenceSha256||'')&&typeof proof.documentId==='string'&&!!proof.documentId&&
+    Number.isInteger(proof.status)&&proof.status>=200&&proof.status<300;
+}
+
+// Executed once in MAIN before the authorized file-input change. Observe the
+// real native XHR/FormData, hash its actual Blob and exact object reference, and
+// return only digests through executeScript's private result. No page messages,
+// React state, DOM filename or caller-supplied URL can create this proof.
+export function captureUploadReference(options) {
+  return new Promise(resolve=>{
+    const {file,replay,nonce}=options;
+    const originalOpen=XMLHttpRequest.prototype.open,originalSend=XMLHttpRequest.prototype.send;
+    const requests=new WeakMap(),ready='data-job-upload-'+nonce,cancel='job-upload-cancel-'+nonce;
+    const digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+    let settled=false,timer,candidates=0;
+    const finish=result=>{
+      if(settled)return;settled=true;clearTimeout(timer);
+      if(XMLHttpRequest.prototype.open===open)XMLHttpRequest.prototype.open=originalOpen;
+      if(XMLHttpRequest.prototype.send===send)XMLHttpRequest.prototype.send=originalSend;
+      document.documentElement.removeAttribute(ready);document.removeEventListener(cancel,abort);
+      resolve(result);
+    };
+    const abort=()=>finish({ok:false});
+    function open(method,url,...rest){requests.set(this,{method:String(method).toUpperCase(),url:String(url)});return Reflect.apply(originalOpen,this,[method,url,...rest]);}
+    function send(body){
+      const request=requests.get(this);
+      if(request?.method==='POST'&&body instanceof FormData){
+        const blob=body.get('file'),key=body.get('key');
+        if(body.getAll('file').length===1&&body.getAll('key').length===1&&blob instanceof File&&blob.name===file.name&&blob.size===file.size&&typeof key==='string'&&key.length>0&&key.length<1800){
+          let url,reference;
+          try{
+            url=new URL(request.url);
+            const allowed=replay?url.origin==='http://127.0.0.1:17322'&&url.pathname==='/greenhouse-upload':url.protocol==='https:'&&/^(?:[a-z0-9.-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname);
+            reference=request.url+'/'+key;
+            const object=new URL(reference);
+            if(!allowed||url.username||url.password||url.search||url.hash||object.search||object.hash||/[\x00-\x1f]/.test(reference)||reference.length>2048)throw new Error('scope');
+          }catch{return Reflect.apply(originalSend,this,[body]);}
+          if(++candidates>1){finish({ok:false});return Reflect.apply(originalSend,this,[body]);}
+          const bytesDigest=blob.arrayBuffer().then(digest);
+          // Capture native response properties while handling the trusted event;
+          // a synthetic loadend or a redirected upload cannot certify an object.
+          this.addEventListener('loadend',event=>{
+            const status=this.status,responseURL=this.responseURL;
+            (async()=>{
+              if(!event.isTrusted||status<200||status>=300||responseURL!==url.href||await bytesDigest!==file.sha256)return finish({ok:false});
+              finish({ok:true,status,referenceSha256:await digest(new TextEncoder().encode(reference)),fileName:file.name,fileSize:file.size,sha256:file.sha256});
+            })().catch(abort);
+          },{once:true});
+        }
+      }
+      return Reflect.apply(originalSend,this,[body]);
+    }
+    XMLHttpRequest.prototype.open=open;XMLHttpRequest.prototype.send=send;
+    document.addEventListener(cancel,abort,{once:true});
+    timer=setTimeout(abort,20000);document.documentElement.setAttribute(ready,'ready');
+  });
+}
 export async function boundApplication(spec,body) {
   if(!receiptScope(spec)||!body||typeof body!=='object')return false;
   const application=body.job_application;
   if(application?.resume&&application.resume_url||application?.cover_letter_url||application?.attachments&&Object.keys(application.attachments).length)return false;
   if(!application||typeof application.email!=='string'||application.email.trim().toLowerCase()!==spec.account.toLowerCase())return false;
-  // Official La() serializes an already uploaded file as a URL and filename.
-  // This is a client file/accepted-upload binding, not a server byte readback.
-  if(spec.uploadedResumeConfirmed===true&&application.resume_url_filename===spec.file.name&&typeof application.resume_url==='string'&&application.resume_url.length<=2048&&!application.resume){
+  // Filename/DOM upload completion never certifies an S3 object. Match the exact
+  // reference observed on this task's verified native upload, not its URL shape.
+  if(verifiedUpload(spec)&&application.resume_url_filename===spec.file.name&&typeof application.resume_url==='string'&&application.resume_url.length<=2048&&!application.resume){
     try{
       const url=new URL(application.resume_url);
       const allowed=spec.replay?url.origin==='http://127.0.0.1:17322'&&/^\/greenhouse-upload\/[a-z0-9-]+$/.test(url.pathname):url.protocol==='https:'&&/^(?:[a-z0-9.-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname);
-      return allowed&&!url.username&&!url.password&&!url.hash&&!url.search;
+      return allowed&&!url.username&&!url.password&&!url.hash&&!url.search&&await hex(new TextEncoder().encode(application.resume_url))===spec.uploadProof.referenceSha256;
     }catch{return false;}
   }
   const resume=application.resume;
@@ -35,11 +96,11 @@ export async function boundApplication(spec,body) {
 }
 export function networkReceipt(session) {
   const {spec,request}=session||{};
-  if(request?.fileBinding==='native-upload-reference'&&spec?.uploadedResumeConfirmed!==true)return null;
+  if(request?.fileBinding==='native-upload-reference'&&(!verifiedUpload(spec)||request.referenceSha256!==spec.uploadProof.referenceSha256))return null;
   if(request?.fileBinding&&!['request-bytes','native-upload-reference'].includes(request.fileBinding))return null;
   if(!receiptScope(spec)||!request?.bound||!Number.isInteger(request.status)||!Number.isFinite(request.startedAt)||request.status<200||request.status>=300||request.error||session.ambiguous||!session.confirmedAt||session.confirmedAt<request.startedAt)return null;
   return {kind:spec.replay?'greenhouse-network-replay':'greenhouse-production',id:'gh-network:'+request.id,tenant:spec.tenant,jobId:spec.jobId,account:spec.account,fileName:spec.file.name,fileSize:spec.file.size,sha256:spec.file.sha256,
-    evidence:{rule:'greenhouse-response-ok-v1',source:spec.source,submitUrl:spec.submitUrl,confirmationUrl:spec.confirmationUrl,requestId:request.id,status:request.status,requestBound:true,confirmationObserved:true,profileId:spec.profileId,taskId:spec.taskId,fixture:spec.replay===true,fileBinding:request.fileBinding||'request-bytes'}};
+    evidence:{rule:'greenhouse-response-ok-v1',source:spec.source,submitUrl:spec.submitUrl,confirmationUrl:spec.confirmationUrl,requestId:request.id,status:request.status,requestBound:true,confirmationObserved:true,profileId:spec.profileId,taskId:spec.taskId,fixture:spec.replay===true,fileBinding:request.fileBinding||'request-bytes',...(request.fileBinding==='native-upload-reference'?{uploadBinding:spec.uploadProof,referenceSha256:request.referenceSha256}:{})}};
 }
 
 export function registerGreenhouseReceipts(chrome) {
@@ -52,7 +113,7 @@ export function registerGreenhouseReceipts(chrome) {
       const {runnerTabId}=await chrome.storage.local.get('runnerTabId');
       if(sender.tab?.id!==runnerTabId)return {ok:false};
       if(message.type==='greenhouse-receipt-arm'){
-        const spec=message.spec;if(!receiptScope(spec))return {ok:false};
+        const spec=message.spec;if(!receiptScope(spec)||spec.uploadedResumeConfirmed===true&&!verifiedUpload(spec))return {ok:false};
         return update(sessions=>{
           const old=sessions[spec.taskId];
           if(old&&JSON.stringify(old.spec)!==JSON.stringify(spec))return {ok:false};
@@ -79,7 +140,7 @@ export function registerGreenhouseReceipts(chrome) {
         if(!size||size>12582912)continue;
         const bytes=new Uint8Array(size);let offset=0;
         for(const chunk of chunks){if(!chunk.bytes)continue;bytes.set(new Uint8Array(chunk.bytes),offset);offset+=chunk.bytes.byteLength;}
-        try{const body=JSON.parse(new TextDecoder().decode(bytes));session.request.bound=await boundApplication(spec,body);session.request.fileBinding=body.job_application?.resume_url?'native-upload-reference':'request-bytes';}catch{}
+        try{const body=JSON.parse(new TextDecoder().decode(bytes));session.request.bound=await boundApplication(spec,body);session.request.fileBinding=body.job_application?.resume_url?'native-upload-reference':'request-bytes';if(body.job_application?.resume_url)session.request.referenceSha256=await hex(new TextEncoder().encode(body.job_application.resume_url));}catch{}
       }
     });
     pending.catch(()=>{});

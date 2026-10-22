@@ -27,7 +27,7 @@ if(process.argv[2]==='container-browser'){
   }
 }else if(process.argv[2]==='browser'){
   if(process.env.GITHUB_ACTIONS!=='true' || process.platform!=='linux') throw new Error('Browser regression is limited to the Linux hosted Actions job.');
-  const selected={generic:'autofill-extension/tests/browser.mjs','ui-mocked':'autofill-extension/tests/ui.mjs',extension:'autofill-extension/tests/extension.mjs',workflow:'local-app/tests/workflow-browser.mjs',greenhouse:'local-app/tests/greenhouse-production-browser.mjs','acceptance-a':'local-app/tests/acceptance-a-browser.mjs','acceptance-b':'local-app/tests/acceptance-b-browser.mjs','acceptance-c':'local-app/tests/acceptance-c-browser.mjs'}[process.env.CLOUD_BROWSER_CHECK];
+  const selected={generic:'autofill-extension/tests/browser.mjs','ui-mocked':'autofill-extension/tests/ui.mjs',extension:'autofill-extension/tests/extension.mjs',workflow:'local-app/tests/workflow-browser.mjs',greenhouse:'local-app/tests/greenhouse-production-browser.mjs','greenhouse-reference':'local-app/tests/greenhouse-upload-reference-browser.mjs','acceptance-a':'local-app/tests/acceptance-a-browser.mjs','acceptance-b':'local-app/tests/acceptance-b-browser.mjs','acceptance-c':'local-app/tests/acceptance-c-browser.mjs'}[process.env.CLOUD_BROWSER_CHECK];
   if(!selected) throw new Error('Choose one supported browser regression.');
   // One child and one browser at a time. Only workflow covers the integrated local journey.
   run([selected],process.env.CLOUD_BROWSER_CHECK.startsWith('acceptance-')?360_000:['workflow','greenhouse'].includes(process.env.CLOUD_BROWSER_CHECK)?240_000:120_000);
