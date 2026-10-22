@@ -281,7 +281,7 @@ jobs:
       - name: Read bounded public application modules with verified HTTPS
         run: |
           python3 - <<'PY'
-          import urllib.request, urllib.parse, re, pathlib, hashlib, json
+          import urllib.request, urllib.parse, re, pathlib, hashlib, json, gzip, base64
           root=pathlib.Path('.runtime/public-source');root.mkdir(parents=True,exist_ok=True)
           url='https://job-boards.greenhouse.io/mattermost/jobs/5381946008'
           def get(url):
@@ -301,7 +301,11 @@ jobs:
               data=get(target);name=parsed.path.rsplit('/',1)[-1];(root/name).write_bytes(data)
               records.append({'url':target,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
               code=data.decode()
-              for word in ['function La', 'function Fa', 'upload_url', 'presigned', 'resume_url']:
+              if name.startswith('entry.client-'):
+                  packed=base64.b64encode(gzip.compress(data)).decode()
+                  for part in range(0,len(packed),25000):
+                      print('::notice title=Public module part::'+json.dumps({'index':part//25000,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'data':packed[part:part+25000]}))
+              for word in ['class Na']:
                   start=0
                   for index in range(2):
                       position=code.find(word,start)
