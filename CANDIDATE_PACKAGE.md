@@ -2,6 +2,8 @@
 
 当前候选版本为 `0.2.0-candidate.4`，加入实际自定义选择、人工验证后同任务恢复、上传后输入框移除适配及网络回执核验，运行源文件62个。来源与验证见 [Greenhouse 交付002](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/GREENHOUSE_DELIVERY_002.md)，生成包以 `SOURCE.json` 的完整来源 SHA 为准。包不含已安装的 Node、浏览器、运行依赖或个人数据；本轮未重跑 Windows，未验证生产真实申请。Manager 应先提供该版本和下述运行前提，再按实际界面组织使用；不让用户电脑承担云端开发测试。
 
+当前实际下载：[candidate.4 / source-candidate](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547/artifacts/12413073425)，来源 `ff528ecb4535fc5d9d0d3ed75edf6485a9c923e0`，62文件，内层ZIP551593字节，SHA-256 `207f2cf505f5de499f7d7578642e1aec68411e6746cc70db2031878aed11786c`；2026-10-29 08:46:41 UTC到期。GitHub登录下载外层artifact后，再解压内部ZIP。109项必要测试、实际加载MV3两个新增场景及包回读核验通过；真实企业申请未执行。构建后文档提交不改变包的来源SHA。
+
 历史 candidate.2 交付：[source-candidate artifact12342167482](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/artifacts/12342167482)，来源`a605bb1be89250a48a027e94134bf82c49d6debc`，59个源码文件加SOURCE。内层ZIP444113字节，SHA-256 `46b46ce813bc92ad772dd9a422d3b5f7051b0c2f958b3494426d523edc5c0305`，北京时间2026-10-28 19:24:39到期。实际Windows原生解包核验、后台9项及可见浏览器4项均通过，待PM验收。包内文档为打包时快照，构建后结论见仓库最新报告；研究脚本与测试工具仍只在完整开发仓库，不在运行源码候选中。
 
 ## 来源与内容
