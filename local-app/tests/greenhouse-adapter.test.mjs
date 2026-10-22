@@ -241,7 +241,7 @@ function customControl(h,key,{selected='',values=null}={}) {
   const node=h.field(key),oldClosest=node.closest.bind(node),oldQuery=h.document.querySelectorAll.bind(h.document),oldGet=h.document.getElementById.bind(h.document);
   node.tagName='INPUT';node.type='text';node._value='';node.attrs.role='combobox';node.attrs['aria-controls']='observed-choices';
   const state={selected,opened:false,optionClicks:0};
-  const wrapper={querySelector:selector=>selector==='[role="combobox"][id]'?node:null,querySelectorAll:selector=>selector==='.select__single-value'&&state.selected?[{textContent:state.selected}]:[]};
+  const wrapper={querySelector:selector=>selector==='[role="combobox"][id]'?node:null,querySelectorAll:selector=>selector==='.select__single-value'&&state.selected?[{textContent:state.selected,querySelectorAll:()=>state.iso2?[{classList:['iti__flag','iti__'+state.iso2]}]:[]}]:[]};
   node.closest=selector=>selector==='.select'?wrapper:oldClosest(selector);
   node.dispatchEvent=()=>{state.opened=true;};
   const choices=(values||[]).map(value=>({textContent:value,isConnected:true,getClientRects:()=>[1],getAttribute:()=>null,click(){state.selected=value;state.optionClicks++;}}));
@@ -270,6 +270,15 @@ test('human-selected dynamic country is confirmable without pretending the compl
   const prepared=await h.api.prepare('answer',expected,[payload]);assert.equal(prepared.ok,true);
   assert.equal((await h.api.commit(expected,prepared.token)).filled,0);assert.equal(state.optionClicks,0);
   assert.equal((await h.api.prepare('answer',expected,[{...payload,answer:'Another country'}])).ok,false);
+});
+test('phone country confirmation distinguishes countries sharing a dial code',async()=>{
+ const h=harness(),selected=customControl(h,'country',{selected:'+1'});selected.iso2='us';
+ const inspected=await h.inspect(),q=inspected.questions.find(q=>q.key==='country');
+ assert.equal(q.options[0].text,'+1 (us)');
+ const payload={...q,layout:inspected.layout,confirmed:true,answer:q.options[0].text};
+ assert.equal((await h.api.prepare('answer',expected,[payload])).ok,true);
+ selected.iso2='ca';
+ assert.equal((await h.api.prepare('answer',expected,[payload])).ok,false);
 });
 test('completed CAPTCHA is observed without exposing its response, and expiry blocks again',async()=>{
   const h=harness();await h.complete();h.captcha=true;

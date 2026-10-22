@@ -301,7 +301,7 @@ jobs:
               data=get(target);name=parsed.path.rsplit('/',1)[-1];(root/name).write_bytes(data)
               records.append({'url':target,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
               code=data.decode()
-              for word in ['Da=', 'function Da', 'readAsDataURL', 'content:']:
+              for word in ['function La', 'function Fa', 'upload_url', 'presigned', 'resume_url']:
                   start=0
                   for index in range(2):
                       position=code.find(word,start)

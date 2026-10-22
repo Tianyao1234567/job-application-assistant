@@ -98,7 +98,19 @@
   function selectedChoice(node) {
     const group=node.closest?.('.select');
     const values=group?.querySelectorAll?.('.select__single-value');
-    return values?.length===1?text(values[0]):'';
+    if(values?.length!==1)return '';
+    const value=values[0],label=text(value);
+    // The official phone-country renderer displays a dial code and an ISO flag,
+    // not the option label. Shared dial codes alone cannot bind a country.
+    if(node.id==='country'){
+      const flags=value.querySelectorAll?.('.iti__flag')||[];
+      if(flags.length===1){
+        const codes=[...(flags[0].classList||[])].filter(name=>/^iti__[a-z]{2}$/.test(name));
+        if(codes.length===1)return label+' ('+codes[0].slice(5)+')';
+        return '';
+      }
+    }
+    return label;
   }
   function controlValue(record) {return record.field.customControl?selectedChoice(record.node):record.node.value;}
   function collect(form) {
