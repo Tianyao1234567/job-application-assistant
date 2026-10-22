@@ -27,7 +27,13 @@ Engineer交付，待Manager验收。任务：[2026-10-23 Manager要求](https://
 
 ## 交付来源与入口
 
-candidate.6源码及完整SHA、GitHub托管CI、下载artifact和内层ZIP SHA将在本轮构建结束后记录。源码ZIP只包含明确allowlist的69个运行/说明文件及SOURCE，不包含`.runtime`、模块、用户资料、测试输出或浏览器配置。此前candidate.5仍是独立已验收基线。
+- 最终运行及包来源：`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`；初始功能检查点`60555e8`，PDF平台组件/界面验证`f6a593d`，连续核对与下次文件选择保护`38714f7`。
+- [GitHub CI 39817261833](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833)：43项必要检查、6场景实际后台UI及候选构建全部通过；Windows/旧MV3未运行。
+- [candidate.6 下载（需GitHub登录）](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833/artifacts/12442547605)；[六场景JSON证据](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833/artifacts/12442578099)。下载北京时间**2026-10-30 00:50:02**到期；证据00:50:39到期。先解压artifact，再解压内层程序ZIP。
+- 内层`job-application-assistant-0.2.0-candidate.6-38714f7ea7cc.zip`：611349字节，SHA-256 `60a07da02aa8ade344ebb528707a9482f1c5d291ca0af67c032064e75eee8109`。本云端同来源构建及GitHub构建均通过包内逐文件校验；ZIP为69个运行/说明文件加SOURCE，不含`.runtime`、模块、个人资料或浏览器配置。
+- 首轮官方浏览器[39816807633](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39816807633)的连续选择时序失败，未作为通过证据；修复后以上最终运行通过。只采用最终来源，不能把失败轮包当交付。
+
+后续文档提交不会改变上述包来源；此前candidate.5仍是独立已验收基线。
 
 升级必须在原目录合并程序文件、运行一次“补充运行依赖.cmd”、再用原“启动.cmd”；不要删目录、搬运行数据、重装整套环境或重下浏览器。Manager验收新版后再带用户按实际界面使用，不要求其上传本人PDF到聊天或GitHub。
 

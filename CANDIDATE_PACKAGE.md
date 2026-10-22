@@ -1,6 +1,6 @@
 # 候选源码包与文件校验
 
-新版 `0.2.0-candidate.6` 增加本机PDF提取、一次核对、集中补答和稳定事实复用，69个运行/说明文件。交付来源、下载与必要验证见[PDF交付001](docs/PROFILE_IMPORT_DELIVERY_001.md)；现有candidate.5用户采用[原目录保留数据升级](UPGRADE_001.md)，不重装环境或下载兼容浏览器。candidate.6待Manager验收；candidate.5附件P1验收保持有效。
+新版 `0.2.0-candidate.6` 增加本机PDF提取、一次核对、集中补答和稳定事实复用，69个运行/说明文件。来源`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`，[下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833/artifacts/12442547605)（北京时间2026-10-30 00:50:02到期）；内层ZIP 611349字节，SHA-256 `60a07da02aa8ade344ebb528707a9482f1c5d291ca0af67c032064e75eee8109`。43项定点检查及6场景实际后台UI通过，Windows/旧MV3沿用原证据。交付来源、下载与必要验证见[PDF交付001](docs/PROFILE_IMPORT_DELIVERY_001.md)；现有candidate.5用户采用[原目录保留数据升级](UPGRADE_001.md)，不重装环境或下载兼容浏览器。candidate.6待Manager验收；candidate.5附件P1验收保持有效。
 
 以下candidate.5记录为此前交付快照：
 
