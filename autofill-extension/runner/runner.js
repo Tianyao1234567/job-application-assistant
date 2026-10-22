@@ -252,7 +252,7 @@ async function executeGreenhouse(command,expect,payload) {
     const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
     if(!prepared.ok||!prepared.token)return prepared;
     if(checked.submissionProtocol){
-      const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',spec:{taskId:command.task.id,profileId:bridge.profileId,tabId:tab.id,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,file:payload.file,source:command.task.url,replay:expect.replay,...checked.submissionProtocol}});
+      const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',spec:{taskId:command.task.id,profileId:bridge.profileId,tabId:tab.id,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,file:payload.file,uploadedResumeConfirmed:checked.uploadedResumeConfirmed===true,source:command.task.url,replay:expect.replay,...checked.submissionProtocol}});
       if(!watched?.ok)return fail('manual','本次提交的网络核验尚未就绪，未点击申请。');
     }
     // Store before any click; even a safe denial or lost response never clears it.

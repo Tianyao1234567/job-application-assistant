@@ -50,7 +50,7 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
   fs.mkdirSync(uploads,{recursive:true,mode:0o700});
   let persisted;
   try{persisted=JSON.parse(fs.readFileSync(stateFile,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
-  const state=persisted||{receipts:{},submitRequests:[]},scenarios=new Map();
+  const state=persisted||{receipts:{},submitRequests:[]},scenarios=new Map(),stagedUploads=new Map();
   if(!state.receipts||!Array.isArray(state.submitRequests))throw new Error('Invalid replay persisted state');
   let actualPort=port;
   const origin=()=>`http://127.0.0.1:${actualPort}`;
@@ -83,10 +83,10 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
     const type=request.headers['content-type']||'';
     if(production&&/^application\/json/.test(type)){
       const app=JSON.parse((await readBody(request)).toString()).job_application;
-      if(!app||typeof app.email!=='string'||typeof app.resume?.content!=='string')throw new RequestError(400,'Invalid synthetic JSON');
+      if(!app||typeof app.email!=='string'||typeof app.resume?.content!=='string'&&!stagedUploads.has(app.resume_url))throw new RequestError(400,'Invalid synthetic JSON');
       const fields=Object.fromEntries(Object.entries(app).filter(([key,value])=>key!=='resume'&&typeof value==='string'));
       fields.tenant=GREENHOUSE_REPLAY.tenant;fields.jobId=new URL(request.url,origin()).pathname.split('/').at(-1);
-      return {fields,files:{resume:{name:app.resume.filename,type:'text/plain',bytes:Buffer.from(app.resume.content,'base64')}}};
+      return {fields,files:{resume:app.resume?{name:app.resume.filename,type:'text/plain',bytes:Buffer.from(app.resume.content,'base64')}:{name:app.resume_url_filename,type:'text/plain',bytes:stagedUploads.get(app.resume_url)}}};
     }
     if(!/^multipart\/form-data;\s*boundary=/i.test(type))throw new RequestError(415,'Replay application requires native multipart');
     const bytes=await readBody(request);
@@ -119,6 +119,11 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
           return json(response,200,{ok:true});
         }
         throw new RequestError(404,'Unknown replay test hook');
+      }
+      if(testMode&&request.method==='POST'&&/^\/greenhouse-upload\/[a-z0-9-]+$/.test(pathname)){
+        const bytes=await readBody(request),url=origin()+pathname;
+        if(!bytes.toString().includes('Fictional Greenhouse replay resume.'))throw new RequestError(400,'Fictional upload only');
+        stagedUploads.set(url,bytes);return json(response,200,{url});
       }
       if(pathname==='/fixture-captcha'&&request.method==='GET')return send(response,200,'Synthetic manual verification. No challenge solving supported.');
       const match=/^\/greenhouse\/([a-z0-9_-]+)(?:\/jobs\/(\d+)(\/(?:receipt|confirmation))?)?$/.exec(pathname);

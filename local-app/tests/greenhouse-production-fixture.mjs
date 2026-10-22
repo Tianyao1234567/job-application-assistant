@@ -9,7 +9,15 @@ export function productionReplay(html,{job,scenario,origin,tenant}) {
   html=html.replace('<button id="submit_app"',choice('question_yes','Fictional site-specific confirmed choice*')+'<button id="submit_app"');
   const questions=[{label:'Resume/CV',required:true,fields:[{name:'resume',type:'input_file'}]},{label:'Cover Letter',required:false,fields:[{name:'cover_letter',type:'input_file'}]},{label:'Fictional site-specific confirmed choice',required:true,fields:[{name:'question_yes',type:'multi_value_single_select',values:[{value:1,label:'Yes'},{value:0,label:'No'}]}]}];
   const loader={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':{urlToken:tenant,jobPostId:job.id,submitPath:origin+base,confirmationPath:base+'/confirmation',jobPost:{public_url:origin+base,questions}}}}};
+  html=html.replace('<fieldset data-fixture-only-required><legend>Resume/CV*','<fieldset class="file-upload" data-fixture-only-required><legend id="upload-label-resume">Resume/CV*');
   const script=`<iframe title="Fictional human verification" src="/fixture-captcha" style="width:250px;height:60px"></iframe><textarea name="g-recaptcha-response" hidden></textarea><button id="complete-verification" type="button">Fictional human completion</button><script>window.__remixContext = ${JSON.stringify(loader)};</script><script>
+    let acceptedFile,acceptedURL;
+    document.getElementById('resume').addEventListener('change',async event=>{
+      const input=event.target;acceptedFile=input.files[0];
+      const response=await fetch('/greenhouse-upload/'+crypto.randomUUID(),{method:'POST',body:acceptedFile});acceptedURL=(await response.json()).url;
+      const group=input.closest('.file-upload'),name=document.createElement('div');name.className='file-upload__filename';name.textContent=acceptedFile.name;
+      group.querySelector('label')?.remove();input.remove();group.append(name);
+    });
     for(const input of document.querySelectorAll('[role=combobox]'))input.addEventListener('mousedown',()=>{
       if(document.getElementById(input.id+'-choices'))return;
       const list=document.createElement('div');list.id=input.id+'-choices';list.setAttribute('role','listbox');input.setAttribute('aria-expanded','true');
@@ -18,7 +26,8 @@ export function productionReplay(html,{job,scenario,origin,tenant}) {
     });
     document.getElementById('complete-verification').onclick=()=>document.querySelector('[name="g-recaptcha-response"]').value='FICTIONAL-HUMAN-COMPLETION';
     document.querySelector('form').addEventListener('submit',async event=>{event.preventDefault();const form=event.target,app={};for(const node of form.querySelectorAll('input,textarea,select'))if(node.id&&node.type!=='file')app[node.id]=node.getAttribute('role')==='combobox'?node.closest('.select').querySelector('.select__single-value')?.textContent:node.value;
-      const file=form.querySelector('#resume').files[0],bytes=new Uint8Array(await file.arrayBuffer());app.resume={filename:file.name,content:${scenario.badWire?"btoa('DIFFERENT FICTIONAL WIRE BYTES')":"btoa(Array.from(bytes,b=>String.fromCharCode(b)).join(''))"}};
+      const file=acceptedFile;
+      ${scenario.badWire?"app.resume={filename:file.name,content:btoa('DIFFERENT FICTIONAL WIRE BYTES')};":"app.resume_url=acceptedURL;app.resume_url_filename=file.name;"}
       const response=await fetch(${JSON.stringify(base)},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job_application:app})});if(response.ok)location.assign(${JSON.stringify(base+'/confirmation')});
     });</script>`;
   return html.replace('</body>',script+'</body>');

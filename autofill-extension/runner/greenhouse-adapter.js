@@ -3,6 +3,7 @@
 (() => {
   const api=globalThis.JobGreenhouse={};
   const pending=new Map();
+  const uploaded=globalThis.__jobGreenhouseFiles ||= new WeakMap();
   const fail=(kind,message)=>({ok:false,kind,message});
   const norm=value=>String(value||'').normalize('NFKC').trim().replace(/\s+/g,' ');
   const text=node=>norm(node?.innerText||node?.textContent||'');
@@ -27,7 +28,7 @@
     return {ok:true,url,source:url.origin+(detail||base),base,job};
   }
   function findForm() {
-    const forms=[...document.querySelectorAll('form')].filter(form=>form.querySelector('#first_name')&&form.querySelector('#email')&&form.querySelector('#resume'));
+    const forms=[...document.querySelectorAll('form')].filter(form=>form.querySelector('#first_name')&&form.querySelector('#email')&&(form.querySelector('#resume')||uploaded.has(form)));
     return forms.length===1?forms[0]:null;
   }
   function account(expected,form) {
@@ -146,6 +147,14 @@
       const {alreadyPopulated,...structure}=field;
       records.push({node,field,raw:JSON.stringify({...structure,name:node.name||'',optionKeys})});
     }
+    const saved=uploaded.get(form);
+    if(saved&&!keys.has('resume')){
+      const names=saved.group.querySelectorAll('.file-upload__filename');
+      const title=saved.group.querySelector('[id="upload-label-resume"]');
+      const currentSchema=schema.filter(q=>q.fields?.some(f=>f.name==='resume'));
+      if(!saved.group.isConnected||names.length!==1||text(names[0])!==saved.file.name||text(title)!==saved.title||JSON.stringify(currentSchema)!==saved.schema)throw new Error('UPLOADED_FILE_CHANGED');
+      records.splice(saved.index,0,{...saved.record,field:{...saved.record.field,alreadyPopulated:true}});
+    }
     return records;
   }
   function formLayout(form,records) {
@@ -227,7 +236,7 @@
       const fields=await Promise.all(result.records.map(record=>question(expected,record)));
       const fillable=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
       const questions=fields.filter((field,index)=>(field.required||field.alreadyPopulated)&&field.type!=='file'&&!(fillable.has(field.key)&&!field.customControl)&&!ownedAnswer(expected,field,result.records[index]));
-      return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
+      return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
   function fieldTarget(current,expected,key,value,explicit=false) {
@@ -423,10 +432,22 @@
         const target=uploadTarget(current);if(!target.ok)return target;
         const node=target.node;
         if(node!==prepared.node||node.files.length!==prepared.originalFiles.length||prepared.originalFiles.some((file,index)=>node.files[index]!==file))return fail('manual','保留本人接管后修改的附件，未覆盖已有文件。');
+        const group=node.closest?.('.file-upload');
+        if(group?.querySelector?.('[id="upload-label-resume"]'))uploaded.set(current.form,{record:target,index:current.records.indexOf(current.records.find(r=>r.node===node)),group,file:prepared.originalFiles[0]||prepared.transfer.files[0],title:text(group.querySelector('[id="upload-label-resume"]')),schema:JSON.stringify(publicQuestions().filter(q=>q.fields?.some(f=>f.name==='resume')))});
         if(!prepared.originalFiles.length){node.files=prepared.transfer.files;node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new Event('change',{bubbles:true}));}
         const verified=prepared.originalFiles[0]||prepared.transfer.files[0];
         if(node.files.length!==1||node.files[0]!==verified||node.files[0].name!==prepared.file.name||node.files[0].size!==prepared.file.size)return fail('manual','网站未接受已确认附件或附件被替换。');
-        return {ok:true,layout:prepared.layout,fileName:prepared.file.name,fileSize:prepared.file.size,sha256:prepared.hash};
+        const done={ok:true,layout:prepared.layout,fileName:prepared.file.name,fileSize:prepared.file.size,sha256:prepared.hash};
+        if(group?.querySelector?.('[id="upload-label-resume"]'))return (async()=>{
+          for(let count=0;count<150;count++){
+            await new Promise(resolve=>setTimeout(resolve,100));
+            const names=group.querySelectorAll('.file-upload__filename');
+            if(names.length===1&&text(names[0])===prepared.file.name&&group.isConnected){const fresh=checked(expected,prepared.layout);return fresh.ok?done:fresh;}
+            if(group.querySelector('[aria-invalid="true"],.file-upload__error'))break;
+          }
+          return fail('manual','附件仍在上传或网站未确认接收，请本人检查后恢复；未提交申请。');
+        })();
+        return done;
       }
       if(!sameValues(prepared.values,current))return fail('manual','提交授权等待期间申请内容已变化，请本人重新核对。');
       const target=submissionTarget(expected,current);if(!target.ok||target.receipt)return target;

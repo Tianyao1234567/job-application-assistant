@@ -14,6 +14,15 @@ export async function boundApplication(spec,body) {
   if(!receiptScope(spec)||!body||typeof body!=='object')return false;
   const application=body.job_application;
   if(!application||typeof application.email!=='string'||application.email.trim().toLowerCase()!==spec.account.toLowerCase())return false;
+  // Official La() serializes an already uploaded file as a URL and filename.
+  // This is a client file/accepted-upload binding, not a server byte readback.
+  if(spec.uploadedResumeConfirmed===true&&application.resume_url_filename===spec.file.name&&typeof application.resume_url==='string'&&application.resume_url.length<=2048&&!application.resume){
+    try{
+      const url=new URL(application.resume_url);
+      const allowed=spec.replay?url.origin==='http://127.0.0.1:17322'&&/^\/greenhouse-upload\/[a-z0-9-]+$/.test(url.pathname):url.protocol==='https:'&&/^(?:[a-z0-9.-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname);
+      return allowed&&!url.username&&!url.password&&!url.hash&&!url.search;
+    }catch{return false;}
+  }
   const resume=application.resume;
   if(!resume||typeof resume!=='object')return false;
   const name=resume.filename??resume.name;
@@ -27,7 +36,7 @@ export function networkReceipt(session) {
   const {spec,request}=session||{};
   if(!receiptScope(spec)||!request?.bound||!Number.isInteger(request.status)||!Number.isFinite(request.startedAt)||request.status<200||request.status>=300||request.error||session.ambiguous||!session.confirmedAt||session.confirmedAt<request.startedAt)return null;
   return {kind:spec.replay?'greenhouse-network-replay':'greenhouse-production',id:'gh-network:'+request.id,tenant:spec.tenant,jobId:spec.jobId,account:spec.account,fileName:spec.file.name,fileSize:spec.file.size,sha256:spec.file.sha256,
-    evidence:{rule:'greenhouse-response-ok-v1',source:spec.source,submitUrl:spec.submitUrl,confirmationUrl:spec.confirmationUrl,requestId:request.id,status:request.status,requestBound:true,confirmationObserved:true,profileId:spec.profileId,taskId:spec.taskId,fixture:spec.replay===true}};
+    evidence:{rule:'greenhouse-response-ok-v1',source:spec.source,submitUrl:spec.submitUrl,confirmationUrl:spec.confirmationUrl,requestId:request.id,status:request.status,requestBound:true,confirmationObserved:true,profileId:spec.profileId,taskId:spec.taskId,fixture:spec.replay===true,fileBinding:request.fileBinding||'request-bytes'}};
 }
 
 export function registerGreenhouseReceipts(chrome) {
@@ -67,7 +76,7 @@ export function registerGreenhouseReceipts(chrome) {
         if(!size||size>12582912)continue;
         const bytes=new Uint8Array(size);let offset=0;
         for(const chunk of chunks){if(!chunk.bytes)continue;bytes.set(new Uint8Array(chunk.bytes),offset);offset+=chunk.bytes.byteLength;}
-        try{session.request.bound=await boundApplication(spec,JSON.parse(new TextDecoder().decode(bytes)));}catch{}
+        try{const body=JSON.parse(new TextDecoder().decode(bytes));session.request.bound=await boundApplication(spec,body);session.request.fileBinding=body.job_application?.resume_url?'native-upload-reference':'request-bytes';}catch{}
       }
     });
     pending.catch(()=>{});

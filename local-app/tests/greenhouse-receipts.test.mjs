@@ -46,3 +46,11 @@ test('real listener ordering binds a task request, excludes tokens from storage 
  events.before({method:'POST',tabId:7,url:spec.submitUrl,requestId:'second',timeStamp:now+1,requestBody:{raw:[{bytes:raw}]}});
  assert.equal((await send({type:'greenhouse-receipt-read',taskId:spec.taskId,profileId:spec.profileId})).receipt,null);
 });
+
+test('official uploaded-reference protocol requires our completed upload, exact filename and a bounded safe URL',async()=>{
+ const body={job_application:{email:spec.account,resume_url_filename:spec.file.name,resume_url:'https://boards-fixture.s3.amazonaws.com/private-fictional-resume'}};
+ assert.equal(await boundApplication(spec,body),false);
+ const uploaded={...spec,uploadedResumeConfirmed:true};assert.equal(await boundApplication(uploaded,body),true);
+ for(const url of ['https://attacker.invalid/resume','https://user@boards-fixture.s3.amazonaws.com/resume','http://boards-fixture.s3.amazonaws.com/resume','https://boards-fixture.s3.amazonaws.com/resume?secret=value'])assert.equal(await boundApplication(uploaded,{job_application:{...body.job_application,resume_url:url}}),false);
+ assert.equal(await boundApplication(uploaded,{job_application:{...body.job_application,resume_url_filename:'other.txt'}}),false);
+});
