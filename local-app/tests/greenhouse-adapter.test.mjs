@@ -53,7 +53,7 @@ function harness(options={}){
     querySelectorAll(selector){if(selector==='form')return [form];if(selector==='a[href]')return h.links;if(selector.includes('captcha')||selector.includes('verify'))return h.captcha?[{getClientRects:()=>[1],isConnected:true}]:[];if(selector==='[data-greenhouse-replay-receipt]')return h.receipt?[{dataset:h.receipt}]:[];return [];}};
   class DataTransfer{constructor(){this.files=[];this.items={add:file=>this.files.push(file)};}}
   let waitHash=options.hashGate;h.blockNextHash=value=>{waitHash=value;};
-  const page=vm.createContext({console,URL,Date,Map,Set,Array,Uint8Array,TextEncoder,File,Event,atob,DataTransfer,
+  const page=vm.createContext({console,URL,Date,Map,Set,Array,Uint8Array,TextEncoder,File,Event,MouseEvent:Event,atob,DataTransfer,
     HTMLInputElement:Element,HTMLTextAreaElement:Element,HTMLSelectElement:Element,
     setTimeout:callback=>{queueMicrotask(callback);return 1;},
     location:{href:expected.origin+'/greenhouse/fictional/jobs/1234567'},document,
@@ -235,4 +235,48 @@ test('only explicitly local replay accepts synthetic matching receipts',async()=
   h.receipt.jobId='7654321';assert.equal((await h.api.read('verify',expected)).ok,false);
   h.receipt.jobId='1234567';h.page.location.href='https://job-boards.greenhouse.io/fictional/jobs/1234567';
   const production=await h.api.read('verify',{...expected,origin:'https://job-boards.greenhouse.io',replay:false});assert.equal(production.ok,true);assert.equal(production.receipt,null);assert.equal(production.productionReceiptObserved,false);
+});
+
+function customControl(h,key,{selected='',values=null}={}) {
+  const node=h.field(key),oldClosest=node.closest.bind(node),oldQuery=h.document.querySelectorAll.bind(h.document),oldGet=h.document.getElementById.bind(h.document);
+  node.tagName='INPUT';node.type='text';node._value='';node.attrs.role='combobox';node.attrs['aria-controls']='observed-choices';
+  const state={selected,opened:false,optionClicks:0};
+  const wrapper={querySelector:selector=>selector==='[role="combobox"][id]'?node:null,querySelectorAll:selector=>selector==='.select__single-value'&&state.selected?[{textContent:state.selected}]:[]};
+  node.closest=selector=>selector==='.select'?wrapper:oldClosest(selector);
+  node.dispatchEvent=()=>{state.opened=true;};
+  const choices=(values||[]).map(value=>({textContent:value,isConnected:true,getClientRects:()=>[1],getAttribute:()=>null,click(){state.selected=value;state.optionClicks++;}}));
+  h.document.getElementById=id=>id==='observed-choices'&&state.opened?{querySelectorAll:()=>choices}:oldGet(id);
+  const question={label:node.labels[0].textContent.replace(/\*\s*$/,''),required:true,fields:[{name:key,type:'multi_value_single_select',values:(values||[]).map((label,value)=>({label,value}))}]};
+  const loader={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':{urlToken:'fictional',jobPostId:'1234567',jobPost:{public_url:expected.origin+'/greenhouse/fictional/jobs/1234567',questions:[question]}}}}};
+  h.document.querySelectorAll=selector=>selector==='script'&&values?[{textContent:'window.__remixContext = '+JSON.stringify(loader)+';'}]:oldQuery(selector);
+  return state;
+}
+test('observed finite React Select choices open and select only after separate one-use authorizations',async()=>{
+  const h=harness(),state=customControl(h,'question_1',{values:['Observed choice A','Observed choice B']});
+  const inspected=await h.inspect(),q=inspected.questions.find(q=>q.key==='question_1');
+  assert.equal(q.optionsComplete,true);assert.deepEqual(plain(q.options.map(o=>o.text)),['Observed choice A','Observed choice B']);
+  const payload={...q,layout:inspected.layout,confirmed:true,answer:'Observed choice B'};
+  const opened=await h.api.prepare('openChoice',expected,[payload]);assert.equal(opened.ok,true);assert.equal(state.opened,false);
+  assert.equal(h.api.commit(expected,opened.token).ok,true);assert.equal(state.opened,true);assert.equal(state.optionClicks,0);
+  const prepared=await h.api.prepare('answer',expected,[payload]);assert.equal(prepared.ok,true);assert.equal(state.optionClicks,0);
+  const written=await h.api.commit(expected,prepared.token);assert.equal(written.ok,true);assert.equal(state.selected,'Observed choice B');assert.equal(state.optionClicks,1);
+  assert.equal(h.api.commit(expected,prepared.token).ok,false);assert.equal(state.optionClicks,1);
+});
+test('human-selected dynamic country is confirmable without pretending the complete catalog was observed',async()=>{
+  const h=harness(),state=customControl(h,'country',{selected:'Actual selected fictional country'}),inspected=await h.inspect();
+  const q=inspected.questions.find(q=>q.key==='country');assert.equal(q.optionsComplete,false);assert.equal(q.manualSelection,true);
+  assert.deepEqual(plain(q.options),[{text:state.selected,disabled:false}]);
+  const payload={...q,layout:inspected.layout,confirmed:true,answer:state.selected};
+  const prepared=await h.api.prepare('answer',expected,[payload]);assert.equal(prepared.ok,true);
+  assert.equal((await h.api.commit(expected,prepared.token)).filled,0);assert.equal(state.optionClicks,0);
+  assert.equal((await h.api.prepare('answer',expected,[{...payload,answer:'Another country'}])).ok,false);
+});
+test('completed CAPTCHA is observed without exposing its response, and expiry blocks again',async()=>{
+  const h=harness();await h.complete();h.captcha=true;
+  const before=await h.inspect();assert.equal((await h.api.validateSubmit(expected,before.layout,file)).ok,false);
+  const query=h.document.querySelectorAll.bind(h.document),response={value:'FICTIONAL_PROVIDER_RESPONSE'};
+  h.document.querySelectorAll=selector=>selector.startsWith('textarea[name="g-recaptcha-response"]')?[response]:query(selector);
+  assert.equal((await h.api.validateSubmit(expected,before.layout,file)).ok,true);
+  assert.equal(JSON.stringify(await h.inspect()).includes(response.value),false);
+  response.value='';assert.equal((await h.api.validateSubmit(expected,before.layout,file)).ok,false);assert.equal(h.clicks,0);
 });

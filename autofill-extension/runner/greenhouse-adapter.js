@@ -149,7 +149,7 @@
     const profile=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
     for(const record of current.records){
       const q=await question(expected,record);
-      if(q.type!=='file'&&(q.required||q.alreadyPopulated)&&!profile.has(q.key)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
+      if(q.type!=='file'&&(q.required||q.alreadyPopulated)&&!(profile.has(q.key)&&!q.customControl)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
     }
     return {ok:true};
   }
@@ -209,6 +209,7 @@
     if(records.length!==1)return fail('structure','字段不存在或不唯一，不能自动填写。');
     const record=records[0],{node,field}=record;
     if(field.customControl){
+      if(!editable(node))return fail('manual','控件当前不可编辑，请本人检查。');
       if(!explicit||typeof value!=='string'||!value.trim()||value.length>5000)return fail('manual','请针对原问题确认实际选项。');
       const selected=selectedChoice(node);
       if(selected&&selected!==value)return fail('manual','保留本人已选择的原值，请核对后继续。');
@@ -372,7 +373,7 @@
       if(prepared.method==='openChoice'){
         const target=current.records.find(record=>record.field.key===prepared.key);
         if(target?.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original||selectedChoice(target.node))return fail('manual','控件已变化，未打开菜单。');
-        target.node.click();return {ok:true,opened:true};
+        target.node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));return {ok:true,opened:true};
       }
       if(prepared.method==='fillField'||prepared.method==='answer'){
         const target=fieldTarget(current,expected,prepared.key,prepared.value,prepared.method==='answer');if(!target.ok)return target;

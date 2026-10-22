@@ -295,6 +295,17 @@ jobs:
               if parsed.scheme!='https' or parsed.netloc!='job-boards.cdn.greenhouse.io' or not re.fullmatch(r'/assets/[A-Za-z0-9_.$-]+\.js',parsed.path): raise RuntimeError('Unexpected public asset scope')
               data=get(target);name=parsed.path.rsplit('/',1)[-1];(root/name).write_bytes(data)
               records.append({'url':target,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
+              code=data.decode()
+              for word in ['confirmationPath','submitPath','executeAsync','countryOptions']:
+                  start=0
+                  for index in range(2):
+                      position=code.find(word,start)
+                      if position<0: break
+                      snippet=code[max(0,position-220):position+1100]
+                      encoded=json.dumps({'file':name,'word':word,'code':snippet}).replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                      print('::notice title=Public protocol::'+encoded)
+                      start=position+len(word)
+
               for relative in re.findall(r'["\'](\./[^"\']+\.js)["\']',data.decode()):
                   if 'vendor-' not in relative: queue.append(urllib.parse.urljoin(target,relative))
           (root/'sources.json').write_text(json.dumps(records,indent=2));print(json.dumps(records))
