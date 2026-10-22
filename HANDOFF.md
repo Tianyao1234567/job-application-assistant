@@ -1,19 +1,19 @@
 # HANDOFF — Manager / Engineer 统一入口
 
-**最新 Engineer 返工交付（2026-10-22，待Manager验收）**：[精确附件对象绑定003](docs/GREENHOUSE_DELIVERY_003.md)，回应[附件P1定点任务](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6340966270)。核心修复 `d4f7851`；最终验证/包来源 `3856a49a78852c4729a6be4d64f01f19acdcd1c3`。[CI 39783058559](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559) 的30项受影响检查及新增扩展私有通道/原生上传定点检查通过；不重跑已接收109项、旧MV3场景、Windows或录屏。[candidate.5下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427069267)北京时间10月29日21:00:40到期。对象引用与本次实际上传字节/key/成功响应精确绑定，缺证提交前暂停，错引用跨界后未知不重投。candidate.4继续不放行；candidate.5及真实首次申请仍待Manager分项验收和用户确认。PR #5仍draft、未合并。
+**最新 Engineer 返工交付（2026-10-22，Manager已验收附件P1修复）**：[精确附件对象绑定003](docs/GREENHOUSE_DELIVERY_003.md)，回应[附件P1定点任务](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6340966270)。核心修复 `d4f7851`；最终验证/包来源 `3856a49a78852c4729a6be4d64f01f19acdcd1c3`。[CI 39783058559](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559) 的30项受影响检查及新增扩展私有通道/原生上传定点检查通过；不重跑已接收109项、旧MV3场景、Windows或录屏。[candidate.5下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427069267)北京时间10月29日21:00:40到期。对象引用与本次实际上传字节/key/成功响应精确绑定，缺证提交前暂停，错引用跨界后未知不重投。candidate.4继续停用；candidate.5可进入本机安装及使用验收，真实首次提交仍须用户确认。PR #5仍draft、未合并。
 
-**最新 Manager 结论（2026-10-22）**：[交付002分项验收与唯一返工任务](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6340966270)。自定义控件、人工验证恢复、真实MV3受控验证及请求字节模式通过；S3附件引用未绑定本次上传精确对象，存在同名不同对象被判成功的缺口。candidate.4 暂不放行首次真实申请，同一 Engineer 仅修复此项并交必要负例，其他通过部分沿用。
+**最新 Manager 结论（2026-10-22）**：[交付003验收通过与首次真实申请安排](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6344405151)。附件精确对象绑定P1关闭，本轮无返工项；30项受影响检查及新增扩展定点证据通过，109项与旧MV3证据沿用，未重复运行。candidate.5可进入本机安装与使用验收，candidate.4继续停用。下一步由Manager指导用户实际使用并确认岗位、资料、附件及首次提交；同一Engineer仅处理该真实流程出现的阻塞，不另启并行实现。真实企业完整投递仍未验证，PR #5保持draft。
 
 **历史 Engineer 交付002（分项通过，candidate.4因附件P1停用）**：[生产缺口交付002](docs/GREENHOUSE_DELIVERY_002.md)。运行代码/安装包来源 `ff528ecb4535fc5d9d0d3ed75edf6485a9c923e0`；[CI 39750254547](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547) 的109项必要测试、真实加载MV3两个新增场景、candidate.4构建均通过。[可下载 candidate.4](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547/artifacts/12413073425)，10月29日08:46:41 UTC到期；需Node24及锁定运行浏览器依赖，安装/启动见交付002。原184项/6场景沿用历史验收，不拼成同一来源。真实企业完整投递、本人CAPTCHA及生产S3行为仍待本人确认后验证；网络受理与服务端附件字节回读明确区分，PR #5仍draft。
 
-更新：2026-10-22（北京时间）。用户已确认上一轮执行停止并授权当前 Engineer 接替，已推送 Greenhouse 执行链与受控回放；[本轮交付](docs/GREENHOUSE_DELIVERY_001.md)待 Manager 审核。原任务标准见 [Manager 首站任务](docs/MANAGER_TASK_001.md)。所有账号从 GitHub 接续，用户最新指示优先；真实站完整投递仍未验收，PR 未合并。
+更新：2026-10-22（北京时间）。用户已确认上一轮执行停止并授权当前Engineer接替；交付001/002已分项验收，003附件P1修复现已通过，详见顶部最新结论。原任务标准见 [Manager 首站任务](docs/MANAGER_TASK_001.md)。所有账号从GitHub接续，用户最新指示优先；真实站完整投递仍未验收，PR未合并。
 
 ## 1. 目标、基线与真实进度
 
 目标：个人使用的本机网站后台 + 浏览器插件，支持自动找岗和手动链接、每日投递、可视执行、任务记录、不确定时暂停补答及同任务恢复。最终包含自动提交；旧“只填不提交”已失效。公司/方向可配置，首站不限企业；UI 已获用户认可，“众行机器人”不再追问、不阻塞。
 
 - **有效开发分支：`dev/pm9-demo-windows-readiness`**；交接前最新开发交付 SHA：[`ed5827e8f460dbe924db575aee216a7f7361a025`](https://github.com/Tianyao1234567/job-application-assistant/commit/ed5827e8f460dbe924db575aee216a7f7361a025)。
-- **本轮代码检查点：`cd2e36c17d0185121b27c10314452fd8acd6120d`**，184 项相关测试、6 场景受控实际浏览器回放通过；[hosted CI 39721196118](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39721196118)成功。真实 MV3/生产回执未验收，详见本轮交付。
+- **当前已验收代码/候选来源：`3856a49a78852c4729a6be4d64f01f19acdcd1c3` / candidate.5**，30项受影响检查和新增真实扩展定点验证通过，详见顶部交付003。历史`cd2e36c`的184项/6场景及`ff528ec`的109项/两场景沿用各自验收范围，不拼成同一SHA的全套测试。真实企业完整投递尚未验证。
 - [PR #5](https://github.com/Tianyao1234567/job-application-assistant/pull/5) 继承 [PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4) 的 `dev/local-workflow-foundation` / `b6cfdee0bbded79010bb97866fd1ad538275270f`。**两者均 draft、未合并；不要从旧 main 重做，不擅自合并。**
 - 本文件/规则的后续文档提交不代表业务重新测试。开工读取上述分支实际 HEAD、最新 Issue 和 PR；交接提交 SHA 见 [Issue #1](https://github.com/Tianyao1234567/job-application-assistant/issues/1) 的交接记录。
 - 已阶段验收：虚构招聘站完整扩展流程、缺答暂停/恢复、持久化和相关保护，见 [PM-0009](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6291239731)。
@@ -28,12 +28,12 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 交接整理 | 原 Manager 仅完成文档交接，不代写工程师回复或启动新的业务开发 |
-| Manager | 已完成交付002分项审核；唯一阻塞为附件精确引用绑定，详见顶部验收链接 |
-| Engineer | 交付002已分项接收；同一 Engineer 继续附件引用绑定定点返工，未声称评论自动唤醒会话 |
+| Manager | 交付003验收通过、附件P1关闭；组织candidate.5安装教学与首次真实申请确认 |
+| Engineer | 本轮无返工项；同一Engineer后续只处理首次真实流程的具体阻塞，未另启实现或声称评论已唤醒会话 |
 | 首要任务 | 完成一个真实招聘网站：发现岗位 → 表单/附件 → 缺答暂停 → 本人确认 → 同任务恢复 → 提交 → 结果核验 |
 | 实际缺口 | 本轮新增路径真实MV3及安装包已交付；真实企业完整申请、本人验证码与实际S3/回执行为未验证，不能用本地回放代替 |
 
-交付002的109项及真实MV3两场景证据沿用，不重跑旧验证。先完成顶部唯一附件引用返工并交修复版本，再由 Manager 组织本人确认岗位、资料、附件及首次真实提交。生产S3/验证码及完整申请仍未验收；不向企业试投虚构资料。
+交付002的109项及真实MV3两场景证据沿用，不重跑旧验证。附件引用返工已通过；下一任务是用candidate.5推进首个真实Greenhouse岗位完整申请。Manager先提供实际安装/启动教学，再由用户在本机确认岗位、资料、附件及首次提交。同一Engineer仅修复实际阻塞并做必要定点验证。完成标准为同一任务的真实表单/附件、必要人工处理与恢复、一次提交及可核验结果；未知只核实不重投。生产S3/验证码及完整申请仍未验收；不向企业试投虚构资料。
 
 暂停时保存原问题/选项、来源、已确认内容、步骤及资料版本；恢复前重查页面和提交状态。现有答案记忆范围有限：同站点、岗位用途和原问题；默认不记忆，不能当跨公司智能回答。首站实现明确选择记住及查看/修改/撤销；稳定个人事实复用已确认资料，公司动机等不自动跨公司套用。保存本机任务不代表招聘网站一定保存草稿。
 
