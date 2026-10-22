@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {ROOT, insideRoot} from './paths.mjs';
+import {importedCandidates,applyProfileDraft,profileValue,setProfileValue} from './profile-draft.mjs';
+import {stableProfileKey,profileFactAnswer} from '../autofill-extension/shared/profile-facts.js';
 import {emptyProfile, validateProfile, flattenProfile} from '../autofill-extension/shared/schema.js';
 import {isGreenhouse,greenhouseReplay,greenhouseJob,validateGreenhouseSite,greenhouseQuestion,greenhouseAnswer,validNetworkReceipt} from './greenhouse.mjs';
 
@@ -105,7 +107,7 @@ export class Store {
     this.invalidateTask(t);this.resolveTask(t);
     const versionsChanged=t.profileVersion!==profile.version||t.resumeVersion!==this.state.resume.version;
     t.executionProfileId=body.profileId;t.profileSnapshot=clone(profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=profile.version;t.resumeVersion=this.state.resume.version;
-    if(versionsChanged){delete t.answer;t.answers={};t.questions=[];}
+    if(versionsChanged){const keep=t.answerSupplement?.profileVersion===profile.version&&t.answerSupplement?.resumeVersion===this.state.resume.version?new Set(t.answerSupplement.scopes):new Set();delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).filter(([scope])=>keep.has(scope)));t.questions=[];}delete t.answerSupplement;
     t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,submitConfirmed:true,confirmedAt:this.now()};
     t.status='queued';t.phase='inspect';this.step(t,'本人已确认此次申请',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；填写前仍重新核对原值、结构和岗位。`);
   }
@@ -116,14 +118,61 @@ export class Store {
   invalidateGreenhouseVersions(){
     for(const t of this.state.tasks)if(isGreenhouse(this.site(t.siteId))&&t.confirmation&&!this.hasSubmissionBoundary(t)&&(t.profileVersion!==this.state.profile.version||t.resumeVersion!==this.state.resume?.version)){this.invalidateTask(t);this.holdConfirmation(t);}
   }
+  applicableAnswer(t,q){
+    if(!this.validQuestion(t,q))return null;
+    const site=this.site(t.siteId),own=t.answers?.[q.scope],memory=this.state.answers.find(a=>a.siteId===site.id&&a.scope===q.scope&&a.confirmed===true);
+    for(const candidate of [own,memory])if(candidate&&['scope','version','text','source','purpose'].every(key=>candidate[key]===q[key])&&(!q.alreadyPopulated||q.currentValue===candidate.value||q.manualSelection&&q.options?.length===1&&q.options[0].text===candidate.value)){try{return greenhouseAnswer(q,candidate.value);}catch{}}
+    const fact=profileFactAnswer(q,t.profileSnapshot?.data||this.state.profile.data);
+    if(fact!==null){try{return greenhouseAnswer(q,fact);}catch{}}
+    return null;
+  }
+  answerBatch(t){
+    const site=this.site(t.siteId),questions=isGreenhouse(site)?(t.questions||[]).filter(q=>this.applicableAnswer(t,q)===null):t.question&&!t.answer?[t.question]:[];
+    return {version:hash(Buffer.from(JSON.stringify({questions,layout:t.layout,revision:t.revision,profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version}))),questions:questions.map(q=>({...clone(q),profileKey:stableProfileKey(q),existingFact:stableProfileKey(q)?clone(profileValue(this.state.profile.data,stableProfileKey(q))||null):null}))};
+  }
   selectGreenhouseQuestion(t){
-    const site=this.site(t.siteId);t.question=t.questions?.[0]||null;delete t.answer;
+    t.question=t.questions?.[0]||null;delete t.answer;
     if(!t.question){t.phase='preflight';return;}
-    const q=t.question,own=t.answers?.[q.scope],remembered=this.state.answers.find(a=>a.siteId===site.id&&a.scope===q.scope&&a.text===q.text&&a.version===q.version&&a.source===q.source&&a.confirmed===true),answer=own||remembered;
-    if(answer&&this.validQuestion(t,q)){
-      try{t.answer={...q,value:greenhouseAnswer(q,answer.value),confirmed:true};t.answers ||= {};t.answers[q.scope]=clone(t.answer);t.phase='answer';return;}catch{}
+    const q=t.question,value=this.applicableAnswer(t,q);
+    if(value!==null){t.answer={...q,value,confirmed:true};t.answers ||= {};t.answers[q.scope]=clone(t.answer);t.phase='answer';return;}
+    t.status='waiting_answer';this.issue(t,'answer','集中补充当前申请缺项',q.text,q);this.step(t,'等待补充答案','当前已收集缺项将在待处理清单中集中展示。');
+  }
+  saveAnswerBatch(t,body){
+    if(t.status!=='waiting_answer'||this.hasSubmissionBoundary(t))throw new Error('本任务当前不能保存缺项答案；已提交阶段只允许核对结果');
+    const batch=this.answerBatch(t),site=this.site(t.siteId);
+    if(body.batchVersion!==batch.version||!Array.isArray(body.answers)||body.answers.length!==batch.questions.length||new Set(body.answers.map(a=>a.scope)).size!==body.answers.length)throw new Error('原题、选项、资料或缺项清单已变化，请核对后整批保存');
+    const checked=body.answers.map(input=>{
+      const q=batch.questions.find(q=>q.scope===input.scope);
+      if(!q||input.version!==q.version||!this.validQuestion(t,q)||!['task','scope','profile'].includes(input.save))throw new Error('问题版本或保存用途不适用，尚未保存任何答案');
+      const value=isGreenhouse(site)?greenhouseAnswer(q,input.answer):short(input.answer,5000);
+      if(!value)throw new Error('当前申请缺项不能为空');
+      const profileKey=stableProfileKey(q);
+      if(input.save==='profile'&&!profileKey)throw new Error('该问题不属于可跨岗位复用的稳定个人事实');
+      return {q,value,input,profileKey};
+    });
+    const profile=clone(this.state.profile.data);let changed=false;
+    for(const {q,value,input,profileKey}of checked)if(input.save==='profile'){
+      const old=profileValue(profile,profileKey),oldValue=old?.zh||old?.en;
+      if(old?.confirmed&&oldValue&&oldValue!==value&&input.replace!==true)throw new Error('稳定事实与原已确认资料冲突，必须明确选择替换；整批未保存');
+      if(!old?.confirmed||oldValue!==value){setProfileValue(profile,profileKey,{zh:value,en:oldValue===value?old?.en||null:null,confirmed:true,source:('本人补答：'+q.text).slice(0,200)});changed=true;}
     }
-    t.status='waiting_answer';this.issue(t,'answer','请确认当前原题答案',q.text,q);this.step(t,'等待补充答案',q.text);
+    validateProfile(profile);
+    if(changed&&this.state.profile.mode==='real'&&Object.values(profile.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
+    t.answers ||= {};
+    for(const {q,value,input}of checked){
+      const answer={...q,value,confirmed:true};delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
+      if(!isGreenhouse(site))t.answer=answer;
+      if(input.save==='scope'){this.state.answers=this.state.answers.filter(a=>!(a.scope===q.scope&&a.siteId===site.id));this.state.answers.push({...clone(answer),siteId:site.id,confirmedAt:this.now()});}
+    }
+    this.invalidateTask(t);this.resolveTask(t);t.status='queued';t.phase='inspect';
+    if(changed){
+      this.state.profile={...this.state.profile,data:profile,version:this.state.profile.version+1,updatedAt:this.now()};
+      const scopes=Object.values(t.answers).filter(answer=>answer.confirmed===true&&this.validQuestion(t,answer)&&(!stableProfileKey(answer)||profileValue(profile,stableProfileKey(answer))?.zh===answer.value)).map(answer=>answer.scope);
+      t.answerSupplement={profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version,scopes};
+      this.invalidateGreenhouseVersions();
+    }
+    this.step(t,'已集中保存缺项答案','稳定事实按明确选择维护资料；其他答案仅用于已展示的任务或原题范围。资料版本变化仍需核对本次申请，已答内容保留。');
+    return {saved:checked.length,profileChanged:changed,needsConfirmation:isGreenhouse(site)&&!this.confirmedTask(t)};
   }
   editMemory(body){
     const index=this.state.answers.findIndex(a=>a.scope===body.scope);if(index<0)throw new Error('找不到这条限定用途的已记住答案');
@@ -153,7 +202,7 @@ export class Store {
   }
   snapshot(){
     const s=clone(this.state),connected=this.clock()-this.lastSeen<6000&&this.lastSeen>0;
-    for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
+    for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));if(t.status==='waiting_answer')t.answerBatch=this.answerBatch(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
     const decision=scheduleDecision(s.settings,s.lastSchedule,this.clock());
     let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
     const stats={demo:{submitted:0,today:0},real:{submitted:0,today:0}};
@@ -185,7 +234,21 @@ export class Store {
     if(mode==='real'&&/测试|demo|fictional/i.test(name))throw new Error('测试简历不能用于真实投递');
     const bytes=Buffer.from(base64,'base64');if(!bytes.length||bytes.length>8*1024*1024)throw new Error('简历文件为空或超过8MB');
     const sha256=hash(bytes),dir=insideRoot(path.join(this.paths.data,'resumes'));fs.mkdirSync(dir,{recursive:true});const file=insideRoot(path.join(dir,sha256+'.bin'));fs.writeFileSync(file,bytes);
+    this.state.resumeImport=null;
     this.state.resume={version:(this.state.resume?.version||0)+1,name:path.basename(name.replaceAll('\\','/')),mime:short(mime,100)||'application/octet-stream',size:bytes.length,sha256,mode,file,updatedAt:this.now()};this.invalidateGreenhouseVersions();this.save();
+  }
+  saveResumeImport(result,binding){
+    if(this.state.resume?.version!==binding.resumeVersion||this.state.resume?.sha256!==binding.sha256)return {status:'stale',message:'简历已更换，旧提取结果没有应用；请核对当前附件。'};
+    this.state.resumeImport={...result,id:uid(),...binding,candidates:importedCandidates(result.candidates||[],this.state.profile.version&&this.state.profile.mode!==this.state.resume.mode?emptyProfile():this.state.profile.data),createdAt:this.now()};this.save();return this.state.resumeImport;
+  }
+  confirmResumeImport(body){
+    const draft=this.state.resumeImport;
+    if(!draft||draft.status!=='ready'||body.id!==draft.id||body.confirmed!==true||body.profileVersion!==this.state.profile.version||draft.profileVersion!==this.state.profile.version||draft.resumeVersion!==this.state.resume?.version||draft.sha256!==this.state.resume?.sha256)throw new Error('提取草稿、资料或附件版本已变化，请重新核对当前PDF后保存');
+    const switchesMode=this.state.profile.version&&this.state.profile.mode!==this.state.resume.mode;
+    const {data,count}=applyProfileDraft(switchesMode?emptyProfile():this.state.profile.data,draft,body.selections);
+    if(count&&this.state.resume.mode==='real'&&Object.values(data.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
+    if(count){if(switchesMode&&body.replaceMode!==true)throw new Error('原资料与本次附件用途不同，请明确确认切换资料用途');if(switchesMode){this.state.profileArchives ||= {};this.state.profileArchives[this.state.profile.mode]=clone(this.state.profile);}this.setProfile({data,mode:this.state.resume.mode,confirmed:true});}
+    draft.status='saved';draft.savedAt=this.now();draft.savedProfileVersion=this.state.profile.version;this.save();return {count};
   }
   demo(){
     if(this.state.tasks.length||this.command||this.queue.length||this.state.running)throw new Error('演示初始化仅适用于全新数据目录；已有任务或运行中的配置不会覆盖');
@@ -261,6 +324,7 @@ export class Store {
     else if(action==='resume')this.run(false);
     else if(action==='add')result=this.manual(body.url);
     else if(['memory-update','memory-revoke'].includes(action))this.editMemory(body);
+    else if(action==='answers')result=this.saveAnswerBatch(this.task(body.taskId),body);
     else if(['task-pause','task-resume','task-skip','verify','answer','task-confirm'].includes(action)){
       const t=this.task(body.taskId);
       if(action==='task-confirm')this.confirmTask(t,body);

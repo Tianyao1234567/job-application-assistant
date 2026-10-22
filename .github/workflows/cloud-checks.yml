@@ -18,6 +18,7 @@ on:
           - workflow
           - greenhouse
           - greenhouse-reference
+          - profile-import
           - public-protocol
           - acceptance-a
           - acceptance-b
@@ -68,11 +69,17 @@ jobs:
           baseline='ff528ecb4535fc5d9d0d3ed75edf6485a9c923e0'
           known=subprocess.run(['git','merge-base','--is-ancestor',baseline,'HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
           allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','.github/workflows/cloud-checks.yml','scripts/cloud-check.mjs','scripts/package-candidate.mjs','autofill-extension/greenhouse-receipts.js','autofill-extension/runner/runner.js','local-app/greenhouse.mjs','local-app/model.mjs','local-app/tests/greenhouse-receipts.test.mjs','local-app/tests/greenhouse-runner.test.mjs','local-app/tests/greenhouse-upload-reference-browser.mjs'}
-          files=subprocess.check_output(['git','diff','--name-only',baseline,'HEAD'],text=True).splitlines() if known else []
+          files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',baseline,'HEAD'],text=True).splitlines() if known else []
           focused=known and all(p in allowed or p.startswith('docs/GREENHOUSE_DELIVERY_') for p in files)
+          profile_baseline='3856a49a78852c4729a6be4d64f01f19acdcd1c3'
+          profile_known=subprocess.run(['git','merge-base','--is-ancestor',profile_baseline,'HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+          profile_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','补充运行依赖.cmd','.github/workflows/cloud-checks.yml','scripts/cloud-check.mjs','scripts/package-candidate.mjs','scripts/prepare-deps.mjs','autofill-extension/shared/schema.js','autofill-extension/shared/profile-facts.js','autofill-extension/runner/greenhouse-adapter.js','local-app/greenhouse.mjs','local-app/model.mjs','local-app/server.mjs','local-app/public/app.js','runtime-deps/package.json','runtime-deps/package-lock.json','local-app/pdf-worker.mjs','local-app/resume-import.mjs','local-app/profile-draft.mjs','local-app/tests/pdf-fixture.mjs','local-app/tests/pdf-import.test.mjs','local-app/tests/profile-answers.test.mjs','local-app/tests/profile-test-runtime.mjs','local-app/tests/profile-import-browser.mjs','local-app/tests/upgrade.test.mjs','local-app/tests/greenhouse-adapter.test.mjs'}
+          profile_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',profile_baseline,'HEAD'],text=True).splitlines() if profile_known else []
+          profile=profile_known and any(p in profile_files for p in ['local-app/resume-import.mjs','local-app/tests/pdf-import.test.mjs']) and all(p in profile_allowed or p.startswith('docs/GREENHOUSE_DELIVERY_') or p.startswith('docs/PROFILE_IMPORT_DELIVERY_') for p in profile_files)
           if os.environ.get('SELECTED_CHECK')=='greenhouse-reference' and not focused: raise RuntimeError('Reference-only check includes changes outside its accepted scope')
-          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\n')
-          print('Exact upload object rework only; reuse accepted 109/MV3 evidence' if focused else 'General changed scope')
+          if os.environ.get('SELECTED_CHECK')=='profile-import' and not profile: raise RuntimeError('PDF-only check includes changes outside its approved scope')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\nprofile='+str(profile).lower()+'\n')
+          print('PDF/batch/preserved-data upgrade only; reuse accepted Greenhouse evidence' if profile else 'Exact upload object rework only' if focused else 'General changed scope')
           PY
       - uses: actions/setup-node@v6
         with:
@@ -83,12 +90,20 @@ jobs:
       - name: Check source syntax and JSON
         run: node scripts/cloud-check.mjs
       - name: Necessary schema and protection unit regressions
-        if: ${{ steps.scope.outputs.focused != 'true' }}
+        if: ${{ steps.scope.outputs.focused != 'true' && steps.scope.outputs.profile != 'true' }}
         working-directory: autofill-extension
         run: npm test
+      - name: Install locked local PDF runtime for the changed flow
+        if: ${{ steps.scope.outputs.profile == 'true' }}
+        working-directory: runtime-deps
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Local application state, authentication, and actual fixture HTTP regressions
         run: |
-          if [[ "${{ steps.scope.outputs.focused }}" == true ]]; then
+          if [[ "${{ steps.scope.outputs.profile }}" == true ]]; then
+            node --test local-app/tests/pdf-import.test.mjs local-app/tests/profile-answers.test.mjs local-app/tests/upgrade.test.mjs local-app/tests/package-candidate.test.mjs local-app/tests/dashboard.test.mjs
+            node --test --test-name-pattern='batch conflict evidence' local-app/tests/greenhouse-adapter.test.mjs
+            node --test --test-name-pattern='示例资料|拒绝未知|拒绝不正确|日期保留|未知值 null|稳定ID|自定义答案|手机号|中英文' autofill-extension/tests/unit.test.js
+          elif [[ "${{ steps.scope.outputs.focused }}" == true ]]; then
             node --test local-app/tests/greenhouse-receipts.test.mjs local-app/tests/greenhouse-runner.test.mjs local-app/tests/runner-registration.test.mjs local-app/tests/package-candidate.test.mjs
           elif [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.browser }}" == greenhouse ]]; then
             node --test local-app/tests/greenhouse-*.test.mjs local-app/tests/runner-registration.test.mjs
@@ -97,7 +112,7 @@ jobs:
           fi
   browser:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","greenhouse","greenhouse-reference","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","greenhouse","greenhouse-reference","profile-import","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
@@ -144,6 +159,10 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify and copy the image Chromium into checkout-local runtime
         run: node scripts/cloud-check.mjs container-browser
+      - name: Install only the new local PDF runtime
+        if: ${{ inputs.browser == 'profile-import' }}
+        working-directory: /workspace/runtime-deps
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run the single selected browser regression
         run: |
           if [[ "$CLOUD_BROWSER_CHECK" == demo || "$CLOUD_BROWSER_CHECK" == candidate ]]; then
@@ -158,7 +177,7 @@ jobs:
             xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
           fi
       - name: Preserve fictional workflow evidence, including failures
-        if: ${{ always() && (inputs.browser == 'workflow' || inputs.browser == 'greenhouse' || inputs.browser == 'greenhouse-reference' || startsWith(inputs.browser, 'acceptance-')) }}
+        if: ${{ always() && (inputs.browser == 'workflow' || inputs.browser == 'greenhouse' || inputs.browser == 'greenhouse-reference' || inputs.browser == 'profile-import' || startsWith(inputs.browser, 'acceptance-')) }}
         uses: actions/upload-artifact@v6
         with:
           name: fictional-workflow-evidence
@@ -218,7 +237,7 @@ jobs:
 
   candidate-package:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser","greenhouse","greenhouse-reference"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser","greenhouse","greenhouse-reference","profile-import"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

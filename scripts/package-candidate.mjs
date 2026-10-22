@@ -5,16 +5,16 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 
-export const VERSION='0.2.0-candidate.5';
+export const VERSION='0.2.0-candidate.6';
 export const BASELINE='b6cfdee0bbded79010bb97866fd1ad538275270f';
 export const PREFIX='job-application-assistant/';
 export const SOURCE_PATHS=Object.freeze([
   'README.md','SPEC.md','AGENTS.md','DEVELOPMENT_SNAPSHOT.md','CLOUD_SETUP.md','CLOUD_HANDOFF.md',
   'GITHUB_MIGRATION_STATUS.md','DEV_REPORT_003.md','WINDOWS_START_001.md','CANDIDATE_PACKAGE.md',
-  '启动.cmd','停止.cmd','打开投递浏览器.cmd','安装运行环境.cmd',
-  'scripts/runtime.ps1','scripts/start.ps1','scripts/stop.ps1','scripts/open-browser.ps1','scripts/setup.ps1',
+  '启动.cmd','停止.cmd','打开投递浏览器.cmd','安装运行环境.cmd','补充运行依赖.cmd','UPGRADE_001.md',
+  'scripts/prepare-deps.mjs','scripts/runtime.ps1','scripts/start.ps1','scripts/stop.ps1','scripts/open-browser.ps1','scripts/setup.ps1',
   'scripts/browser.mjs','scripts/windows-service.mjs','scripts/windows-browser-control.mjs','scripts/package-candidate.mjs','runtime-deps/package.json','runtime-deps/package-lock.json',
-  'local-app/CONTRACT.md','local-app/server.mjs','local-app/model.mjs','local-app/greenhouse.mjs','local-app/fixture.mjs','local-app/paths.mjs',
+  'local-app/CONTRACT.md','local-app/server.mjs','local-app/model.mjs','local-app/pdf-worker.mjs','local-app/resume-import.mjs','local-app/profile-draft.mjs','local-app/greenhouse.mjs','local-app/fixture.mjs','local-app/paths.mjs',
   'local-app/public/index.html','local-app/public/app.js','local-app/public/style.css',
   'autofill-extension/package.json','autofill-extension/manifest.json','autofill-extension/profile.example.json',
   'autofill-extension/background.js','autofill-extension/greenhouse-receipts.js','autofill-extension/adapters/status.js','autofill-extension/bridge/dashboard.js',
@@ -22,7 +22,7 @@ export const SOURCE_PATHS=Object.freeze([
   'autofill-extension/options/index.html','autofill-extension/options/options.js',
   'autofill-extension/popup/index.html','autofill-extension/popup/popup.js',
   'autofill-extension/runner/index.html','autofill-extension/runner/runner.js','autofill-extension/runner/local-adapter.js','autofill-extension/runner/greenhouse-adapter.js',
-  'autofill-extension/shared/schema.js','autofill-extension/shared/match.js','autofill-extension/shared/storage.js',
+  'autofill-extension/shared/schema.js','autofill-extension/shared/profile-facts.js','autofill-extension/shared/match.js','autofill-extension/shared/storage.js',
   'autofill-extension/shared/ui.js','autofill-extension/shared/style.css',
   'autofill-extension/workspace/index.html','autofill-extension/workspace/workspace.js'
 ]);
@@ -108,8 +108,8 @@ export async function buildCandidate({projectRoot=root,source='HEAD',baseline=BA
     requireTrue(bytes.length<=4*1024*1024,'Candidate source file exceeds the limit: '+relative);entries.push([relative,bytes]);
   }
   const sourceBytes=new Map(entries),dependency=JSON.parse(sourceBytes.get('runtime-deps/package.json')),lock=JSON.parse(sourceBytes.get('runtime-deps/package-lock.json'));
-  requireTrue(dependency.dependencies?.playwright==='1.58.2'&&Object.keys(dependency.dependencies).length===1&&lock.packages?.['node_modules/playwright']?.version==='1.58.2'&&lock.packages?.['node_modules/playwright-core']?.version==='1.58.2','Candidate runtime dependency lock differs from the reviewed version');
-  const manifest={format:1,product:'job-application-assistant',version:VERSION,status:'candidate-source-not-installed',source:{commit,baseline,repository:'https://github.com/Tianyao1234567/job-application-assistant'},dependencies:{bundled:false,node:'24',playwright:'1.58.2',chromium:'Downloaded separately through locked Playwright; one dedicated execution browser.'},validationBoundary:'Source integrity and runtime startup checks are separate from Windows visible-browser installation and real recruiting-site acceptance.',excludes:['.runtime','node_modules','tests','logs','screenshots','recordings','private profiles','credentials','Cookie/session state'],files:entries.map(([relative,bytes])=>({path:relative,bytes:bytes.length,sha256:sha256(bytes)}))};
+  requireTrue(dependency.dependencies?.playwright==='1.58.2'&&dependency.dependencies?.['pdfjs-dist']==='5.4.296'&&Object.keys(dependency.dependencies).length===2&&lock.packages?.['node_modules/pdfjs-dist']?.version==='5.4.296'&&lock.packages?.['node_modules/playwright']?.version==='1.58.2'&&lock.packages?.['node_modules/playwright-core']?.version==='1.58.2','Candidate runtime dependency lock differs from the reviewed version');
+  const manifest={format:1,product:'job-application-assistant',version:VERSION,status:'candidate-source-not-installed',source:{commit,baseline,repository:'https://github.com/Tianyao1234567/job-application-assistant'},dependencies:{bundled:false,node:'24',playwright:'1.58.2',pdfjs:'5.4.296 (local text extraction only)',chromium:'Downloaded separately through locked Playwright; one dedicated execution browser.'},validationBoundary:'Source integrity and runtime startup checks are separate from Windows visible-browser installation and real recruiting-site acceptance.',excludes:['.runtime','node_modules','tests','logs','screenshots','recordings','private profiles','credentials','Cookie/session state'],files:entries.map(([relative,bytes])=>({path:relative,bytes:bytes.length,sha256:sha256(bytes)}))};
   const manifestBytes=Buffer.from(JSON.stringify(manifest,null,2)+'\n');entries.push(['SOURCE.json',manifestBytes]);
   const archive=zip(entries),basename='job-application-assistant-'+VERSION+'-'+commit.slice(0,12)+'.zip';
   const directory=await controlledDirectory(projectRoot,output||path.join(projectRoot,'.runtime','delivery',VERSION+'-'+commit.slice(0,12)));

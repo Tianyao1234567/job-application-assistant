@@ -1,5 +1,5 @@
 export const definitions = {
-  personal: {name:'姓名 / Full name', phone:'手机 / Phone', email:'邮箱 / Email', location:'现居城市 / Current city', desiredCity:'期望城市 / Preferred city'},
+  personal: {name:'姓名 / Full name', firstName:'名 / Given name', lastName:'姓 / Family name', phone:'手机 / Phone', email:'邮箱 / Email', location:'现居城市 / Current city', desiredCity:'期望城市 / Preferred city'},
   education: {school:'学校 / School', degree:'学位 / Degree', major:'专业 / Major', startDate:'开始年月 / Start', endDate:'结束年月 / End'},
   experience: {company:'公司 / Company', department:'部门 / Department', role:'职位 / Role', startDate:'开始年月 / Start', endDate:'结束年月 / End', description:'职责 / Description'},
   projects: {title:'项目名称 / Project title', role:'本人角色 / Role', startDate:'开始年月 / Start', endDate:'结束年月 / End', description:'项目描述 / Description'},

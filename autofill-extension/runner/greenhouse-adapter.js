@@ -169,7 +169,9 @@
   async function question(expected,record) {
     const version=await sha(record.raw),field=record.field;
     const manualSelection=field.customControl&&!field.optionsComplete&&!!selectedChoice(record.node);
-    return {...field,...(manualSelection?{manualSelection:true,options:[{text:selectedChoice(record.node),disabled:false}]}:{}),version,source:expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId,scope:`greenhouse-v1:${expected.tenant}:${expected.jobId}:${field.key}:${version}`,defaultRemember:false};
+    const selected=record.node.tagName==='SELECT'?[...record.node.options].filter(option=>option.value===record.node.value):[];
+    const current=record.node.tagName==='SELECT'?(selected.length===1?text(selected[0]):''):controlValue(record);
+    return {...field,...(field.type!=='file'&&field.alreadyPopulated?{currentValue:String(current||'').slice(0,5000)}:{}),...(manualSelection?{manualSelection:true,options:[{text:selectedChoice(record.node),disabled:false}]}:{}),version,source:expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId,scope:`greenhouse-v1:${expected.tenant}:${expected.jobId}:${field.key}:${version}`,defaultRemember:false};
   }
   function ownedAnswer(expected,q,record) {
     if(!q.alreadyPopulated||!Array.isArray(expected.confirmedAnswers))return false;

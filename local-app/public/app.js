@@ -157,7 +157,7 @@ async function perform(action, payload = {}) {
     if (action === 'demo') {profileDraft = null; settingsDraft = null; profileDirty = settingsDirty = false; selectedResumeFile = null; drafts.clear();}
     if (action === 'answer') for (const id of drafts.keys()) if (id === `answer-${payload.taskId}` || id === `save-answer-${payload.taskId}` || id.startsWith(`answer-${payload.taskId}:`) || id.startsWith(`save-answer-${payload.taskId}:`)) drafts.delete(id);
     if (action === 'add') drafts.delete('add-url');
-    const messages = {demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', discover:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':result.pauseOutcome==='authorization-already-issued'?'最终提交授权已发出，无法保证撤回；仅核对结果，不会重投。':result.pauseOutcome==='authorization-revoked'?'后续提交授权已撤销；提交历史保留，仅核对结果。':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
+    const messages = {answers:result.needsConfirmation?'答案及个人事实已保存；请核对该岗位的新资料版本，已答内容无需重填。':'缺项已集中保存，将先核对页面后继续原任务。',demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', discover:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':result.pauseOutcome==='authorization-already-issued'?'最终提交授权已发出，无法保证撤回；仅核对结果，不会重投。':result.pauseOutcome==='authorization-revoked'?'后续提交授权已撤销；提交历史保留，仅核对结果。':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
     Object.assign(messages, {'task-confirm':'已记录本人对本岗位、资料、附件及提交的确认；执行前仍会检查页面。','memory-update':'已修改此限定范围的确认答案。','memory-revoke':'已撤销记忆；后续不会再自动套用该答案。'});
     toast(messages[action] || '操作已保存。');
     await refresh(true);
@@ -298,7 +298,7 @@ function render(force = false) {
   // Counters and connection status above still reflect the latest server state.
   const editing = content.contains(document.activeElement) && document.activeElement?.matches('input,textarea,select,[contenteditable="true"]');
   if (renderedView === view && (composing || (!force && editing))) return;
-  const signature = JSON.stringify([view, state.running,state.paused,state.manualPaused,state.settings,state.sites,state.tasks,state.issues,state.answers,state.profile,state.resume,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
+  const signature = JSON.stringify([view, state.running,state.paused,state.manualPaused,state.settings,state.sites,state.tasks,state.issues,state.answers,state.profile,state.resume,state.resumeImport,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
   if (!force && signature === lastSignature && renderedView === view) return;
   const focus = focusSnapshot(content);
   const renderer = {overview:renderOverview,queue:renderQueue,issues:renderIssues,sites:renderSites,profile:renderProfile,settings:renderSettings}[view];
@@ -452,7 +452,7 @@ function questionInput(question,id,initial='') {
   return {node:draftInput(id,{required:true,maxlength:5000,placeholder:'仅填写你针对该原问题确认的答案，不填写密码、验证码或凭据。','aria-label':'确认答案'},initial,null,'textarea'),valid:()=>true};
 }
 
-function answerForm(issue,task) {
+function legacyAnswerForm(issue,task) {
   const form=el('form',{'aria-label':`补充答案：${task.title}`});
   const question=issue.question||task.question;
   form.append(el('div',{class:'question-block'},el('strong',{text:'网站原问题'}),p(question?.text||issue.detail),question?.source?meta('原问题来源',question.source):null,p(`限定用途：${question?.scope||'仅本任务'}`,'subtle'),question?.version?p(`问题结构版本：${question.version}`,'subtle'):null));
@@ -468,6 +468,30 @@ function answerForm(issue,task) {
     await submitOnce(form,`answer-${task.id}`,()=>perform('answer',{taskId:task.id,answer:answer.value,save:save.checked}));
   }catch(error){errorBox(form,error);}});
   return form;
+}
+function answerForm(issue,task) {
+  if(!task.answerBatch)return legacyAnswerForm(issue,task);
+  const batch=task.answerBatch,form=el('form',{'aria-label':`集中补充答案：${task.title}`}),rows=[];
+  form.append(p(`当前已收集 ${batch.questions.length} 项必要缺项。已有适用资料不再提问；一次核对后保存。`,'details-note'));
+  for(const q of batch.questions){
+    const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.currentValue||'');
+    input.node.setAttribute('aria-label',q.text+'：答案');
+    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null);
+    if(input.blocked){group.append(input.node);form.append(group);continue;}
+    const stable=q.profileKey,existing=q.existingFact?.zh||q.existingFact?.en||'';
+    const purpose=el('select',{'aria-label':q.text+'：保存用途'},stable?el('option',{value:'profile',text:'保存到个人资料，后续适用岗位复用'}):null,el('option',{value:'scope',text:'保存到本站当前岗位原题的答案库'}),el('option',{value:'task',text:'仅用于这次任务'}));
+    purpose.value=drafts.get(id+'-save')||(stable&&!existing?'profile':'task');purpose.addEventListener('change',()=>drafts.set(id+'-save',purpose.value));
+    const replace=draftInput(id+'-replace',{type:'checkbox','aria-label':q.text+'：明确替换原资料'},false);
+    group.append(field('你的答案',input.node),existing?p('当前资料：'+existing,'subtle'):null,field('回答后如何保存',purpose),stable&&existing?checkLine('若答案与原资料不同，我明确选择替换这一项个人资料。',replace):null,stable?p('个人资料可在“资料与简历”修改或移除；仅相同含义的字段适用。','subtle'):p('限定当前网站、岗位和原问题，不会跨岗位套用。','subtle'));
+    rows.push({q,input,purpose,replace});form.append(group);
+  }
+  form.append(el('div',{class:'form-actions'},submitButton('一次保存以上答案并继续原任务',`answers-${task.id}`)),p('保存个人事实会维护资料。若资料版本因此变化，仍须核对该岗位的新资料确认；本批答案会保留，不需要重填。','details-note'));
+  form.addEventListener('submit',async event=>{event.preventDefault();try{
+    const current=state.tasks.find(t=>t.id===task.id);if(current?.answerBatch?.version!==batch.version)throw new Error('当前缺项或原题已变化，请核对最新清单；已输入草稿仍保留。');
+    if(rows.length!==batch.questions.length||rows.some(row=>!row.input.valid()))throw new Error('请先在实际页面核对未知控件，并为所有当前缺项提供有效答案。');
+    await submitOnce(form,`answers-${task.id}`,()=>perform('answers',{taskId:task.id,batchVersion:batch.version,answers:rows.map(({q,input,purpose,replace})=>({scope:q.scope,version:q.version,answer:input.node.value,save:purpose.value,replace:replace.checked}))}));
+    for(const id of [...drafts.keys()])if(id.startsWith(`batch-${task.id}-`))drafts.delete(id);
+  }catch(error){errorBox(form,error);}});return form;
 }
 function answerMemoryCard() {
   const answers=Array.isArray(state.answers)?state.answers:[];
@@ -554,6 +578,33 @@ function cleanProfile(draft) {
   }
   return validateProfile(data);
 }
+function importPreview() {
+  const draft=state.resumeImport;
+  if(!draft)return banner('从PDF开始准备资料','选择文字型PDF后自动在本机提取；已有信息无需重新手抄，当前岗位仍缺少的内容再集中补答。');
+  if(draft.status==='saved')return banner('PDF提取内容已核对保存',`已保存到资料 v${draft.savedProfileVersion}，之后只补当前申请的必要缺项。`,'good');
+  if(draft.status!=='ready')return banner('PDF未生成可接受的资料草稿',draft.message,'warning');
+  if(draft.profileVersion!==state.profile.version)return el('div',{},banner('资料版本已有变化','请用当前资料重新核对草稿，原资料未被覆盖。','warning'),button('重新提取当前PDF',async()=>{await api('/api/resume/extract',{});await refresh(true);},'small'));
+  const form=el('form',{'aria-label':'核对PDF提取草稿'}),rows=[];
+  form.append(p(`已读取 ${draft.pageCount} 页，只列提取到的候选内容。未提取项保持未知，不要求补完整经历表。`,'details-note'));
+  for(const candidate of draft.candidates){
+    const parts=candidate.key.split('.'),label=definitions[parts[0]]?.[parts.at(-1)]||candidate.label,id='pdf-'+draft.id+'-'+candidate.key,existing=candidate.existing?.zh||candidate.existing?.en||'';
+    const group=el('fieldset',{class:'question-block'},el('legend',{text:label}),existing?p('原资料：'+existing+(candidate.existing.confirmed?'（已确认）':''),'subtle'):null);
+    const only=candidate.values.length===1?candidate.values[0]:null;
+    const action=el('select',{'aria-label':label+'：提取处理'},el('option',{value:'import',text:'接受以下候选内容'}),el('option',{value:'keep',text:'保留原资料，不替换'}),el('option',{value:'skip',text:'保持未知，本次略过'}));
+    action.value=drafts.get(id+'-action')||(existing?'keep':only?'import':'skip');action.addEventListener('change',()=>drafts.set(id+'-action',action.value));
+    const value=draftInput(id,{maxlength:5000,'aria-label':label+'：提取内容'},only?.value||'',null,'textarea');
+    if(!only){group.append(p('有多个候选，尚未自动选择；请核对后选取或修订。','warning'));const choices=el('select',{'aria-label':label+'：候选值'},el('option',{value:'',text:'选择候选（可继续修订）'}),candidate.values.map(v=>el('option',{value:v.value,text:v.value+' · 第'+v.page+'页'})));choices.addEventListener('change',()=>{value.value=choices.value;drafts.set(id,value.value);action.value='import';drafts.set(id+'-action','import');});group.append(choices);}
+    group.append(field('提取结果（可修订）',value),field('本次处理',action),el('details',{},el('summary',{text:'查看PDF原文依据'}),candidate.values.map(v=>p(`第${v.page}页：${v.evidence}`,'subtle'))));
+    rows.push({candidate,action,value});form.append(group);
+  }
+  if(!draft.candidates.length)form.append(banner('未识别到可直接映射的字段','PDF可读取，但没有可靠候选；原附件保留，可只补当前申请缺项。','warning'));
+  const confirmed=draftInput('pdf-confirmed-'+draft.id,{type:'checkbox',required:true},false);
+  const replaceMode=draftInput('pdf-mode-'+draft.id,{type:'checkbox'},false);
+  if(state.profile.version&&state.profile.mode!==state.resume?.mode)form.append(checkLine('我确认用接受的PDF内容建立新用途资料；原用途资料单独保留，不混入新资料。',replaceMode));
+  form.append(checkLine('我已一次核对以上接受/保留选择，未知内容未编造；选择接受冲突项时明确替换原值。',confirmed),submitButton('一次确认并保存提取资料','pdf-import'));
+  form.addEventListener('submit',async event=>{event.preventDefault();try{if(profileDirty)throw new Error('完整资料中还有未保存的编辑，请先保存或明确放弃，再接受PDF草稿。');if(!confirmed.checked)throw new Error('请先核对提取结果及冲突处理。');await submitOnce(form,'pdf-import',async()=>{await api('/api/resume/confirm',{id:draft.id,profileVersion:state.profile.version,confirmed:true,replaceMode:replaceMode.checked,selections:rows.map(({candidate,action,value})=>({key:candidate.key,action:action.value,value:value.value,replace:action.value==='import'&&!!candidate.existing?.confirmed}))});profileDraft=null;profileDirty=false;await refresh(true);toast('已保存核对后的资料，原PDF及附件摘要保持不变。');});}catch(error){errorBox(form,error);}});
+  return form;
+}
 function renderProfile() {
   if(!profileDraft||(!profileDirty&&profileDraft._version!==state.profile.version)){
     profileDraft=clone(state.profile.data||emptyProfile());Object.defineProperty(profileDraft,'_version',{value:state.profile.version,writable:true,enumerable:false});
@@ -582,24 +633,24 @@ function renderProfile() {
     try {const parsed=validateProfile(JSON.parse(json.value));profileDraft=parsed;profileDirty=true;render(true);toast('已导入编辑草稿，请核对资料后保存。');}catch(error){toast(`未导入：${error.message}`,true);}
   },'small'));
   const uploadForm=el('form',{'aria-label':'上传简历文件'});
-  const fileInput=el('input',{type:'file',accept:'.pdf,.doc,.docx,.txt','aria-label':'选择本机简历文件','data-focus':'resume-file'});
+  const fileInput=el('input',{disabled:pendingForms.has('resume'),type:'file',accept:'.pdf,.doc,.docx,.txt','aria-label':'选择本机简历文件','data-focus':'resume-file'});
   const selected=el('p',{class:'selected-file',text:selectedResumeFile?`待上传：${selectedResumeFile.name} · ${selectedResumeFile.size} 字节`:'尚未选择文件'});
-  fileInput.addEventListener('change',()=>{selectedResumeFile=fileInput.files[0]||null;selected.textContent=selectedResumeFile?`待上传：${selectedResumeFile.name} · ${selectedResumeFile.size} 字节`:'尚未选择文件';});
+  fileInput.addEventListener('change',()=>{selectedResumeFile=fileInput.files[0]||null;selected.textContent=selectedResumeFile?`已选择：${selectedResumeFile.name} · ${selectedResumeFile.size} 字节`:'尚未选择文件';if(selectedResumeFile&&/\.pdf$/i.test(selectedResumeFile.name))uploadForm.requestSubmit();});
   const resumeMode=el('select',{'aria-label':'简历用途','data-focus':'resume-mode'},el('option',{value:'demo',text:'本地演示 · 虚构简历'}),el('option',{value:'real',text:'真实模式 · 本人简历'}));resumeMode.value=drafts.get('resume-mode')||state.resume?.mode||state.profile.mode;
   resumeMode.addEventListener('change',()=>drafts.set('resume-mode',resumeMode.value));
-  uploadForm.append(el('label',{class:'upload-zone'},el('strong',{text:'选择这台电脑上的简历'}),el('small',{text:'PDF / Word / 文本 · 最大 8 MB，不读取任意系统路径'}),fileInput),selected,field('简历用途',resumeMode),submitButton('保存所选简历','resume'));
+  uploadForm.append(field('简历用途',resumeMode),p('选择PDF后自动在本机提取，不发送到第三方服务。','details-note'),el('label',{class:'upload-zone'},el('strong',{text:'选择这台电脑上的简历'}),el('small',{text:'PDF / Word / 文本 · 最大 8 MB，不读取任意系统路径'}),fileInput),selected,submitButton('保存文件 / 重新提取PDF','resume'));
   uploadForm.addEventListener('submit',async event=>{
     event.preventDefault();
     try{
       await submitOnce(uploadForm,'resume',async()=>{
         const file=selectedResumeFile;if(!file)throw new Error('请先选择简历文件。');if(!file.size||file.size>8*1024*1024)throw new Error('简历文件须非空且不超过 8 MB。');if(!/\.(pdf|docx?|txt)$/i.test(file.name))throw new Error('请选择 PDF、Word 或测试文本简历。');
         const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let start=0;start<bytes.length;start+=32768)binary+=String.fromCharCode(...bytes.subarray(start,start+32768));
-        await api('/api/resume',{name:file.name,mime:file.type||'application/octet-stream',base64:btoa(binary),mode:resumeMode.value});selectedResumeFile=null;toast('所选简历已保存，摘要和版本已记录。');await refresh(true);
+        await api('/api/resume',{name:file.name,mime:file.type||'application/octet-stream',base64:btoa(binary),mode:resumeMode.value});selectedResumeFile=null;toast(/\.pdf$/i.test(file.name)?'PDF已在本机处理，请核对提取草稿；原附件及摘要已保留。':'所选附件已保存；此格式暂不自动提取资料。');await refresh(true);
       });
     }catch(error){errorBox(uploadForm,error);}
   });
   const resume=state.resume;
-  return el('div',{},modeStrip(),el('div',{class:'two-column'},card('申请资料',el('div',{},form,advanced),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
+  return el('div',{},modeStrip(),el('div',{class:'two-column'},card('申请资料',el('div',{},importPreview(),Object.values(state.profileArchives||{}).map(archive=>button('载入保留的'+modeLabel(archive.mode)+'资料到编辑草稿',()=>{profileDraft=clone(archive.data);profileDirty=true;drafts.set('profile-mode',archive.mode);drafts.set('profile-editor-open',true);render(true);},'text')),el('details',{open:drafts.get('profile-editor-open')===true},el('summary',{text:'查看或修改完整资料（可选）'}),profileDirty?button('放弃未保存编辑，保留已保存资料',()=>{profileDirty=false;profileDraft=null;render(true);},'text'):null,form,advanced)),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
 }
 
 function renderSettingsSite(site,index) {

@@ -73,6 +73,14 @@ function harness(options={}){
 }
 const plain=value=>JSON.parse(JSON.stringify(value));
 
+test('batch conflict evidence uses the human option text and retains an existing answer without writing',async()=>{
+  const h=harness(),inspected=await h.inspect();
+  const selected=inspected.questions.find(q=>q.key==='country');
+  assert.equal(selected.currentValue,'Fictional Test Country');assert.equal(selected.alreadyPopulated,true);
+  assert.equal(inspected.questions.find(q=>q.key==='first_name').currentValue,'Fictional');
+  assert.equal(h.writes,0);assert.equal(h.uploads,0);assert.equal(h.clicks,0);
+});
+
 test('scope/tenant/company and applicant checks fail closed without collecting private values',async()=>{
   const h=harness();h.field('phone')._value='FICTIONAL_PRIVATE_VALUE';
   const inspected=await h.inspect();assert.equal(inspected.ok,true);assert.equal(inspected.login.identitySource,'confirmed-anonymous-applicant');

@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {createWindowsBrowserControl} from '../scripts/windows-browser-control.mjs';
 import {ROOT, initializePaths, insideRoot} from './paths.mjs';
 import {Store} from './model.mjs';
+import {extractResume} from './resume-import.mjs';
 import {createFixture} from './fixture.mjs';
 
 const extensionOrigin = /^chrome-extension:\/\/([a-p]{32})$/;
@@ -218,7 +219,17 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
       }
       if (url.pathname === '/api/settings') store.setSettings(body);
       else if (url.pathname === '/api/profile') store.setProfile(body);
-      else if (url.pathname === '/api/resume') store.setResume(body);
+      else if (url.pathname === '/api/resume' || url.pathname === '/api/resume/extract') {
+        if(url.pathname==='/api/resume')store.setResume(body);
+        const resume=store.state.resume;
+        if(!resume)throw new RequestError(400,'请先选择本机简历');
+        if(/\.pdf$/i.test(resume.name)){
+          const binding={sha256:resume.sha256,resumeVersion:resume.version,profileVersion:store.state.profile.version};
+          const result=await extractResume(fs.readFileSync(insideRoot(resume.file)),resume.sha256);
+          const extraction=store.saveResumeImport(result,binding);json(res,200,{ok:true,extraction});return;
+        }
+      }
+      else if(url.pathname==='/api/resume/confirm'){const result=store.confirmResumeImport(body);json(res,200,{ok:true,...result});return;}
       else throw new RequestError(404, '找不到管理接口');
       json(res, 200, {ok: true});
     } catch (error) {
