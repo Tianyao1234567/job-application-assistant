@@ -65,15 +65,39 @@
     if(/gender|ethnicity|veteran|disability|hispanic/i.test(field.text))return 'voluntary-sensitive';
     return profileIds.has(field.key)?'confirmed-profile-fact':'site-specific-question';
   }
+  // Read only the scoped public loader schema, never execute page scripts or
+  // use preloaded confirmation prose as evidence of an application.
+  function publicQuestions() {
+    try {
+      for(const script of [...document.querySelectorAll('script')]){
+        const source=script.textContent||'';
+        if(source.length>1500000||!source.trim().startsWith('window.__remixContext'))continue;
+        const match=/^\s*window\.__remixContext\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(source);if(!match)continue;
+        const loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
+        const job=loader?.jobPost,url=new URL(location.href);
+        if(!job||String(loader.jobPostId)!==url.pathname.split('/').at(-1)||loader.urlToken!==url.pathname.split('/').at(-3)||job.public_url!==url.origin+url.pathname||!Array.isArray(job.questions)||job.questions.length>60)continue;
+        return job.questions;
+      }
+    }catch{}
+    return [];
+  }
+  function selectedChoice(node) {
+    const group=node.closest?.('.select');
+    const values=group?.querySelectorAll?.('.select__single-value');
+    return values?.length===1?text(values[0]):'';
+  }
+  function controlValue(record) {return record.field.customControl?selectedChoice(record.node):record.node.value;}
   function collect(form) {
     const nodes=[...form.querySelectorAll('input,textarea,select')].filter(node=>node.type!=='hidden'&&(!secret.test([node.id,node.name,node.type,labels(node)].join(' ')))&&(visible(node)||node.type==='file'));
     if(nodes.length>60)throw new Error('FIELD_BUDGET');
-    const records=[],keys=new Set();
+    const records=[],keys=new Set(),schema=publicQuestions();
     for(const node of nodes){
       if(['submit','button','reset','image'].includes(node.type))continue;
+      // React Select's unnamed required proxy belongs to its one labelled control.
+      if(!node.id&&!node.name&&node.required&&node.closest?.('.select')?.querySelector?.('[role="combobox"][id]'))continue;
       const key=node.id||node.name;
       if(!key||key.length>160||keys.has(key))throw new Error('AMBIGUOUS_FIELD');keys.add(key);
-      const label=labels(node),group=groupLabel(node);
+      const label=labels(node),group=groupLabel(node),business=schema.find(question=>question.fields?.some(field=>field.name===key)&&norm(question.label)===norm((node.type==='file'?group:label).replace(/\*\s*$/,''))),definition=business?.fields.find(field=>field.name===key);
       if(!label||label.length>2000||group.length>2000)throw new Error('QUESTION_LABEL');
       const customControl=node.getAttribute('role')==='combobox'||node.getAttribute('aria-haspopup')==='listbox'||!!node.closest('[role="combobox"]');
       let options=[],optionKeys=[],optionsComplete=node.tagName==='SELECT';
@@ -81,6 +105,8 @@
         if(node.options.length>300)throw new Error('OPTION_BUDGET');
         options=[...node.options].map(option=>({text:text(option),disabled:!!option.disabled||!!option.parentElement?.disabled}));
         optionKeys=[...node.options].map(option=>String(option.value));
+      }else if(customControl&&definition?.type==='multi_value_single_select'&&Array.isArray(definition.values)&&definition.values.length<=300){
+        options=definition.values.map(option=>({text:String(option.label),disabled:false}));optionKeys=definition.values.map(option=>String(option.value));optionsComplete=true;
       }else if(customControl){
         // An unopened or virtualized custom control is not a known option set.
         // Reading displayed choices never marks them complete automatically.
@@ -88,8 +114,8 @@
         if(list&&node.getAttribute('aria-expanded')==='true')options=[...list.querySelectorAll('[role="option"]')].filter(visible).map(option=>({text:text(option),disabled:option.getAttribute('aria-disabled')==='true'}));
       }
       if(options.some(option=>option.text.length>1000))throw new Error('OPTION_BUDGET');
-      const requiredEvidence={native:node.required===true,aria:node.getAttribute('aria-required')==='true',labelAsterisk:/\*/.test(label),groupAsterisk:/\*/.test(group)};
-      const field={key,text:node.type==='file'&&group?group+' / '+label:label,type:node.type||node.tagName.toLowerCase(),tag:node.tagName,required:Object.values(requiredEvidence).some(Boolean),requiredEvidence,options,optionsComplete,customControl,accept:node.accept||'',groupTitle:group,attachmentRequirementKnown:node.type!=='file'||!!group&&/resume|cv|cover letter/i.test(group)&&(Object.values(requiredEvidence).some(Boolean)||/optional/i.test(group)),alreadyPopulated:node.type==='file'?node.files.length>0:['checkbox','radio'].includes(node.type)?node.checked===true:!!node.value?.trim()};
+      const requiredEvidence={native:node.required===true,aria:node.getAttribute('aria-required')==='true',labelAsterisk:/\*/.test(label),groupAsterisk:/\*/.test(group),schema:business?.required===true};
+      const field={key,text:node.type==='file'&&group?group+' / '+label:label,type:node.type||node.tagName.toLowerCase(),tag:node.tagName,required:Object.values(requiredEvidence).some(Boolean),requiredEvidence,options,optionsComplete,customControl,accept:node.accept||'',groupTitle:group,attachmentRequirementKnown:node.type!=='file'||!!group&&/resume|cv|cover letter/i.test(group)&&(typeof business?.required==='boolean'||Object.values(requiredEvidence).some(Boolean)||/optional/i.test(group)),alreadyPopulated:node.type==='file'?node.files.length>0:customControl?!!selectedChoice(node):['checkbox','radio'].includes(node.type)?node.checked===true:!!node.value?.trim()};
       field.purpose=purpose(field);
       const {alreadyPopulated,...structure}=field;
       records.push({node,field,raw:JSON.stringify({...structure,name:node.name||'',optionKeys})});
@@ -107,11 +133,12 @@
   }
   async function question(expected,record) {
     const version=await sha(record.raw),field=record.field;
-    return {...field,version,source:expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId,scope:`greenhouse-v1:${expected.tenant}:${expected.jobId}:${field.key}:${version}`,defaultRemember:false};
+    const manualSelection=field.customControl&&!field.optionsComplete&&!!selectedChoice(record.node);
+    return {...field,...(manualSelection?{manualSelection:true,options:[{text:selectedChoice(record.node),disabled:false}]}:{}),version,source:expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId,scope:`greenhouse-v1:${expected.tenant}:${expected.jobId}:${field.key}:${version}`,defaultRemember:false};
   }
   function ownedAnswer(expected,q,record) {
     if(!q.alreadyPopulated||!Array.isArray(expected.confirmedAnswers))return false;
-    let value=record.node.value;
+    let value=controlValue(record);
     if(record.node.tagName==='SELECT'){
       const selected=[...record.node.options].filter(option=>option.value===record.node.value);
       if(selected.length!==1)return false;value=text(selected[0]);
@@ -173,7 +200,7 @@
       const jobMetadata={tenant:expected.tenant,jobId:expected.jobId,url:current.source,title,company:expected.company,location:text(document.querySelector('.job__location,.job-location,[data-job-location]')).slice(0,200)};
       const fields=await Promise.all(result.records.map(record=>question(expected,record)));
       const fillable=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
-      const questions=fields.filter((field,index)=>(field.required||field.alreadyPopulated)&&field.type!=='file'&&!fillable.has(field.key)&&!ownedAnswer(expected,field,result.records[index]));
+      const questions=fields.filter((field,index)=>(field.required||field.alreadyPopulated)&&field.type!=='file'&&!(fillable.has(field.key)&&!field.customControl)&&!ownedAnswer(expected,field,result.records[index]));
       return {ok:true,login:current.login,jobMetadata,applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
@@ -181,7 +208,17 @@
     const records=current.records.filter(record=>record.field.key===key);
     if(records.length!==1)return fail('structure','字段不存在或不唯一，不能自动填写。');
     const record=records[0],{node,field}=record;
-    if(!editable(node)||field.customControl||!['INPUT','TEXTAREA','SELECT'].includes(node.tagName)||!['text','email','tel','url','search','number','textarea','select-one'].includes(field.type))return fail('manual','此控件需要本人处理，自动填写已停止。');
+    if(field.customControl){
+      if(!explicit||typeof value!=='string'||!value.trim()||value.length>5000)return fail('manual','请针对原问题确认实际选项。');
+      const selected=selectedChoice(node);
+      if(selected&&selected!==value)return fail('manual','保留本人已选择的原值，请核对后继续。');
+      if(!field.optionsComplete&&selected!==value)return fail('manual','选项未完整观察，请先由本人在原页面选择，再确认该原文。');
+      if(field.optionsComplete&&!field.options.some(option=>option.text===value&&!option.disabled))return fail('manual','确认答案不在实际选项中。');
+      const list=document.getElementById(node.getAttribute('aria-controls')||'');
+      const matches=[...(list?.querySelectorAll?.('[role="option"]')||[])].filter(option=>visible(option)&&text(option)===value&&option.getAttribute('aria-disabled')!=='true');
+      return {ok:true,...record,write:value,choice:true,selected,option:matches.length===1?matches[0]:null};
+    }
+    if(!editable(node)||!['INPUT','TEXTAREA','SELECT'].includes(node.tagName)||!['text','email','tel','url','search','number','textarea','select-one'].includes(field.type))return fail('manual','此控件需要本人处理，自动填写已停止。');
     if(secret.test([field.text,key,node.name].join(' ')))return fail('manual','登录、验证或证件内容不能由申请答案填写。');
     if(!explicit&&(!profileIds.has(key)||globalThis.JobFill?.guardText([field.text,key].join(' '))))return fail('manual','此字段不是可直接复用的已确认普通资料。');
     if(typeof value!=='string'||!value.trim()||value.length>5000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value))return fail('manual','确认内容没有通过长度或格式检查。');
@@ -207,15 +244,21 @@
   // layout, task reports, or logs; submission binds the form state seen before
   // asynchronous hashing and authorization to the final synchronous click.
   function captureValues(current) {
-    return current.records.map(({node,field})=>({node,key:field.key,value:field.type==='file'?null:node.value,checked:node.checked,selectedIndex:node.tagName==='SELECT'?node.selectedIndex:undefined,files:field.type==='file'?[...node.files]:null}));
+    return current.records.map(({node,field})=>({node,key:field.key,value:field.type==='file'?null:node.value,selection:field.customControl?selectedChoice(node):null,checked:node.checked,selectedIndex:node.tagName==='SELECT'?node.selectedIndex:undefined,files:field.type==='file'?[...node.files]:null}));
   }
   function sameValues(captured,current) {
     return captured.length===current.records.length&&captured.every((before,index)=>{
       const {node,field}=current.records[index];
-      return before.node===node&&before.key===field.key&&before.value===(field.type==='file'?null:node.value)&&before.checked===node.checked&&(node.tagName!=='SELECT'||before.selectedIndex===node.selectedIndex)&&(!before.files||node.files.length===before.files.length&&before.files.every((file,index)=>node.files[index]===file));
+      return before.node===node&&before.key===field.key&&before.value===(field.type==='file'?null:node.value)&&before.selection===(field.customControl?selectedChoice(node):null)&&before.checked===node.checked&&(node.tagName!=='SELECT'||before.selectedIndex===node.selectedIndex)&&(!before.files||node.files.length===before.files.length&&before.files.every((file,index)=>node.files[index]===file));
     });
   }
-  function captchaVisible() {return [...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i],input[autocomplete="one-time-code"]')].some(visible);}
+  function captchaVisible() {
+    const frames=[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i],input[autocomplete="one-time-code"]')];
+    if(!frames.some(visible))return false;
+    // Only observe provider completion. Never write, return, or persist tokens.
+    const responses=[...document.querySelectorAll('textarea[name="g-recaptcha-response"],input[name="g-recaptcha-response"],textarea[name="h-captcha-response"]')];
+    return responses.length!==1||!responses[0].value?.trim();
+  }
   function submissionTarget(expected,current) {
     const receipt=replayReceipt(expected);if(receipt)return {ok:true,receipt};
     if(captchaVisible())return fail('manual','提交前需要本人完成网站验证；系统不会操作或绕过 CAPTCHA。');
@@ -226,8 +269,8 @@
       if(field.type==='file'&&field.key!=='resume'&&node.files.length)return fail('manual','网页已有其他附件尚未纳入本次确认版本，未允许提交。');
       if(field.type==='file'&&!field.attachmentRequirementKnown)return fail('manual','附件分组标题及必填依据尚未核实，请本人检查后再继续。');
       if(!field.required)continue;
-      if(field.customControl)return fail('manual','必填自定义选择尚不能可靠核验，请本人处理。');
-      if(field.type==='file'?node.files.length===0:!node.value?.trim())return fail('manual','仍有必填字段或附件未完成，请补充原问题后继续。');
+      if(field.customControl&&!selectedChoice(node))return fail('manual','请本人完成必填选择，并针对当前原题确认。');
+      if(field.type==='file'?node.files.length===0:field.customControl?!selectedChoice(node):!node.value?.trim())return fail('manual','仍有必填字段或附件未完成，请补充原问题后继续。');
     }
     return {ok:true,node:buttons[0]};
   }
@@ -255,11 +298,16 @@
   };
   api.prepare=async(method,expected,args)=>{
     try{
-      if(!['fillField','answer','upload','submit'].includes(method)||!Array.isArray(args))return fail('manual','不支持此页面操作。');
-      const payload=method==='answer'?args[0]:null,layout=payload?.layout||args[0];
+      if(!['fillField','openChoice','answer','upload','submit'].includes(method)||!Array.isArray(args))return fail('manual','不支持此页面操作。');
+      const payload=['answer','openChoice'].includes(method)?args[0]:null,layout=payload?.layout||args[0];
       const current=checked(expected,layout);if(!current.ok)return current;
       const prepared={method,expected:{...expected},layout,form:current.form,at:Date.now()};
-      if(method==='fillField'||method==='answer'){
+      if(method==='openChoice'){
+        const target=current.records.find(record=>record.field.key===payload.key);
+        if(!target?.field.customControl||!target.field.optionsComplete||selectedChoice(target.node)||!editable(target.node))return fail('manual','此选项应由本人在页面选择。');
+        const q=await question(expected,target);if(payload.confirmed!==true||q.scope!==payload.scope||q.version!==payload.version||q.text!==payload.text||!q.options.some(option=>option.text===payload.answer&&!option.disabled))return fail('structure','原题或确认选项已变化。');
+        Object.assign(prepared,{key:payload.key,node:target.node,original:target.node.value,raw:target.raw});
+      }else if(method==='fillField'||method==='answer'){
         let key=method==='answer'?payload.key:args[1],value=method==='answer'?payload.answer:args[2];
         const target=fieldTarget(current,expected,key,value,method==='answer');if(!target.ok)return target;
         if(method==='answer'){
@@ -268,7 +316,8 @@
           if(q.optionsComplete&&q.options.length&&!q.options.some(option=>option.text===value&&!option.disabled))return fail('manual','确认答案不属于当前实际选项。');
           prepared.questionRaw=target.raw;
         }
-        Object.assign(prepared,{key,value,write:target.write,node:target.node,original:target.node.value,raw:target.raw});
+        if(target.choice&&!target.selected&&!target.option)return fail('manual','请先打开当前原题的选项菜单。');
+        Object.assign(prepared,{key,value,write:target.write,node:target.node,original:target.node.value,raw:target.raw,choice:target.choice,selection:target.selected,option:target.option});
       }else if(method==='upload'){
         const target=uploadTarget(current);if(!target.ok)return target;
         const file=args[1];
@@ -320,9 +369,20 @@
     try{
       const current=checked(expected,prepared.layout);if(!current.ok)return current;
       if(current.form!==prepared.form)return fail('structure','申请表已被替换，请重新检查。');
+      if(prepared.method==='openChoice'){
+        const target=current.records.find(record=>record.field.key===prepared.key);
+        if(target?.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original||selectedChoice(target.node))return fail('manual','控件已变化，未打开菜单。');
+        target.node.click();return {ok:true,opened:true};
+      }
       if(prepared.method==='fillField'||prepared.method==='answer'){
         const target=fieldTarget(current,expected,prepared.key,prepared.value,prepared.method==='answer');if(!target.ok)return target;
         if(target.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original)return fail('manual','保留本人接管后修改的内容，未覆盖原值。');
+        if(prepared.choice){
+          if(selectedChoice(target.node)!==prepared.selection)return fail('manual','本人选择已变化，未覆盖。');
+          if(prepared.selection===prepared.write)return {ok:true,layout:prepared.layout,filled:0};
+          if(target.option!==prepared.option||!visible(prepared.option))return fail('structure','当前选项菜单已变化。');
+          prepared.option.click();return new Promise(resolve=>setTimeout(()=>resolve(selectedChoice(target.node)===prepared.write?{ok:true,layout:prepared.layout,filled:1}:fail('manual','网站未保留确认选项。')),500));
+        }
         if(target.node.value===prepared.write)return {ok:true,layout:prepared.layout,filled:0};
         // No await precedes this one authorized DOM write.
         setValue(target.node,prepared.write);return observedWrite(prepared);

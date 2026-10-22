@@ -24,9 +24,9 @@ export function greenhouseQuestion(site,task,q,{allowIncomplete=false}={}) {
   if(q.options.some(o=>!o||typeof o.text!=='string'||o.text.length>300))return null;
   if(typeof q.type!=='string'||q.type.length>50)return null;
   // A question's observed choices are evidence, never a guessed Yes/No list.
-  const choice=q.customControl===true||/select|combobox|radio|checkbox/.test(q.type),unresolved=choice&&q.optionsComplete!==true;
+  const choice=q.customControl===true||/select|combobox|radio|checkbox/.test(q.type),unresolved=choice&&q.optionsComplete!==true&&!(q.manualSelection===true&&q.options.length===1&&q.options[0].text.trim());
   if(unresolved&&!allowIncomplete)return null;
-  return {key:q.key,text:q.text,scope:q.scope,version:q.version,purpose:q.purpose,source:q.source,options:q.options.map(o=>({text:o.text,disabled:o.disabled===true})),optionsComplete:q.optionsComplete===true,required:q.required===true,type:q.type,...(q.customControl!==undefined?{customControl:q.customControl===true}:{}),...(unresolved?{unresolved:true}:{}),...(q.requiredEvidence?{requiredEvidence:{native:q.requiredEvidence.native===true,aria:q.requiredEvidence.aria===true,labelAsterisk:q.requiredEvidence.labelAsterisk===true,groupAsterisk:q.requiredEvidence.groupAsterisk===true}}:{})};
+  return {key:q.key,text:q.text,scope:q.scope,version:q.version,purpose:q.purpose,source:q.source,options:q.options.map(o=>({text:o.text,disabled:o.disabled===true})),optionsComplete:q.optionsComplete===true,...(q.manualSelection===true?{manualSelection:true}:{}),required:q.required===true,type:q.type,...(q.customControl!==undefined?{customControl:q.customControl===true}:{}),...(unresolved?{unresolved:true}:{}),...(q.requiredEvidence?{requiredEvidence:{native:q.requiredEvidence.native===true,aria:q.requiredEvidence.aria===true,labelAsterisk:q.requiredEvidence.labelAsterisk===true,groupAsterisk:q.requiredEvidence.groupAsterisk===true}}:{})};
 }
 export function greenhouseAnswer(q,value) {
   if(typeof value!=='string'||!value.trim()||value.length>5000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value))throw new Error('请填写5000字以内的确认答案');

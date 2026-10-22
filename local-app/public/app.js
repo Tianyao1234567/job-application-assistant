@@ -441,7 +441,7 @@ function questionInput(question,id,initial='') {
   const options=Array.isArray(question?.options)?question.options:[];
   const selection=options.length>0||question?.customControl===true||/select|combobox|radio|checkbox/i.test(question?.type||'');
   if(selection){
-    if(question?.optionsComplete!==true||!options.length)return {blocked:true,node:banner('选项尚未完整核实','请在实际申请页人工核对；系统不会猜测 Yes / No 或提交未核实的选项。','warning')};
+    if((question?.optionsComplete!==true&&question?.manualSelection!==true)||!options.length)return {blocked:true,node:banner('选项尚未完整核实','请在实际申请页人工核对；系统不会猜测 Yes / No 或提交未核实的选项。','warning')};
     const select=el('select',{'data-focus':id,'aria-label':'确认答案',required:true},el('option',{value:'',text:'请选择已核实的原文选项',disabled:true}),options.map(option=>el('option',{value:option.text,text:option.text,disabled:option.disabled===true})));
     const value=drafts.has(id)?drafts.get(id):initial;
     select.value=options.some(option=>option.text===value&&option.disabled!==true)?value:'';

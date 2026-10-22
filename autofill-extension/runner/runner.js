@@ -210,7 +210,10 @@ async function executeGreenhouse(command,expect,payload) {
     let filled=0;
     const entries=greenhouseEntries(payload.entries);
     if(entries.some(entry=>entry.name==='email'&&entry.value.trim().toLowerCase()!==expect.expectedAccount.toLowerCase()))throw new Stop('account','资料中的邮箱与本岗位确认的申请人不符，未继续填写。');
+    const inspected=await read(tab,expect,'inspect');
+    if(!inspected.ok)return inspected;
     for(const entry of entries){
+      if(inspected.fields?.some(field=>field.key===entry.name&&field.customControl))continue;
       const result=await mutate(command,tab,expect,'fillField',payload.layout,entry.name,entry.value);
       if(!result.ok)return {...result,tabId:tab.id,url:tab.url};
       filled+=Number(result.filled)||0;
@@ -222,7 +225,16 @@ async function executeGreenhouse(command,expect,payload) {
     if(!file||typeof file.name!=='string'||!file.name||/[\\/\x00-\x1f]/.test(file.name)||file.name.length>200||typeof file.mime!=='string'||typeof file.base64!=='string'||file.base64.length>12000000||!Number.isInteger(file.size)||file.size<=0||file.size>8*1024*1024||!/^[a-f0-9]{64}$/.test(file.sha256))throw new Stop('manual','简历附件信息或摘要无效。');
     return {...await mutate(command,tab,expect,'upload',payload.layout,file),tabId:tab.id,url:tab.url};
   }
-  if(command.op==='answer')return {...await mutate(command,tab,expect,'answer',payload),tabId:tab.id,url:tab.url};
+  if(command.op==='answer'){
+    if(payload.customControl&&payload.optionsComplete){
+      const observed=await read(tab,expect,'inspect');
+      if(!observed.ok)return observed;
+      if(observed.questions?.some(question=>question.key===payload.key&&!question.alreadyPopulated)){
+        const opened=await mutate(command,tab,expect,'openChoice',payload);if(!opened.ok)return opened;
+      }
+    }
+    return {...await mutate(command,tab,expect,'answer',payload),tabId:tab.id,url:tab.url};
+  }
   if(command.op==='preflight'){
     await inject(tab,expect);
     const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
