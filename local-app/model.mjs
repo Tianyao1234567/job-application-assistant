@@ -91,8 +91,9 @@ export class Store {
   canVerifyTask(t){return t.status!=='submitting'&&this.hasSubmissionBoundary(t);}
   invalidateTask(t){t.revision=(t.revision||0)+1;if(!terminal.has(t.status)&&t.status!=='submitting')t.phase='inspect';}
   confirmedTask(t){
-    const site=this.site(t.siteId),c=t.confirmation;
-    return isGreenhouse(site)&&!!c&&c.submitConfirmed===true&&c.jobId===t.jobId&&c.url===t.url&&c.company===site.company&&c.expectedAccount===site.expectedAccount&&c.profileVersion===this.state.profile.version&&c.resumeVersion===this.state.resume?.version&&c.resumeSha256===this.state.resume?.sha256&&c.profileId===t.executionProfileId&&c.profileId===this.connection?.profileId&&t.profileVersion===c.profileVersion&&t.resumeVersion===c.resumeVersion&&t.profileSnapshot?.mode===site.mode&&t.resumeSnapshot?.mode===site.mode;
+    const site=this.site(t.siteId),c=t.confirmation,email=t.profileSnapshot?.data?.personal?.email;
+    const applicantMatches=email?.confirmed===true&&[email.zh,email.en].some(value=>typeof value==='string'&&value.trim().toLowerCase()===site.expectedAccount);
+    return isGreenhouse(site)&&applicantMatches&&!!c&&c.submitConfirmed===true&&c.jobId===t.jobId&&c.url===t.url&&c.company===site.company&&c.expectedAccount===site.expectedAccount&&c.profileVersion===this.state.profile.version&&c.resumeVersion===this.state.resume?.version&&c.resumeSha256===this.state.resume?.sha256&&c.profileId===t.executionProfileId&&c.profileId===this.connection?.profileId&&t.profileVersion===c.profileVersion&&t.resumeVersion===c.resumeVersion&&t.profileSnapshot?.mode===site.mode&&t.resumeSnapshot?.mode===site.mode;
   }
   confirmTask(t,body){
     const site=this.site(t.siteId);
@@ -332,7 +333,17 @@ export class Store {
         else{
           if(!t.profileSnapshot){t.profileSnapshot=clone(this.state.profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=this.state.profile.version;t.resumeVersion=this.state.resume.version;this.step(t,'锁定本次资料版本',`资料 v${t.profileVersion} · 简历 v${t.resumeVersion}`);}
           t.status='running';c={id:uid(),op:t.phase||'inspect',siteId:site.id,taskId:t.id,payload:{}};
-          if(c.op==='fill')c.payload={entries:flattenProfile(t.profileSnapshot.data).filter(e=>e.confirmed),layout:t.layout};
+          if(c.op==='fill'){
+            const entries=flattenProfile(t.profileSnapshot.data).filter(e=>e.confirmed);
+            if(isGreenhouse(site)){
+              const email=t.profileSnapshot.data.personal.email,lang=['zh','en'].find(key=>typeof email[key]==='string'&&email[key].trim().toLowerCase()===site.expectedAccount);
+              const entry=entries.find(value=>value.key==='personal.email');
+              // Applicant identity is fixed by confirmation, not by the default
+              // language preference used to flatten other profile fields.
+              if(entry&&lang){entry.value=email[lang].trim();entry.lang=lang;}
+            }
+            c.payload={entries,layout:t.layout};
+          }
           if(c.op==='upload'){const f=t.resumeSnapshot;c.payload={file:{name:f.name,mime:f.mime,size:f.size,sha256:f.sha256,base64:fs.readFileSync(insideRoot(f.file)).toString('base64')},layout:t.layout};}
           if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,confirmed:t.answer.confirmed===true||!isGreenhouse(site),layout:t.layout};
           if(c.op==='preflight')c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};

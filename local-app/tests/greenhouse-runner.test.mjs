@@ -44,7 +44,7 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
   h.command=op=>({id:'command-'+op,op,site:{adapter:replay?'greenhouse-replay-v1':'greenhouse-v1',origin,tenant,company,expectedAccount:'fictional@example.invalid',mode:replay?'demo':'real',listUrl:origin+prefix,loginUrl:origin+prefix},
     task:{id:'task',jobId:'1234567',url:origin+prefix+'/jobs/1234567',mode:replay?'demo':'real',applicantConfirmed:true,executionProfileId:'fictional-profile',confirmedProfileKeys:['personal.email','personal.phone']},
     payload:op==='fill'?{layout,entries:[{key:'personal.email',value:'fictional@example.invalid',confirmed:true}]}:{layout,file}});
-  h.run=op=>context.run(h.command(op));h.policy=context.policy;
+  h.run=op=>context.run(h.command(op));h.runCommand=context.run;h.policy=context.policy;
   return h;
 }
 
@@ -72,6 +72,11 @@ test('pause during Greenhouse asynchronous preparation prevents the DOM write',a
   const pending=gate(),h=harness({prepareGate:pending}),operation=h.run('fill');
   await pending.entered;h.allowed=false;pending.release();
   await assert.rejects(operation,error=>error.kind==='paused');assert.equal(h.writes,0);assert.equal(h.clicks,0);assert.equal(h.authorizations,1);
+});
+test('a different confirmed email cannot be written for the pinned applicant',async()=>{
+  const h=harness(),command=h.command('fill');command.payload.entries[0].value='different@example.invalid';
+  await assert.rejects(h.runCommand(command),error=>error.kind==='account');
+  assert.equal(h.writes,0);assert.equal(h.authorizations,0);
 });
 test('pause during durable Greenhouse ledger storage prevents click and retains attempt',async()=>{
   const pending=gate(),h=harness({storageGate:pending}),operation=h.run('submit');

@@ -12,7 +12,7 @@ const file={name:'fictional.txt',mime:'text/plain',base64:bytes.toString('base64
 const expected={origin:'http://127.0.0.1:17322',tenant:'fictional',jobId:'1234567',company:'Fictional Company',expectedAccount:'person@example.invalid',replay:true,applicantConfirmed:true,profileFields:['email','phone','candidate-location']};
 function gate(){let entered,release;return {entered:new Promise(resolve=>entered=resolve),ready:new Promise(resolve=>release=resolve),enter:()=>entered(),release:()=>release()};}
 function harness(options={}){
-  const h={writes:0,uploads:0,clicks:0,receipt:null,captcha:false,validationHook:null};
+  const h={writes:0,uploads:0,clicks:0,receipt:null,captcha:false,validationHook:null,links:[]};
   class Element {
     constructor(id,label,{tag='INPUT',type='text',required=false,value='',group='',accept='',choices=[]}={}){
       Object.assign(this,{id,name:id,tagName:tag,type,required,_value:value,isConnected:true,disabled:false,readOnly:false,maxLength:-1,accept,multiple:false,validity:{valid:true},dataset:{},_files:[],attrs:{},labels:[{innerText:label,textContent:label}]});
@@ -50,7 +50,7 @@ function harness(options={}){
   const document={title:'Job Application for Fictional Engineer at Fictional Company',
     getElementById:id=>h.field(id)||null,
     querySelector(selector){if(selector==='h1')return {innerText:'Fictional Engineer',textContent:'Fictional Engineer'};return null;},
-    querySelectorAll(selector){if(selector==='form')return [form];if(selector.includes('captcha')||selector.includes('verify'))return h.captcha?[{getClientRects:()=>[1],isConnected:true}]:[];if(selector==='[data-greenhouse-replay-receipt]')return h.receipt?[{dataset:h.receipt}]:[];return [];}};
+    querySelectorAll(selector){if(selector==='form')return [form];if(selector==='a[href]')return h.links;if(selector.includes('captcha')||selector.includes('verify'))return h.captcha?[{getClientRects:()=>[1],isConnected:true}]:[];if(selector==='[data-greenhouse-replay-receipt]')return h.receipt?[{dataset:h.receipt}]:[];return [];}};
   class DataTransfer{constructor(){this.files=[];this.items={add:file=>this.files.push(file)};}}
   let waitHash=options.hashGate;h.blockNextHash=value=>{waitHash=value;};
   const page=vm.createContext({console,URL,Date,Map,Set,Array,Uint8Array,TextEncoder,File,Event,atob,DataTransfer,
@@ -86,6 +86,30 @@ test('anonymous form does not become a verified session without explicit applica
   const inspected=await h.inspect({...expected,applicantConfirmed:false});assert.equal(inspected.ok,true);assert.equal(inspected.login.status,'unknown');
   const prepared=await h.api.prepare('fillField',{...expected,applicantConfirmed:false},[inspected.layout,'email',expected.expectedAccount]);
   assert.equal(prepared.ok,false);assert.equal(h.writes,0);
+});
+test('profile filling and scoped answers independently reject a different applicant email before a write',async()=>{
+  const h=harness();h.field('email')._value='';const context={...expected,profileFields:[]},inspected=await h.inspect(context),q=inspected.questions.find(q=>q.key==='email');
+  const wrong='different@example.invalid';
+  assert.equal((await h.api.prepare('fillField',context,[inspected.layout,'email',wrong])).kind,'account');
+  assert.equal((await h.api.prepare('answer',context,[{...q,layout:inspected.layout,answer:wrong,confirmed:true}])).kind,'account');
+  assert.equal(h.field('email').value,'');assert.equal(h.writes,0);
+  assert.equal((await h.api.prepare('fillField',context,[inspected.layout,'email','PERSON@example.invalid'])).ok,true,'case-normalized pinned applicant still matches');
+});
+test('discovery pairs only visible locations from the same unique job container',async()=>{
+  const h=harness();h.page.location.href=expected.origin+'/greenhouse/fictional';
+  const location=value=>({innerText:value,textContent:value,isConnected:true,getClientRects:()=>[1]});
+  function link(id,title,locations){
+    const anchor={href:expected.origin+'/greenhouse/fictional/jobs/'+id,innerText:title,textContent:title};
+    const container={querySelectorAll:selector=>selector==='a[href]'?[anchor]:locations};anchor.closest=()=>container;return anchor;
+  }
+  const withLocation=link('1234567','Fictional Engineer',[location('Fictional Test City')]),withoutLocation=link('1234568','Fictional Researcher',[]);
+  const ambiguous=link('1234569','Fictional Department Job',[location('Another job location')]);
+  ambiguous.closest=()=>({querySelectorAll:selector=>selector==='a[href]'?[ambiguous,withLocation]:[location('Another job location')]});
+  const hidden=location('Hidden city');hidden.getClientRects=()=>[];
+  h.links=[withLocation,withoutLocation,ambiguous,link('1234570','Fictional Hidden Location',[hidden])];
+  const result=await h.api.read('discover',{...expected,jobId:undefined});assert.equal(result.ok,true);
+  assert.deepEqual(plain(result.jobs.map(job=>({id:job.jobId,location:job.location}))),[{id:'1234567',location:'Fictional Test City'},{id:'1234568',location:''},{id:'1234569',location:''},{id:'1234570',location:''}]);
+  assert.equal(h.writes,0);assert.equal(h.clicks,0);
 });
 test('prefilled required answers remain visible for confirmation until exact task ownership matches',async()=>{
   const h=harness(),original=await h.inspect();assert.ok(original.questions.some(q=>q.key==='first_name'&&q.alreadyPopulated));

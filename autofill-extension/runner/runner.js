@@ -208,7 +208,9 @@ async function executeGreenhouse(command,expect,payload) {
   if(typeof payload.layout!=='string'||!payload.layout||payload.layout.length>250000)throw new Stop('structure','缺少 Greenhouse 原表单结构版本。');
   if(command.op==='fill'){
     let filled=0;
-    for(const entry of greenhouseEntries(payload.entries)){
+    const entries=greenhouseEntries(payload.entries);
+    if(entries.some(entry=>entry.name==='email'&&entry.value.trim().toLowerCase()!==expect.expectedAccount.toLowerCase()))throw new Stop('account','资料中的邮箱与本岗位确认的申请人不符，未继续填写。');
+    for(const entry of entries){
       const result=await mutate(command,tab,expect,'fillField',payload.layout,entry.name,entry.value);
       if(!result.ok)return {...result,tabId:tab.id,url:tab.url};
       filled+=Number(result.filled)||0;

@@ -146,7 +146,19 @@
           const match=new RegExp('^'+current.base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/jobs/(\\d+)$').exec(url.pathname);
           if(url.origin!==expected.origin||url.username||url.password||!match)continue;
           const title=text(link);if(!title||title.length>300)continue;
-          if(!jobs.some(job=>job.jobId===match[1]))jobs.push({jobId:match[1],title,company:expected.company,location:'',url:url.origin+url.pathname,tenant:expected.tenant});
+          const container=link.closest('.opening,.job-post,tr,section,li');
+          let location='';
+          if(container){
+            const links=[...container.querySelectorAll('a[href]')].filter(candidate=>{
+              try{const target=new URL(candidate.href);return target.origin===expected.origin&&target.pathname.startsWith(current.base+'/jobs/');}catch{return false;}
+            });
+            // A department-wide section may contain several jobs. Do not pair
+            // this link with a different job's location from that container.
+            const identities=new Set(links.map(candidate=>new URL(candidate.href).pathname));
+            const locations=[...container.querySelectorAll('.location,.job__location,.job-location,[data-job-location]')].filter(visible);
+            if(identities.size===1&&identities.has(url.pathname)&&locations.length===1)location=text(locations[0]).slice(0,200);
+          }
+          if(!jobs.some(job=>job.jobId===match[1]))jobs.push({jobId:match[1],title,company:expected.company,location,url:url.origin+url.pathname,tenant:expected.tenant});
           if(jobs.length>=200)break;
         }
         return {ok:true,jobs,login:current.login};
@@ -165,7 +177,7 @@
       return {ok:true,login:current.login,jobMetadata,applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
-  function fieldTarget(current,key,value,explicit=false) {
+  function fieldTarget(current,expected,key,value,explicit=false) {
     const records=current.records.filter(record=>record.field.key===key);
     if(records.length!==1)return fail('structure','字段不存在或不唯一，不能自动填写。');
     const record=records[0],{node,field}=record;
@@ -173,6 +185,7 @@
     if(secret.test([field.text,key,node.name].join(' ')))return fail('manual','登录、验证或证件内容不能由申请答案填写。');
     if(!explicit&&(!profileIds.has(key)||globalThis.JobFill?.guardText([field.text,key].join(' '))))return fail('manual','此字段不是可直接复用的已确认普通资料。');
     if(typeof value!=='string'||!value.trim()||value.length>5000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value))return fail('manual','确认内容没有通过长度或格式检查。');
+    if(key==='email'&&norm(value).toLowerCase()!==norm(expected.expectedAccount).toLowerCase())return fail('account','待填写邮箱与本次确认的申请人不符，未修改申请表。');
     let write=value;
     if(node.tagName==='SELECT'){
       const matches=[...node.options].filter(option=>!option.disabled&&!option.parentElement?.disabled&&text(option)===value);
@@ -248,7 +261,7 @@
       const prepared={method,expected:{...expected},layout,form:current.form,at:Date.now()};
       if(method==='fillField'||method==='answer'){
         let key=method==='answer'?payload.key:args[1],value=method==='answer'?payload.answer:args[2];
-        const target=fieldTarget(current,key,value,method==='answer');if(!target.ok)return target;
+        const target=fieldTarget(current,expected,key,value,method==='answer');if(!target.ok)return target;
         if(method==='answer'){
           const q=await question(expected,target);
           if(payload.confirmed!==true||q.scope!==payload.scope||q.version!==payload.version||q.text!==payload.text||q.source!==payload.source||q.purpose!==payload.purpose)return fail('structure','答案必须由本人确认，并限定于相同原问题、来源和用途。');
@@ -308,7 +321,7 @@
       const current=checked(expected,prepared.layout);if(!current.ok)return current;
       if(current.form!==prepared.form)return fail('structure','申请表已被替换，请重新检查。');
       if(prepared.method==='fillField'||prepared.method==='answer'){
-        const target=fieldTarget(current,prepared.key,prepared.value,prepared.method==='answer');if(!target.ok)return target;
+        const target=fieldTarget(current,expected,prepared.key,prepared.value,prepared.method==='answer');if(!target.ok)return target;
         if(target.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original)return fail('manual','保留本人接管后修改的内容，未覆盖原值。');
         if(target.node.value===prepared.write)return {ok:true,layout:prepared.layout,filled:0};
         // No await precedes this one authorized DOM write.

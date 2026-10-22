@@ -70,6 +70,17 @@ test('first task confirmation binds exact job, current versions, applicant and e
   assert.equal(env.store.authorize({clientId:client.clientId,commandId:inspect.id}).allowed,false);
   assert.equal(env.store.snapshot().tasks[0].needsConfirmation,true);
 });
+test('Greenhouse fills only the confirmed applicant email variant when profile languages differ',t=>{
+  const env=setup(t),profile=structuredClone(env.store.state.profile.data);
+  profile.personal.email.en=profile.personal.email.zh;profile.personal.email.zh='different-fictional-applicant@example.invalid';
+  env.store.setProfile({data:profile,mode:'demo',confirmed:true});begin(env);
+  const inspect=env.take();env.send(inspect,{ok:true,layout:'email-layout',questions:[],login:env.login});
+  const fill=env.take(),email=fill.payload.entries.find(entry=>entry.key==='personal.email');
+  assert.equal(fill.op,'fill');assert.equal(email.value,env.site.expectedAccount);assert.equal(email.lang,'en');assert.equal(email.confirmed,true);
+  assert.equal(env.store.authorize({clientId:client.clientId,commandId:fill.id}).allowed,true);
+  env.task.profileSnapshot.data.personal.email={...profile.personal.email,en:'changed-fictional-applicant@example.invalid'};
+  assert.equal(env.store.authorize({clientId:client.clientId,commandId:fill.id}).allowed,false);
+});
 test('pause persists exact original question, options and versions, then resumes the same task',t=>{
   const env=setup(t);begin(env);
   const q=question(env,'question_1',{type:'select-one',options:[{text:'Observed fictional option A',disabled:false},{text:'Unavailable',disabled:true}]});upload(env,[q]);
