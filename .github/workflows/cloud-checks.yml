@@ -290,6 +290,13 @@ jobs:
                   if len(data)>1500000: raise RuntimeError('Public module budget exceeded')
                   return data
           html=get(url).decode()
+          # Anonymous public form metadata only; discard signing fields/tokens.
+          try:
+              meta=json.loads(get('https://boards.greenhouse.io/mattermost/jobs/5381946008/uncacheable_attributes/presigned_fields?fields%5B%5D=resume'))
+              print('::notice title=Public upload origin::'+json.dumps({'url':meta.get('url')}))
+          except Exception as error:
+              print('::notice title=Public upload origin::Unavailable '+type(error).__name__)
+
           urls=re.findall(r'https://job-boards\.cdn\.greenhouse\.io/assets/[^"\s<>]+\.js',html)
           queue=list(dict.fromkeys(u for u in urls if 'vendor-' not in u and 'manifest-' not in u));seen=set();records=[]
           while queue and len(seen)<18:
@@ -303,8 +310,8 @@ jobs:
               code=data.decode()
               if name.startswith('entry.client-'):
                   packed=base64.b64encode(gzip.compress(data)).decode()
-                  for part in range(0,len(packed),25000):
-                      print('::notice title=Public module part::'+json.dumps({'index':part//25000,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'data':packed[part:part+25000]}))
+                  for part in range(0,len(packed),3500):
+                      print('::notice title=Public module part::'+json.dumps({'index':part//3500,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'data':packed[part:part+3500]}))
               for word in ['class Na']:
                   start=0
                   for index in range(2):
