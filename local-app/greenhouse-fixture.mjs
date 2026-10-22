@@ -9,7 +9,8 @@ import {RUNTIME} from './paths.mjs';
 export const GREENHOUSE_REPLAY = Object.freeze({
   tenant:'mattermost-replay', company:'Fictional Mattermost Replay',
   jobs:[{id:'5381946008',title:'Fictional Software Engineer',location:'Fictional Test City'},
-    {id:'5381946009',title:'Fictional Software Engineer Recovery',location:'Fictional Test City'}],
+    {id:'5381946009',title:'Fictional Software Engineer Recovery',location:'Fictional Test City'},
+    {id:'5381946010',title:'Fictional Software Engineer Safeguards',location:'Fictional Test City'}],
   source:'https://job-boards.greenhouse.io/mattermost/jobs/5381946008',
   observedLabels:['First Name*','Last Name*','Email*','Country*','Phone*','Location (City)*',
     'Why are you interested in this role at Mattermost?*','How did you hear about Mattermost?*'],
@@ -116,7 +117,7 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
       const match=/^\/greenhouse\/([a-z0-9_-]+)(?:\/jobs\/(\d+)(\/receipt)?)?$/.exec(pathname);
       if(!match||match[1]!==GREENHOUSE_REPLAY.tenant)throw new RequestError(404,'Unknown replay tenant or path');
       const [,tenant,jobId,isReceipt]=match,job=GREENHOUSE_REPLAY.jobs.find(value=>value.id===jobId),scenario=scenarios.get(jobId)||{};
-      if(!jobId&&request.method==='GET')return send(response,200,documentPage(`Careers at ${GREENHOUSE_REPLAY.company}`,`<h1>${GREENHOUSE_REPLAY.company}</h1>${GREENHOUSE_REPLAY.jobs.map(value=>`<section><a href="/greenhouse/${tenant}/jobs/${value.id}">${escape(value.title)}</a><p>${escape(value.location)}</p></section>`).join('')}`));
+      if(!jobId&&request.method==='GET')return send(response,200,documentPage(`Careers at ${GREENHOUSE_REPLAY.company}`,`<h1>${GREENHOUSE_REPLAY.company}</h1>${GREENHOUSE_REPLAY.jobs.map(value=>`<section><a href="/greenhouse/${tenant}/jobs/${value.id}">${escape(value.title)}</a><p class="job-location">${escape(value.location)}</p></section>`).join('')}`));
       if(!job)throw new RequestError(404,'Unknown replay job');
       if(request.method==='GET'){
         // A cookie binds the rendered synthetic receipt to this browser's applicant.

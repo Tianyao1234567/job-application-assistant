@@ -16,6 +16,7 @@ on:
           - ui-mocked
           - extension
           - workflow
+          - greenhouse
           - acceptance-a
           - acceptance-b
           - acceptance-c
@@ -68,7 +69,7 @@ jobs:
         run: node --test local-app/tests/*.test.mjs
   browser:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","greenhouse","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
@@ -93,6 +94,7 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
       CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
+      GREENHOUSE_BROWSER_MODE: ${{ inputs.browser == 'greenhouse' && 'extension' || '' }}
       # Screenshots are opt-in only for this reviewed fictional demonstration.
       CLOUD_DEMO_CAPTURE: ${{ inputs.browser == 'video' && 'reviewed-fictional-video' || (inputs.browser == 'demo' || inputs.browser == 'candidate') && 'reviewed-fictional' || '' }}
       REAL_SITE_READONLY: ${{ (inputs.browser == 'public-site-browser' || inputs.browser == 'real-site-browser') && '1' || '' }}
@@ -127,7 +129,7 @@ jobs:
             xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
           fi
       - name: Preserve fictional workflow evidence, including failures
-        if: ${{ always() && (inputs.browser == 'workflow' || startsWith(inputs.browser, 'acceptance-')) }}
+        if: ${{ always() && (inputs.browser == 'workflow' || inputs.browser == 'greenhouse' || startsWith(inputs.browser, 'acceptance-')) }}
         uses: actions/upload-artifact@v6
         with:
           name: fictional-workflow-evidence
