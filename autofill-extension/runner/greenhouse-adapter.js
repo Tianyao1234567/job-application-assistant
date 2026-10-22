@@ -302,6 +302,9 @@
   }
   function submissionTarget(expected,current) {
     const receipt=replayReceipt(expected);if(receipt)return {ok:true,receipt};
+    for(const group of current.form.querySelectorAll('.file-upload')){
+      if(group.querySelector('.file-upload__filename')&&uploaded.get(current.form)?.group!==group)return fail('manual','网页已有上传附件未绑定本次确认版本，请本人核对；未提交申请。');
+    }
     if(captchaVisible())return fail('manual','提交前需要本人完成网站验证；系统不会操作或绕过 CAPTCHA。');
     const buttons=[...current.form.querySelectorAll('button[type="submit"],input[type="submit"]')].filter(node=>/^(?:submit application|submit|申请|提交申请)$/i.test(text(node)||node.value||''));
     if(buttons.length!==1||!editable(buttons[0]))return fail('structure','未识别到唯一且可操作的提交申请按钮。');

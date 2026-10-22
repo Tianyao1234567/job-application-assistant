@@ -13,6 +13,7 @@ const hex=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',b
 export async function boundApplication(spec,body) {
   if(!receiptScope(spec)||!body||typeof body!=='object')return false;
   const application=body.job_application;
+  if(application?.resume&&application.resume_url||application?.cover_letter_url||application?.attachments&&Object.keys(application.attachments).length)return false;
   if(!application||typeof application.email!=='string'||application.email.trim().toLowerCase()!==spec.account.toLowerCase())return false;
   // Official La() serializes an already uploaded file as a URL and filename.
   // This is a client file/accepted-upload binding, not a server byte readback.
@@ -34,6 +35,8 @@ export async function boundApplication(spec,body) {
 }
 export function networkReceipt(session) {
   const {spec,request}=session||{};
+  if(request?.fileBinding==='native-upload-reference'&&spec?.uploadedResumeConfirmed!==true)return null;
+  if(request?.fileBinding&&!['request-bytes','native-upload-reference'].includes(request.fileBinding))return null;
   if(!receiptScope(spec)||!request?.bound||!Number.isInteger(request.status)||!Number.isFinite(request.startedAt)||request.status<200||request.status>=300||request.error||session.ambiguous||!session.confirmedAt||session.confirmedAt<request.startedAt)return null;
   return {kind:spec.replay?'greenhouse-network-replay':'greenhouse-production',id:'gh-network:'+request.id,tenant:spec.tenant,jobId:spec.jobId,account:spec.account,fileName:spec.file.name,fileSize:spec.file.size,sha256:spec.file.sha256,
     evidence:{rule:'greenhouse-response-ok-v1',source:spec.source,submitUrl:spec.submitUrl,confirmationUrl:spec.confirmationUrl,requestId:request.id,status:request.status,requestBound:true,confirmationObserved:true,profileId:spec.profileId,taskId:spec.taskId,fixture:spec.replay===true,fileBinding:request.fileBinding||'request-bytes'}};
