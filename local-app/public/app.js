@@ -49,6 +49,8 @@ const nextPlanLabel = () => state.manualPaused ? '已手动暂停，等待你继
 const clone = value => structuredClone(value);
 const openIssues = () => state?.issues.filter(issue => issue.status === 'open') || [];
 const activeTasks = () => state?.tasks.filter(task => !['submitted','skipped','cancelled'].includes(task.status)) || [];
+const isGreenhouse = site => ['greenhouse-v1','greenhouse-replay-v1'].includes(site?.adapter);
+const supportedSite = site => site?.adapter === 'local-v1' || site?.adapter === 'greenhouse-replay-v1' || site?.adapter === 'greenhouse-v1' && site.tenant === 'mattermost' && site.company === 'Mattermost' && ['https://job-boards.greenhouse.io','https://boards.greenhouse.io'].includes(site.origin);
 
 function el(tag, attributes = {}, ...children) {
   const node = document.createElement(tag);
@@ -130,7 +132,7 @@ async function api(path, body) {
   try {return await Promise.race([request, timeout]);}
   finally {clearTimeout(timer);}
 }
-const actionToken = (action, payload = {}) => `${action}:${payload.taskId || payload.siteId || ''}`;
+const actionToken = (action, payload = {}) => `${action}:${payload.taskId || payload.siteId || payload.scope || ''}`;
 function markActionPending(token, busy) {
   document.querySelectorAll('[data-action-token]').forEach(node => {
     if (node.dataset.actionToken !== token) return;
@@ -153,9 +155,10 @@ async function perform(action, payload = {}) {
   try {
     const result = await api('/api/action', {action,...payload});
     if (action === 'demo') {profileDraft = null; settingsDraft = null; profileDirty = settingsDirty = false; selectedResumeFile = null; drafts.clear();}
-    if (action === 'answer') {drafts.delete(`answer-${payload.taskId}`); drafts.delete(`save-answer-${payload.taskId}`);}
+    if (action === 'answer') for (const id of drafts.keys()) if (id === `answer-${payload.taskId}` || id === `save-answer-${payload.taskId}` || id.startsWith(`answer-${payload.taskId}:`) || id.startsWith(`save-answer-${payload.taskId}:`)) drafts.delete(id);
     if (action === 'add') drafts.delete('add-url');
     const messages = {demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', discover:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':result.pauseOutcome==='authorization-already-issued'?'最终提交授权已发出，无法保证撤回；仅核对结果，不会重投。':result.pauseOutcome==='authorization-revoked'?'后续提交授权已撤销；提交历史保留，仅核对结果。':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
+    Object.assign(messages, {'task-confirm':'已记录本人对本岗位、资料、附件及提交的确认；执行前仍会检查页面。','memory-update':'已修改此限定范围的确认答案。','memory-revoke':'已撤销记忆；后续不会再自动套用该答案。'});
     toast(messages[action] || '操作已保存。');
     await refresh(true);
     return result;
@@ -263,7 +266,7 @@ function draftInput(id, attributes = {}, initial = '', onChange = null, tag = 'i
 function field(label, input, hint = '') {return el('label', {class:'field'}, el('span', {text:label}), input, hint ? el('small', {text:hint}) : null);}
 function checkLine(label, input) {return el('label', {class:'checkbox-line'}, input, el('span', {text:label}));}
 function modeStrip() {
-  return el('div', {class:'mode-strip'}, el('div', {}, el('strong', {text:modeLabel(state.settings.mode)}), ' · ', state.settings.mode === 'demo' ? '仅使用虚构资料，仅向 127.0.0.1 本地测试站提交。' : '真实网站尚待适配；不会自动执行未验证网站。'), badge(state.settings.mode === 'demo' ? '演示与真实记录分开' : '接入待验证', state.settings.mode === 'demo' ? 'good' : 'warning'));
+  return el('div', {class:'mode-strip'}, el('div', {}, el('strong', {text:modeLabel(state.settings.mode)}), ' · ', state.settings.mode === 'demo' ? '仅使用虚构资料，仅向 127.0.0.1 本地测试站提交。' : '当前 Greenhouse 仅限已观察的 Mattermost 范围；该技术样本不代表岗位推荐或投递授权。每岗须本人确认，结果未知不会重投。'), badge(state.settings.mode === 'demo' ? '演示与真实记录分开' : '真实投递待本人确认', state.settings.mode === 'demo' ? 'good' : 'warning'));
 }
 function header() {
   const view = currentView();
@@ -295,7 +298,7 @@ function render(force = false) {
   // Counters and connection status above still reflect the latest server state.
   const editing = content.contains(document.activeElement) && document.activeElement?.matches('input,textarea,select,[contenteditable="true"]');
   if (renderedView === view && (composing || (!force && editing))) return;
-  const signature = JSON.stringify([view, state.running,state.paused,state.manualPaused,state.settings,state.sites,state.tasks,state.issues,state.profile,state.resume,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
+  const signature = JSON.stringify([view, state.running,state.paused,state.manualPaused,state.settings,state.sites,state.tasks,state.issues,state.answers,state.profile,state.resume,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
   if (!force && signature === lastSignature && renderedView === view) return;
   const focus = focusSnapshot(content);
   const renderer = {overview:renderOverview,queue:renderQueue,issues:renderIssues,sites:renderSites,profile:renderProfile,settings:renderSettings}[view];
@@ -366,7 +369,8 @@ function taskActions(task) {
   if (task.canVerify === true) actions.push(actionButton('核对接收记录','verify',{taskId:task.id},'primary',!state.connection.connected));
   else if (task.status==='submitting') actions.push(el('span',{class:'badge warning',text:'提交已记录，等待回执；不可重新投递'}));
   else {
-    if (task.canResume === true) actions.push(actionButton(task.status==='skipped'?'重新检查并排队':'重新检查并继续','task-resume',{taskId:task.id},'primary'));
+    if (task.needsConfirmation === true) actions.push(button('确认岗位、资料与提交',()=>showTask(task.id),'primary'));
+    else if (task.canResume === true) actions.push(actionButton(task.status==='skipped'?'重新检查并排队':'重新检查并继续','task-resume',{taskId:task.id},'primary'));
     if (['queued','running','waiting_answer','waiting_user'].includes(task.status)) actions.push(actionButton('暂停并接管','task-pause',{taskId:task.id}));
     if (!['skipped','cancelled'].includes(task.status)) actions.push(actionButton('跳过此任务','task-skip',{taskId:task.id},'danger'));
   }
@@ -384,6 +388,7 @@ function renderTaskDialog() {
     el('div',{class:'dialog-body'},el('div',{class:'dialog-meta'},meta('网站',site?.name||'网站已移除'),meta('运行模式',modeLabel(task.mode)),meta('当前步骤',phaseLabels[task.phase]||'等待核实'),meta('资料版本',task.profileVersion?`v${task.profileVersion}`:'执行前锁定'),meta('简历版本',task.resumeVersion?`v${task.resumeVersion}`:'执行前锁定'),meta('岗位编号',task.jobId)),p(task.filterReason,'details-note'),
       task.issue?banner(task.issue.title,task.issue.detail,task.status==='unknown'?'danger':''):null,
       task.status==='unknown'?banner('只核对，不重新提交','没有找到回执也不代表可以重投。登录恢复、重连和重启都不会自动再次提交。','danger'):null,
+      task.needsConfirmation ? taskConfirmationForm(task) : task.confirmation ? p(`本人确认记录：${fmtDate(task.confirmation.confirmedAt)} · 资料 v${task.confirmation.profileVersion} · 简历 v${task.confirmation.resumeVersion} · 仅当前岗位与执行配置`,'details-note') : null,
       task.result?card('提交结果依据',el('div',{},meta('站点回执',task.result.receiptId),meta('附件',`${task.result.fileName} · ${task.result.fileSize} 字节`),meta('附件 SHA-256',el('span',{class:'hash-text',text:task.result.sha256})),p(task.result.evidence,'details-note'))):null,
       taskActions(task),
       el('h3',{class:'dialog-section-title',text:'实际执行记录'}),task.steps.length?el('ol',{class:'timeline'},task.steps.map(step=>el('li',{},el('strong',{text:step.label}),p(step.detail),el('time',{datetime:step.at,text:fmtDate(step.at)})))):p('尚无执行记录。'),
@@ -393,30 +398,107 @@ function renderTaskDialog() {
 }
 dialog.addEventListener('close',()=>{taskDialogId=null;});
 
+function confirmationContext(task) {
+  const site=state.sites.find(item=>item.id===task.siteId);
+  return {taskId:task.id,jobId:task.jobId,url:task.url,company:site?.company||task.company,expectedAccount:site?.expectedAccount,
+    profileVersion:state.profile.version,resumeVersion:state.resume?.version,resumeSha256:state.resume?.sha256,profileId:state.connection.profileId};
+}
+function taskConfirmationForm(task) {
+  const captured=confirmationContext(task), signature=JSON.stringify(captured);
+  const token=`confirm-${task.id}`;
+  const form=el('form',{'aria-label':`确认投递：${task.title}`});
+  const name=state.profile.data?.personal?.name;
+  form.append(banner('请亲自核对本次申请','确认后允许在本岗位填写、附加所选简历并提交一次。招聘网站可能即时收到申请；未知结果只核对，不会重发。','warning'),
+    meta('公司 / 岗位',`${captured.company||'公司待核实'} · ${task.title} · ${captured.jobId}`),meta('岗位页面',task.url),
+    meta('申请人',`${name?.zh||name?.en||'姓名待确认'} · ${captured.expectedAccount||'申请邮箱待配置'}`),
+    meta('本次资料',`资料 v${captured.profileVersion} · ${modeLabel(state.profile.mode)}`),link('查看并核对完整资料','#profile','button text'),
+    meta('本次附件',state.resume?`${state.resume.name} · ${state.resume.size} 字节 · 简历 v${captured.resumeVersion}`:'尚未保存简历'),
+    meta('附件 SHA-256',el('span',{class:'hash-text',text:captured.resumeSha256||'尚未记录'})),
+    meta('执行配置',captured.profileId||'尚未连接'));
+  const checks={};
+  for(const [id,label] of [['job','我确认这是要申请的公司、岗位与页面。'],['profile','我已核对上述版本的本人资料及申请邮箱。'],['file','我已核对上述文件名称、版本与摘要，它是本次附件。'],['submit','我授权向这个岗位填写、附加该简历并提交一次申请。']]){
+    checks[id]=draftInput(`${token}:${signature}:${id}`,{type:'checkbox',required:true,'aria-label':label},false);
+    form.append(checkLine(label,checks[id]));
+  }
+  const submit=submitButton('确认本次申请并继续',token);
+  submit.disabled=submit.disabled||!state.connection.connected||!state.resume||!captured.profileVersion;
+  form.append(el('div',{class:'form-actions'},submit));
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    try{
+      if(!Object.values(checks).every(control=>control.checked))throw new Error('请本人逐项核对岗位、资料、附件与提交动作。');
+      const current=state.tasks.find(item=>item.id===task.id);
+      if(!current?.needsConfirmation||JSON.stringify(confirmationContext(current))!==signature)throw new Error('岗位、资料、附件或执行配置已经变化，请重新查看并确认当前版本。');
+      if(!state.connection.connected)throw new Error('请先连接实际执行浏览器，再确认本次申请。');
+      await submitOnce(form,token,()=>perform('task-confirm',{taskId:captured.taskId,jobId:captured.jobId,profileVersion:captured.profileVersion,resumeVersion:captured.resumeVersion,profileId:captured.profileId,submitConfirmed:true}));
+      for(const id of drafts.keys())if(id.startsWith(`${token}:`))drafts.delete(id);
+    }catch(error){errorBox(form,error);}
+  });
+  return form;
+}
+
+function questionInput(question,id,initial='') {
+  const options=Array.isArray(question?.options)?question.options:[];
+  const selection=options.length>0||question?.customControl===true||/select|combobox|radio|checkbox/i.test(question?.type||'');
+  if(selection){
+    if(question?.optionsComplete!==true||!options.length)return {blocked:true,node:banner('选项尚未完整核实','请在实际申请页人工核对；系统不会猜测 Yes / No 或提交未核实的选项。','warning')};
+    const select=el('select',{'data-focus':id,'aria-label':'确认答案',required:true},el('option',{value:'',text:'请选择已核实的原文选项',disabled:true}),options.map(option=>el('option',{value:option.text,text:option.text,disabled:option.disabled===true})));
+    const value=drafts.has(id)?drafts.get(id):initial;
+    select.value=options.some(option=>option.text===value&&option.disabled!==true)?value:'';
+    select.addEventListener('change',()=>drafts.set(id,select.value));
+    return {node:select,selection:true,valid:()=>options.some(option=>option.text===select.value&&option.disabled!==true)};
+  }
+  if(question?.type&&!['text','textarea','email','tel','url','search','number','input'].includes(question.type))return {blocked:true,node:banner('此控件需要人工处理','没有可核实的普通文本或完整选项，不能在后台猜测填写。','warning')};
+  return {node:draftInput(id,{required:true,maxlength:5000,placeholder:'仅填写你针对该原问题确认的答案，不填写密码、验证码或凭据。','aria-label':'确认答案'},initial,null,'textarea'),valid:()=>true};
+}
+
 function answerForm(issue,task) {
   const form=el('form',{'aria-label':`补充答案：${task.title}`});
   const question=issue.question||task.question;
-  form.append(el('div',{class:'question-block'},el('strong',{text:'网站原问题'}),p(question?.text||issue.detail),p(`限定用途：${question?.scope||'仅本任务'}`,'subtle')));
-  const answer=draftInput(`answer-${task.id}`,{required:true,maxlength:5000,placeholder:'请填写你确认的答案；系统不会猜测个人经历或其他信息。','aria-label':'确认答案'},'',null,'textarea');
-  const save=draftInput(`save-answer-${task.id}`,{type:'checkbox'},false);
+  form.append(el('div',{class:'question-block'},el('strong',{text:'网站原问题'}),p(question?.text||issue.detail),question?.source?meta('原问题来源',question.source):null,p(`限定用途：${question?.scope||'仅本任务'}`,'subtle'),question?.version?p(`问题结构版本：${question.version}`,'subtle'):null));
+  const suffix=question?.scope||question?.key||'legacy';
+  const input=questionInput(question,`answer-${task.id}:${suffix}`),answer=input.node;
+  if(input.blocked){form.append(answer);return form;}
+  const save=draftInput(`save-answer-${task.id}:${suffix}`,{type:'checkbox'},false);
   form.append(field('你的确认答案',answer),checkLine('保存为本站相同原文、相同限定用途的确认答案',save),el('div',{class:'form-actions'},submitButton('确认答案并继续原任务',`answer-${task.id}`),el('span',{class:'form-caption',text:'提交答案后先重新检查页面和已有接收记录。'})));
-  form.addEventListener('submit',async event=>{event.preventDefault();try {await submitOnce(form,`answer-${task.id}`,()=>perform('answer',{taskId:task.id,answer:answer.value,save:save.checked}));}catch(error){errorBox(form,error);}});
+  form.addEventListener('submit',async event=>{event.preventDefault();try {
+    const current=state.tasks.find(item=>item.id===task.id);
+    if(current?.question?.scope!==question?.scope||current?.question?.text!==question?.text)throw new Error('当前问题已经变化，请重新检查原问题后回答。');
+    if(!input.valid())throw new Error('请选择网站已核实的有效原文选项。');
+    await submitOnce(form,`answer-${task.id}`,()=>perform('answer',{taskId:task.id,answer:answer.value,save:save.checked}));
+  }catch(error){errorBox(form,error);}});
   return form;
+}
+function answerMemoryCard() {
+  const answers=Array.isArray(state.answers)?state.answers:[];
+  const body=el('div',{},p('只有你明确选择保存的答案才会出现在这里。仅用于同网站、同岗位用途、相同原问题与结构版本；不会把公司动机跨公司套用。','details-note'));
+  if(!answers.length)body.append(p('尚未记住任何答案；补答默认只用于当前任务。','subtle'));
+  for(const memory of answers){
+    const form=el('form',{'aria-label':`修改记忆答案：${memory.text}`});
+    const input=questionInput(memory,`memory-${memory.scope}`,memory.value||'');
+    form.append(el('div',{class:'question-block'},el('strong',{text:memory.text}),p(`限定用途：${memory.scope}`,'subtle'),memory.source?meta('来源',memory.source):null),meta('当前保存的确认答案',memory.value||''));
+    if(!input.blocked){form.append(field('修改后的确认答案',input.node),submitButton('保存此范围答案',`memory-${memory.scope}`));form.addEventListener('submit',async event=>{event.preventDefault();try{if(!input.valid())throw new Error('请选择已核实的有效原文选项。');await submitOnce(form,`memory-${memory.scope}`,()=>perform('memory-update',{scope:memory.scope,answer:input.node.value}));drafts.delete(`memory-${memory.scope}`);}catch(error){errorBox(form,error);}});}
+    else form.append(input.node);
+    form.append(actionButton('撤销此答案记忆','memory-revoke',{scope:memory.scope},'danger small'));
+    body.append(form);
+  }
+  return card('已记住的限定用途答案',body);
 }
 function renderIssues() {
   const issues=openIssues();
-  if(!issues.length)return el('div',{},modeStrip(),card('待处理中心',empty('当前没有待处理事项','遇到登录、缺少答案、结构变化或提交结果未知时，会保留原任务并在此显示。')));
+  if(!issues.length)return el('div',{},modeStrip(),card('待处理中心',empty('当前没有待处理事项','遇到登录、缺少答案、结构变化或提交结果未知时，会保留原任务并在此显示。')),answerMemoryCard());
   return el('div',{},modeStrip(),issues.map(issue=>{
     const task=state.tasks.find(item=>item.id===issue.taskId);const site=state.sites.find(item=>item.id===issue.siteId);
     let body;
-    if(issue.kind==='answer'&&task?.status==='waiting_answer')body=answerForm(issue,task);
+    if(task?.needsConfirmation)body=taskConfirmationForm(task);
+    else if(issue.kind==='answer'&&task?.status==='waiting_answer')body=answerForm(issue,task);
     else if(['login','account'].includes(issue.kind)&&site)body=el('div',{},p('请在实际执行的同一投递浏览器中处理，然后重新检查。页面打开或自行勾选完成不会被当作已登录。'),siteControls(site));
     else body=el('div',{},issue.question?el('div',{class:'question-block',text:issue.question.text}):null,task?taskActions(task):null,issue.kind==='adapter'?link('查看网站接入状态','#sites','button'):null);
     return el('section',{class:'card issue-card'},el('div',{class:'card-header'},el('div',{},el('h3',{text:issue.title}),p([site?.name,task?.title].filter(Boolean).join(' · '),'subtitle')),badge(issue.kind==='unknown'?'只核对结果':'等待你处理',issue.kind==='unknown'?'bad':'warning')),el('div',{class:'card-body'},p(issue.detail),body,task?button('查看任务完整记录',()=>showTask(task.id),'text'):null,el('p',{class:'subtle',text:`发现于 ${fmtDate(issue.createdAt)}`})));
-  }));
+  }),answerMemoryCard());
 }
 function siteControls(site) {
-  if(site.adapter!=='local-v1')return el('div',{class:'actions'},badge('待适配 · 不自动执行','warning'),link('编辑网站配置','#settings','button small'));
+  if(!supportedSite(site))return el('div',{class:'actions'},badge('待适配 · 不自动执行','warning'),link('编辑网站配置','#settings','button small'));
   return el('div',{class:'actions'},actionButton('打开准备页面','site-open',{siteId:site.id},'small',!state.connection.connected),actionButton('重新检查页面','site-check',{siteId:site.id},'primary small',!state.connection.connected),site.skipped?actionButton('恢复并检查','site-resume',{siteId:site.id},'small',!state.connection.connected):actionButton('暂时跳过本站','site-skip',{siteId:site.id},'small'));
 }
 function renderSites() {
@@ -426,10 +508,10 @@ function renderSites() {
     sites.length?el('div',{class:'site-grid'},sites.map(site=>{
       const affected=state.tasks.filter(task=>task.siteId===site.id&&!['submitted','skipped','cancelled'].includes(task.status));
       const login=site.login||{status:'unknown'};const sameProfile=login.profileId&&login.profileId===state.connection.profileId;
-      const loginText=site.adapter!=='local-v1'?'网站待适配':site.skipped?'本站已暂时跳过':login.status==='ready'&&!sameProfile?'执行配置已变，需重新检查':login.reason==='tenant-mismatch'?'公司 / 租户不符':login.reason==='account-mismatch'?'申请账号不符':loginLabels[login.status]||'状态待核实';
+      const loginText=!supportedSite(site)?'网站待适配':site.skipped?'本站已暂时跳过':login.status==='ready'&&!sameProfile?'执行配置已变，需重新检查':login.reason==='tenant-mismatch'?'公司 / 租户不符':login.reason==='account-mismatch'?'申请账号不符':loginLabels[login.status]||'状态待核实';
       return el('section',{class:'card site-card'},el('div',{class:'card-header'},el('div',{class:'site-title'},el('span',{class:'company-mark',text:site.name.slice(0,1)}),el('div',{},el('h3',{text:site.name}),p(site.origin,'subtitle'))),badge(loginText,login.status==='ready'&&sameProfile&&!site.skipped?'good':'warning')),el('div',{class:'card-body'},el('div',{class:'site-facts'},meta('申请账号标识',site.expectedAccount||'尚未配置'),meta('公司 / 租户范围',site.tenant),meta('受影响任务',`${affected.length} 个`),meta('最后页面检查',fmtDate(login.checkedAt)),meta('执行用途',modeLabel(site.mode)),meta('来源状态',site.enabled?'已启用':'未启用')),
         login.message&&login.status!=='ready'?p(login.message,'site-help'):null,
-        p(site.adapter==='local-v1'?'本地测试站仅提供虚构 demo 账号，不涉及密码或验证码。请在准备页面亲自选择账号并登录。':'该网站尚未验证发现、登录、填写和回执识别，当前不会自动执行真实投递。','site-help'),siteControls(site),affected.length?el('div',{class:'details-note'},el('strong',{text:'关联岗位'}),el('ul',{},affected.map(task=>el('li',{},button(task.title,()=>showTask(task.id),'text'),` · ${taskLabels[task.status]||'待核实'}`)))):null));
+        p(site.adapter==='local-v1'?'本地测试站仅提供虚构 demo 账号，不涉及密码或验证码。请在准备页面亲自选择账号并登录。':isGreenhouse(site)?supportedSite(site)?'Greenhouse 生产范围目前仅限已观察的 Mattermost 技术样本，不代表岗位推荐或投递授权；其他公司仍待适配。公开申请表不等于登录已核实；每个岗位执行前须确认，未核实选项、人工验证及未知结果会暂停。':'此公司或租户尚未纳入已观察的 Greenhouse 范围，仍按待适配处理，不会自动执行。':'该网站尚未验证发现、登录、填写和回执识别，当前不会自动执行真实投递。','site-help'),siteControls(site),affected.length?el('div',{class:'details-note'},el('strong',{text:'关联岗位'}),el('ul',{},affected.map(task=>el('li',{},button(task.title,()=>showTask(task.id),'text'),` · ${taskLabels[task.status]||'待核实'}`)))):null));
     })):card('网站来源',empty('尚未配置网站','请先设置招聘网站；或在总览载入只供本地测试站使用的虚构演示。',[link('配置网站','#settings','button primary')])),
     card('集中准备说明',el('div',{class:'connection-instructions'},p('请保留专用浏览器配置，本机服务、浏览器和插件执行器需要持续运行。你可以在等待时处理其他网站，无需反复确认同站点的多个岗位。'),p('登录、注册、扫码、短信和验证由你亲自处理。凭据不填写到资料库或补答框。重新检查只读取登录状态，不填写、上传或提交申请。'),p('不同浏览器或另一个执行配置的登录不能代替当前配置。账号或租户不符时保留暂停；提交结果未知时恢复登录也只核对回执。'))));
 }
@@ -517,7 +599,7 @@ function renderProfile() {
     }catch(error){errorBox(uploadForm,error);}
   });
   const resume=state.resume;
-  return el('div',{},modeStrip(),el('div',{class:'two-column'},card('申请资料',el('div',{},form,advanced),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。后续编辑不改变已锁定任务的内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。真实网站尚待适配，不要求现在提供个人资料或网站凭据。','details-note'))))));
+  return el('div',{},modeStrip(),el('div',{class:'two-column'},card('申请资料',el('div',{},form,advanced),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
 }
 
 function renderSettingsSite(site,index) {
@@ -528,7 +610,14 @@ function renderSettingsSite(site,index) {
     const control=el('input',{value:site[keyName]||'','data-focus':`site-${site.id}-${keyName}`,onInput:event=>{site[keyName]=event.target.value;settingsDirty=true;}});
     return field(label,control,hint);
   };
-  group.append(head,checkLine('启用此来源',enabled),el('div',{class:'form-row'},input('name','网站名称'),input('origin','网站地址（含协议）')),el('div',{class:'form-row'},input('listUrl','岗位列表入口'),input('loginUrl','登录 / 准备入口')),el('div',{class:'form-row'},input('tenant','公司或租户标识'),input('expectedAccount','申请账号标识','仅用于核对账号，不填写密码、验证码或令牌。')),badge(site.adapter==='local-v1'?'本地测试站已接入':'真实网站待适配',site.adapter==='local-v1'?'good':'warning'),p('只有固定本地测试站支持当前自动执行。新增真实网站保留配置，适配验证完成前不会自动投递。'));
+  const adapter=el('select',{'aria-label':`网站 ${index+1} 接入方式`,'data-focus':`site-${site.id}-adapter`},el('option',{value:'unsupported',text:'其他网站 · 保留待适配'}),el('option',{value:'local-v1',text:'虚构本地招聘站'}),el('option',{value:'greenhouse-v1',text:'Greenhouse · Mattermost 限定范围'}),site.adapter==='greenhouse-replay-v1'?el('option',{value:'greenhouse-replay-v1',text:'Greenhouse 本地虚构回放'}):null);
+  adapter.value=site.adapter||'unsupported';
+  adapter.addEventListener('change',()=>{
+    site.adapter=adapter.value;site.mode=site.adapter==='local-v1'||site.adapter==='greenhouse-replay-v1'?'demo':'real';
+    if(site.adapter==='greenhouse-v1'&&!['https://job-boards.greenhouse.io','https://boards.greenhouse.io'].includes(site.origin)){site.origin='https://job-boards.greenhouse.io';site.listUrl='';site.loginUrl='';}
+    settingsDirty=true;render(true);
+  });
+  group.append(head,checkLine('启用此来源',enabled),field('网站接入方式',adapter),el('div',{class:'form-row'},input('name','网站名称'),input('company','页面中的公司名称','须与实际岗位公司一致；不把租户代替公司名称。')),el('div',{class:'form-row'},input('origin','网站地址（含协议）'),input('tenant','公司或租户标识')),el('div',{class:'form-row'},input('listUrl','岗位列表入口',isGreenhouse(site)?'使用上述地址与租户组成的固定公司列表入口。':''),input('loginUrl','登录 / 准备入口')),input('expectedAccount',isGreenhouse(site)?'本人确认的申请邮箱':'申请账号标识','仅用于核对申请身份，不填写密码、验证码或令牌。'),badge(supportedSite(site)?isGreenhouse(site)?'Greenhouse · 每岗须本人确认':'本地测试站已接入':'网站待适配',supportedSite(site)?'good':'warning'),p(isGreenhouse(site)?'真实 Greenhouse 只允许 HTTPS 的 job-boards.greenhouse.io 或 boards.greenhouse.io。当前仅支持已观察的 tenant=mattermost、公司 Mattermost 技术样本；它不代表岗位推荐或本人已同意投递，其他租户仍待适配。不会自动填入样本作为你的目标；须本人确认实际岗位、申请邮箱、资料、附件及提交。未核实结构或选项会停止，真实回执未确认时不会记为成功。':'其他真实网站保留配置，适配验证完成前不会自动投递。'));
   return group;
 }
 function renderSettings() {
@@ -537,7 +626,7 @@ function renderSettings() {
   const form=el('form',{'aria-label':'规则与计划设置'});
   if(state.manualPaused)form.append(banner('手动暂停，计划不会自动恢复','保存时间和额度不会解除手动暂停。准备完成后点击“继续投递”才会恢复；重启、重连与到达计划时间均不会代替你继续。'));
   else if(state.settings.scheduleEnabled&&(!state.running||state.paused))form.append(banner('等待每日计划','本机服务、浏览器与插件执行器需要持续运行；关机或停止组件后无法执行。','good'));
-  const mode=el('select',{'data-focus':'settings-mode','aria-label':'运行模式'},el('option',{value:'demo',text:'本地演示 · 仅本地测试站'}),el('option',{value:'real',text:'真实模式 · 网站待适配'}));mode.value=settings.mode;
+  const mode=el('select',{'data-focus':'settings-mode','aria-label':'运行模式'},el('option',{value:'demo',text:'本地演示 · 仅本地测试站'}),el('option',{value:'real',text:'真实模式 · 每岗须本人确认'}));mode.value=settings.mode;
   mode.addEventListener('change',()=>{
     const previous=settings.mode;settings.mode=mode.value;settingsDirty=true;
     if(previous==='demo'&&mode.value==='real'){
