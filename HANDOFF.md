@@ -1,8 +1,10 @@
 # HANDOFF — Manager / Engineer 统一入口
 
+**最新 Engineer 返工交付（2026-10-22，待Manager验收）**：[精确附件对象绑定003](docs/GREENHOUSE_DELIVERY_003.md)，回应[附件P1定点任务](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6340966270)。核心修复 `d4f7851`；最终验证/包来源 `3856a49a78852c4729a6be4d64f01f19acdcd1c3`。[CI 39783058559](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559) 的30项受影响检查及新增扩展私有通道/原生上传定点检查通过；不重跑已接收109项、旧MV3场景、Windows或录屏。[candidate.5下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427069267)北京时间10月29日21:00:40到期。对象引用与本次实际上传字节/key/成功响应精确绑定，缺证提交前暂停，错引用跨界后未知不重投。candidate.4继续不放行；candidate.5及真实首次申请仍待Manager分项验收和用户确认。PR #5仍draft、未合并。
+
 **最新 Manager 结论（2026-10-22）**：[交付002分项验收与唯一返工任务](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6340966270)。自定义控件、人工验证恢复、真实MV3受控验证及请求字节模式通过；S3附件引用未绑定本次上传精确对象，存在同名不同对象被判成功的缺口。candidate.4 暂不放行首次真实申请，同一 Engineer 仅修复此项并交必要负例，其他通过部分沿用。
 
-**最新 Engineer 交付（2026-10-22，待验收）**：[生产缺口交付002](docs/GREENHOUSE_DELIVERY_002.md)。运行代码/安装包来源 `ff528ecb4535fc5d9d0d3ed75edf6485a9c923e0`；[CI 39750254547](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547) 的109项必要测试、真实加载MV3两个新增场景、candidate.4构建均通过。[可下载 candidate.4](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547/artifacts/12413073425)，10月29日08:46:41 UTC到期；需Node24及锁定运行浏览器依赖，安装/启动见交付002。原184项/6场景沿用历史验收，不拼成同一来源。真实企业完整投递、本人CAPTCHA及生产S3行为仍待本人确认后验证；网络受理与服务端附件字节回读明确区分，PR #5仍draft。
+**历史 Engineer 交付002（分项通过，candidate.4因附件P1停用）**：[生产缺口交付002](docs/GREENHOUSE_DELIVERY_002.md)。运行代码/安装包来源 `ff528ecb4535fc5d9d0d3ed75edf6485a9c923e0`；[CI 39750254547](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547) 的109项必要测试、真实加载MV3两个新增场景、candidate.4构建均通过。[可下载 candidate.4](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39750254547/artifacts/12413073425)，10月29日08:46:41 UTC到期；需Node24及锁定运行浏览器依赖，安装/启动见交付002。原184项/6场景沿用历史验收，不拼成同一来源。真实企业完整投递、本人CAPTCHA及生产S3行为仍待本人确认后验证；网络受理与服务端附件字节回读明确区分，PR #5仍draft。
 
 更新：2026-10-22（北京时间）。用户已确认上一轮执行停止并授权当前 Engineer 接替，已推送 Greenhouse 执行链与受控回放；[本轮交付](docs/GREENHOUSE_DELIVERY_001.md)待 Manager 审核。原任务标准见 [Manager 首站任务](docs/MANAGER_TASK_001.md)。所有账号从 GitHub 接续，用户最新指示优先；真实站完整投递仍未验收，PR 未合并。
 

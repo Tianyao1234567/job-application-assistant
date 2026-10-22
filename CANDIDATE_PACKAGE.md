@@ -4,6 +4,8 @@
 
 **candidate.4 不放行首次真实申请**：同名S3对象绑定存在P1缺陷，旧下载与109项/MV3证据不代表该缺陷通过。candidate.5仍待Manager定点验收；真实企业完整投递未执行。其余通过部分沿用原来源，不重跑旧MV3/Windows/录屏。
 
+candidate.5实际来源 `3856a49a78852c4729a6be4d64f01f19acdcd1c3`：[下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427069267)（需GitHub登录，北京时间2026-10-29 21:00:40到期）。内层ZIP560519字节、62个运行文件，SHA-256 `7b9fff5a071f3cd2c2e80f65729f189635db9a7b5d68dd125396755ca95cbafb`。30项受影响检查、新增扩展原生上传/精确对象定点检查及包逐文件核验通过。先解压外层artifact，再解压内层ZIP；安装/启动方式沿用Windows说明。后续文档提交不改变包来源；仍待Manager验收，不能直接向真实企业试投。
+
 历史 candidate.2 交付：[source-candidate artifact12342167482](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/artifacts/12342167482)，来源`a605bb1be89250a48a027e94134bf82c49d6debc`，59个源码文件加SOURCE。内层ZIP444113字节，SHA-256 `46b46ce813bc92ad772dd9a422d3b5f7051b0c2f958b3494426d523edc5c0305`，北京时间2026-10-28 19:24:39到期。实际Windows原生解包核验、后台9项及可见浏览器4项均通过，待PM验收。包内文档为打包时快照，构建后结论见仓库最新报告；研究脚本与测试工具仍只在完整开发仓库，不在运行源码候选中。
 
 ## 来源与内容
