@@ -25,6 +25,8 @@
 
 `node scripts/package-candidate.mjs build` 生成 **candidate.3**，61 个 allowlist 运行源文件，包括新模型依赖和执行器，逐项校验，不含个人数据、运行库或浏览器。以生成的 `SOURCE.json` 为准；最初 `036847e` 的 candidate.3 已实际构建校验，最新说明提交可由相同入口重建。
 
+最终已实际构建/校验的候选来源为 **`b41e0c653c686e2a70589b8b284b54c69a7046fa`**：61 个源文件，ZIP 528786 字节，SHA-256 `e46a78afd042494c130d7c1f47d773c770027a8db07bf1b0a5bdab3c9f434fa8`。另从该包实际解出源码，导入后台、启动 loopback HTTP 并用配对鉴权读取 `/api/state` 成功。该启动检查不代表安装了浏览器或完成 Windows/真实站流程；包保留在本任务 `.runtime/delivery/0.2.0-candidate.3-b41e0c653c68/`，未冒称已上传新的 GitHub artifact。
+
 Manager 可从本分支/按 SHA 构建的候选提供版本，按 `WINDOWS_START_001.md` 教学：需要 Node 24；`安装运行环境.cmd` 准备锁定依赖及专用 Chromium，`启动.cmd` 启动后台，地址 `http://127.0.0.1:17321/`。只启动后台可用 `node local-app/server.mjs`。本轮未重新执行 Windows/用户电脑测试，也未宣称用户已安装或可完成真实申请。
 
 当前云镜像管理策略明确禁止加载未打包扩展，未绕过；受控回放和真实 MV3 分开报告。当前代理对 `job-boards.greenhouse.io` / `api.github.com` CONNECT403，不是网站登录或验证码诊断。已在环境草稿添加这两域名、保留包管理预设；保存草稿不代表运行网络已应用。原生 Git 推送正常，本轮通过原分支/HANDOFF 更新 GitHub 进度，未宣称已发 Issue 评论。
