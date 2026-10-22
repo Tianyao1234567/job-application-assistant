@@ -1,17 +1,18 @@
 # HANDOFF — Manager / Engineer 统一入口
 
-更新：2026-10-22（北京时间）。所有账号先读本文件，再按需读所链接材料；不依赖旧聊天或用户电脑项目。用户最新指示优先。新 Manager 已接管，用户已确认旧 Engineer 停止；当前任务与分项复核见 [Manager 首站任务](docs/MANAGER_TASK_001.md)。真实站完整投递仍未验收，PR 未合并。
+更新：2026-10-22（北京时间）。用户已确认上一轮执行停止并授权当前 Engineer 接替，已推送 Greenhouse 执行链与受控回放；[本轮交付](docs/GREENHOUSE_DELIVERY_001.md)待 Manager 审核。原任务标准见 [Manager 首站任务](docs/MANAGER_TASK_001.md)。所有账号从 GitHub 接续，用户最新指示优先；真实站完整投递仍未验收，PR 未合并。
 
 ## 1. 目标、基线与真实进度
 
 目标：个人使用的本机网站后台 + 浏览器插件，支持自动找岗和手动链接、每日投递、可视执行、任务记录、不确定时暂停补答及同任务恢复。最终包含自动提交；旧“只填不提交”已失效。公司/方向可配置，首站不限企业；UI 已获用户认可，“众行机器人”不再追问、不阻塞。
 
 - **有效开发分支：`dev/pm9-demo-windows-readiness`**；交接前最新开发交付 SHA：[`ed5827e8f460dbe924db575aee216a7f7361a025`](https://github.com/Tianyao1234567/job-application-assistant/commit/ed5827e8f460dbe924db575aee216a7f7361a025)。
+- **本轮代码检查点：`cd2e36c17d0185121b27c10314452fd8acd6120d`**，184 项相关测试、6 场景受控实际浏览器回放通过；[hosted CI 39721196118](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39721196118)成功。真实 MV3/生产回执未验收，详见本轮交付。
 - [PR #5](https://github.com/Tianyao1234567/job-application-assistant/pull/5) 继承 [PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4) 的 `dev/local-workflow-foundation` / `b6cfdee0bbded79010bb97866fd1ad538275270f`。**两者均 draft、未合并；不要从旧 main 重做，不擅自合并。**
 - 本文件/规则的后续文档提交不代表业务重新测试。开工读取上述分支实际 HEAD、最新 Issue 和 PR；交接提交 SHA 见 [Issue #1](https://github.com/Tianyao1234567/job-application-assistant/issues/1) 的交接记录。
 - 已阶段验收：虚构招聘站完整扩展流程、缺答暂停/恢复、持久化和相关保护，见 [PM-0009](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6291239731)。
 - 最新开发交付 [DEV-0036](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6321234330) **待 Manager 分项复核**：Windows 后台 9 项 + 可见浏览器 4 项通过（源 `a605bb1`）；80 秒虚构站视频和 201 项基础测试（源 `dbc495e`）。不把不同来源的测试都算在最新文档 SHA 上，不声称已人工完整审片。
-- 真实站只读：第四范式列表/详情及 Mattermost 的 Greenhouse 空白申请表已读取。**真实填写、附件、暂停恢复、提交、可靠回执及相应受控回放尚未完成；生产执行仍只支持 `local-v1`。** 两家观察不能拼成一家完整流程。
+- 真实站只读：沿用第四范式及 Mattermost 公开观察。本轮已实现受限 `greenhouse-v1`、确认/补答/提交保护和合成本地站回放；未知选项、附件依据及验证码暂停。**生产真实填写、附件接收、提交和可靠回执未验收**，两家观察不拼成一家完整流程。
 - 没有常驻公开后台；现有 candidate.2 是源码候选包，需要运行依赖，不是免安装成品。云端开发不等于产品已在线部署。
 
 架构沿用 Node 本地服务/管理页面 + 持久任务数据 + MV3 扩展 + 专用浏览器/站点适配；不要重做架构。产品基础运行无 GPT/其他模型 API 调用，不需 API Key；开发 Codex 与云资源消耗另计。开发/自动测试在云端，用户真实资料及日常执行仍按本机方案，未经用户新决定不迁云。
@@ -21,12 +22,12 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 交接整理 | 原 Manager 仅完成文档交接，不代写工程师回复或启动新的业务开发 |
-| Manager | 用户已指定当前接续会话接管；任务、分项复核与执行权见 docs/MANAGER_TASK_001.md |
-| Engineer | 用户已明确确认旧 Engineer 停止；当前 Manager 已指定唯一新 Engineer，已接单并按 Manager 首站任务实现 Greenhouse 执行适配与受控回放；GitHub 写权限与真实表单网络已实际恢复 |
+| Manager | 原任务标准保留，本轮交付待 Manager 分项审核，未宣称已验收或另一会话已读 |
+| Engineer | 按用户最新授权接替停止的上一轮执行，沿用原分支/PR #5，已推送三个代码检查点；原生 Git 可写，当前实例真实站/API 代理403 |
 | 首要任务 | 完成一个真实招聘网站：发现岗位 → 表单/附件 → 缺答暂停 → 本人确认 → 同任务恢复 → 提交 → 结果核验 |
-| 实际缺口 | 真实站适配未完成，不是只缺用户注册；现有公开观察可继续使用，不能把未观察的选项、附件必填或登录要求猜成事实 |
+| 实际缺口 | 执行链及受控回放已交付；真实选项/附件依据、生产回执及本轮真实扩展实测未完成，不能当作只缺用户注册 |
 
-新 Manager 读取 DEV-0036 和 [真实适配阶段 001](docs/REAL_ADAPTER_STAGE_001.md)，按现有证据复核已交付项、确认执行权，然后给 Engineer 一个明确的首站适配任务。以已观察表单补齐必要结构并实现受控回放和执行流程；保留第四范式现成发现结果。Mattermost 岗位只是技术样本，不代表适合用户或已同意投递；不要为凑首站向企业试投虚构资料。
+Manager 分项审核 [本轮交付](docs/GREENHOUSE_DELIVERY_001.md)，沿用未变更历史证据；下一步先应用已保存的网络域名变更，再只读补采集真实表单缺口并完善对应执行/生产回执。本轮真实扩展实测须在允许加载扩展的托管环境执行单项 greenhouse 检查。Mattermost 仍只是技术样本，不代表适合用户或投递授权；不向企业试投虚构资料。
 
 暂停时保存原问题/选项、来源、已确认内容、步骤及资料版本；恢复前重查页面和提交状态。现有答案记忆范围有限：同站点、岗位用途和原问题；默认不记忆，不能当跨公司智能回答。首站实现明确选择记住及查看/修改/撤销；稳定个人事实复用已确认资料，公司动机等不自动跨公司套用。保存本机任务不代表招聘网站一定保存草稿。
 
