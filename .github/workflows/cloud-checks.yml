@@ -310,8 +310,7 @@ jobs:
               code=data.decode()
               if name.startswith('entry.client-'):
                   packed=base64.b64encode(gzip.compress(data)).decode()
-                  for part in range(0,len(packed),3500):
-                      print('::notice title=Public module part::'+json.dumps({'index':part//3500,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'data':packed[part:part+3500]}))
+                  (root/'public-entry-parts.json').write_text(json.dumps([{'index':part//3500,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'data':packed[part:part+3500]} for part in range(0,len(packed),3500)]))
               for word in ['class Na']:
                   start=0
                   for index in range(2):
@@ -325,6 +324,27 @@ jobs:
               for relative in re.findall(r'["\'](\./[^"\']+\.js)["\']',data.decode()):
                   if 'vendor-' not in relative: queue.append(urllib.parse.urljoin(target,relative))
           (root/'sources.json').write_text(json.dumps(records,indent=2));print(json.dumps(records))
+          PY
+      - name: Preserve public module part group 1
+        run: |
+          python3 - <<'PY'
+          import json
+          parts=json.load(open('.runtime/public-source/public-entry-parts.json'))
+          for part in parts[0:10]: print('::notice title=Public module part::'+json.dumps(part))
+          PY
+      - name: Preserve public module part group 2
+        run: |
+          python3 - <<'PY'
+          import json
+          parts=json.load(open('.runtime/public-source/public-entry-parts.json'))
+          for part in parts[10:20]: print('::notice title=Public module part::'+json.dumps(part))
+          PY
+      - name: Preserve public module part group 3
+        run: |
+          python3 - <<'PY'
+          import json
+          parts=json.load(open('.runtime/public-source/public-entry-parts.json'))
+          for part in parts[20:30]: print('::notice title=Public module part::'+json.dumps(part))
           PY
       - uses: actions/upload-artifact@v6
         with:
