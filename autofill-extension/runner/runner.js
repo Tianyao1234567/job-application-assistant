@@ -147,8 +147,9 @@ function greenhouseUrl(value,expect,kind) {
   const list=url.pathname===base||url.pathname===base+'/';
   const job=expect.jobId&&url.pathname===base+'/jobs/'+expect.jobId;
   const receipt=expect.replay&&expect.jobId&&url.pathname===base+'/jobs/'+expect.jobId+'/receipt';
+  const confirmation=expect.jobId&&url.pathname===base+'/jobs/'+expect.jobId+'/confirmation';
   const anyJob=new RegExp('^'+base+'/jobs/\\d{1,30}'+(expect.replay?'(?:/receipt)?':'')+'$').test(url.pathname);
-  const allowed=['jobs','login'].includes(kind)?list:kind==='receipt'?receipt:['detail','apply'].includes(kind)?job:list||job||receipt||(!expect.jobId&&anyJob);
+  const allowed=['jobs','login'].includes(kind)?list:kind==='receipt'?receipt:['detail','apply'].includes(kind)?job:list||job||receipt||confirmation||(!expect.jobId&&anyJob);
   if(url.origin!==expect.origin||url.username||url.password||!allowed)throw new Stop('structure','Greenhouse 页面已离开当前公司或岗位范围，停止自动处理。');
   return url.href;
 }
@@ -164,6 +165,9 @@ function greenhouseEntries(entries) {
   // A full name is deliberately not split into given/family names. Those fields
   // are answered against their exact observed questions if separately required.
   return result;
+}
+async function greenReceipt(command) {
+  try{const reply=await chrome.runtime.sendMessage({type:'greenhouse-receipt-read',taskId:command.task.id,profileId:bridge.profileId});return reply?.ok?reply.receipt:null;}catch{return null;}
 }
 async function executeGreenhouse(command,expect,payload) {
   let tab=await getTab(command,expect);
@@ -181,6 +185,7 @@ async function executeGreenhouse(command,expect,payload) {
   }
   if(!command.task)throw new Stop('structure','Greenhouse 任务缺少固定岗位。');
   if(command.op==='verify'){
+    const receipt=await greenReceipt(command);if(receipt)return {ok:true,receipt,tabId:tab?.id};
     // No invented production receipt URL. Inspect the actual retained result
     // document; an unobserved or redirected receipt remains verification-only.
     if(expect.replay)tab=await navigate(command,expect,base+'/jobs/'+expect.jobId+'/receipt','receipt',tab);
@@ -246,6 +251,10 @@ async function executeGreenhouse(command,expect,payload) {
     if(checked.layout!==payload.layout)return fail('structure','提交前 Greenhouse 表单已变化。');
     const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
     if(!prepared.ok||!prepared.token)return prepared;
+    if(checked.submissionProtocol){
+      const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',spec:{taskId:command.task.id,profileId:bridge.profileId,tabId:tab.id,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,file:payload.file,source:command.task.url,replay:expect.replay,...checked.submissionProtocol}});
+      if(!watched?.ok)return fail('manual','本次提交的网络核验尚未就绪，未点击申请。');
+    }
     // Store before any click; even a safe denial or lost response never clears it.
     const {localSubmissionAttempts={}}=await chrome.storage.local.get('localSubmissionAttempts');
     if(localSubmissionAttempts[ledgerKey])return fail('unknown','已记录提交尝试，仅允许核对。');
@@ -256,6 +265,7 @@ async function executeGreenhouse(command,expect,payload) {
     try{clicked=await commitMutation(tab,expect,prepared.token);}catch{}
     if(clicked?.receipt||clicked?.attempted===false)return {...clicked,tabId:tab.id};
     for(let index=0;index<10;index++){
+      const network=await greenReceipt(command);if(network)return {ok:true,receipt:network,tabId:tab.id};
       try{const receipt=await read(tab,expect,'verify');if(receipt.ok&&receipt.receipt)return receipt;}catch{}
       await delay(300);
     }

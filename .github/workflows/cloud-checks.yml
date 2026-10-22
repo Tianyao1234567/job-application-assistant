@@ -68,7 +68,12 @@ jobs:
         working-directory: autofill-extension
         run: npm test
       - name: Local application state, authentication, and actual fixture HTTP regressions
-        run: node --test local-app/tests/*.test.mjs
+        run: |
+          if [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.browser }}" == greenhouse ]]; then
+            node --test local-app/tests/greenhouse-*.test.mjs local-app/tests/runner-registration.test.mjs
+          else
+            node --test local-app/tests/*.test.mjs
+          fi
   browser:
     needs: source-and-unit
     if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","greenhouse","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
@@ -191,7 +196,7 @@ jobs:
 
   candidate-package:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser","greenhouse"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -296,7 +301,7 @@ jobs:
               data=get(target);name=parsed.path.rsplit('/',1)[-1];(root/name).write_bytes(data)
               records.append({'url':target,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
               code=data.decode()
-              for word in ['await to(', 'performAssessment', 'countries']:
+              for word in ['xn=', 'Oo=', 'FileReader']:
                   start=0
                   for index in range(2):
                       position=code.find(word,start)

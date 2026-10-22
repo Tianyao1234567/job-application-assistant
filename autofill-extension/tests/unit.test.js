@@ -71,7 +71,7 @@ test('敏感与登录同义词保护',()=>{
 });
 test('扩展仅授权本机与两个 Greenhouse 主机；原通用填写内容代码保持无提交与网络调用',()=>{
   const root=new URL('../',import.meta.url),manifest=JSON.parse(fs.readFileSync(new URL('manifest.json',root),'utf8'));
-  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage','alarms']);assert.equal(manifest.manifest_version,3);
+  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage','alarms','webRequest']);assert.equal(manifest.manifest_version,3);
   assert.deepEqual(manifest.host_permissions,['http://127.0.0.1/*','https://job-boards.greenhouse.io/*','https://boards.greenhouse.io/*']);
   assert.equal(manifest.content_security_policy.extension_pages,"script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321 http://127.0.0.1:17322");
   assert.deepEqual(manifest.content_scripts,[{matches:['http://127.0.0.1/*'],js:['bridge/dashboard.js'],run_at:'document_idle',all_frames:false}]);

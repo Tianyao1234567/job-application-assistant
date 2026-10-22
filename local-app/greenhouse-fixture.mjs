@@ -59,7 +59,7 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
   function setScenario(jobId,value){
     if(!testMode)throw new Error('Replay scenario hooks are disabled');
     if(!GREENHOUSE_REPLAY.jobs.some(job=>job.id===jobId)||!value||typeof value!=='object'||Array.isArray(value))throw new Error('Invalid replay scenario');
-    const allowed=new Set(['loseReceipt','hideReceipt','structureChange','wrongIdentity','verification','customIncomplete','sourceQuestion']);
+    const allowed=new Set(['loseReceipt','hideReceipt','structureChange','wrongIdentity','verification','customIncomplete','sourceQuestion','productionControls','badWire']);
     if(Object.entries(value).some(([key,entry])=>!allowed.has(key)||typeof entry!=='boolean'))throw new Error('Invalid replay scenario');
     scenarios.set(jobId,{...scenarios.get(jobId),...value});
   }
@@ -79,8 +79,15 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
     const custom=scenario.customIncomplete?'<div class="field"><label for="question_custom">Unobserved fixture-only custom choice*</label><input id="question_custom" name="question_custom" role="combobox" aria-expanded="false" aria-haspopup="listbox" required><div id="custom_choices" hidden></div></div>':'';
     return documentPage(`Job Application for ${job.title} at ${company}`,`<h1>${escape(job.title)}</h1><p class="company-name">${escape(company)}</p><p class="job-location">${escape(job.location)}</p><form id="application_form" data-greenhouse-replay data-tenant="${GREENHOUSE_REPLAY.tenant}" data-job-id="${job.id}" method="post" enctype="multipart/form-data" action="/greenhouse/${GREENHOUSE_REPLAY.tenant}/jobs/${job.id}"><input type="hidden" name="tenant" value="${GREENHOUSE_REPLAY.tenant}"><input type="hidden" name="jobId" value="${job.id}">${input('first_name','First Name*')}${input('last_name','Last Name*')}${input('preferred_name','Preferred First Name','text',false)}${input('email','Email*','email')}<div class="field"><label for="country">Country*</label><select id="country" name="country" required><option value="">Select a fictional country</option>${GREENHOUSE_REPLAY.syntheticCountryChoices.map(value=>`<option value="${escape(value)}">${escape(value)}</option>`).join('')}</select></div>${input('phone','Phone*','tel')}${input('candidate-location','Location (City)*')}<fieldset data-fixture-only-required><legend>Resume/CV*</legend><label for="resume">Attach</label><input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx,.txt,.rtf" required></fieldset><fieldset data-fixture-only-required><legend>Cover Letter (optional)</legend><label for="cover_letter">Attach</label><input id="cover_letter" name="cover_letter" type="file" accept=".pdf,.doc,.docx,.txt,.rtf"></fieldset><div class="field"><label for="question_1">Why are you interested in this role at Mattermost?${scenario.structureChange?' — changed fixture question':''}*</label><textarea id="question_1" name="question_1" required></textarea></div>${source}${custom}${scenario.verification?'<p data-manual-verification>Human verification required in this synthetic fixture</p><iframe title="Fixture-only manual CAPTCHA" src="/fixture-captcha" style="width:250px;height:60px"></iframe>':''}<button id="submit_app" type="submit">Submit application</button></form>`);
   }
-  async function parsedForm(request){
+  async function parsedForm(request,production=false){
     const type=request.headers['content-type']||'';
+    if(production&&/^application\/json/.test(type)){
+      const app=JSON.parse((await readBody(request)).toString()).job_application;
+      if(!app||typeof app.email!=='string'||typeof app.resume?.content!=='string')throw new RequestError(400,'Invalid synthetic JSON');
+      const fields=Object.fromEntries(Object.entries(app).filter(([key,value])=>key!=='resume'&&typeof value==='string'));
+      fields.tenant=GREENHOUSE_REPLAY.tenant;fields.jobId=new URL(request.url,origin()).pathname.split('/').at(-1);
+      return {fields,files:{resume:{name:app.resume.filename,type:'text/plain',bytes:Buffer.from(app.resume.content,'base64')}}};
+    }
     if(!/^multipart\/form-data;\s*boundary=/i.test(type))throw new RequestError(415,'Replay application requires native multipart');
     const bytes=await readBody(request);
     let form;try{form=await new Request(origin(),{method:'POST',headers:{'Content-Type':type},body:bytes}).formData();}catch{throw new RequestError(400,'Invalid replay multipart');}
@@ -114,23 +121,25 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
         throw new RequestError(404,'Unknown replay test hook');
       }
       if(pathname==='/fixture-captcha'&&request.method==='GET')return send(response,200,'Synthetic manual verification. No challenge solving supported.');
-      const match=/^\/greenhouse\/([a-z0-9_-]+)(?:\/jobs\/(\d+)(\/receipt)?)?$/.exec(pathname);
+      const match=/^\/greenhouse\/([a-z0-9_-]+)(?:\/jobs\/(\d+)(\/(?:receipt|confirmation))?)?$/.exec(pathname);
       if(!match||match[1]!==GREENHOUSE_REPLAY.tenant)throw new RequestError(404,'Unknown replay tenant or path');
       const [,tenant,jobId,isReceipt]=match,job=GREENHOUSE_REPLAY.jobs.find(value=>value.id===jobId),scenario=scenarios.get(jobId)||{};
       if(!jobId&&request.method==='GET')return send(response,200,documentPage(`Careers at ${GREENHOUSE_REPLAY.company}`,`<h1>${GREENHOUSE_REPLAY.company}</h1>${GREENHOUSE_REPLAY.jobs.map(value=>`<section><a href="/greenhouse/${tenant}/jobs/${value.id}">${escape(value.title)}</a><p class="job-location">${escape(value.location)}</p></section>`).join('')}`));
       if(!job)throw new RequestError(404,'Unknown replay job');
       if(request.method==='GET'){
+        if(scenario.productionControls&&isReceipt==='/confirmation')return send(response,200,documentPage(`Application received at ${GREENHOUSE_REPLAY.company}`,'<h1>Synthetic confirmation document without receipt markers</h1>'));
         // A cookie binds the rendered synthetic receipt to this browser's applicant.
         const cookie=/(?:^|;\s*)greenhouse_replay=([a-f0-9-]{36})(?:;|$)/.exec(request.headers.cookie||'')?.[1];
         const receipt=Object.values(state.receipts).find(value=>value.tenant===tenant&&value.jobId===jobId&&value.browserId===cookie);
         if(receipt&&!scenario.hideReceipt&&!(scenario.loseReceipt&&parsed.searchParams.get('pending')==='1'))return send(response,200,receiptPage(receipt));
         if(isReceipt||receipt)return send(response,200,documentPage(`Application status at ${GREENHOUSE_REPLAY.company}`,'<h1>Application result unverified</h1><p>No reliable receipt is visible. Do not submit again.</p>'));
+        if(scenario.productionControls){const {productionReplay}=await import('./tests/greenhouse-production-fixture.mjs');return send(response,200,productionReplay(formPage(job,{...scenario,verification:false}),{job,scenario,origin:origin(),tenant}));}
         return send(response,200,formPage(job,scenario));
       }
       if(request.method!=='POST'||isReceipt)throw new RequestError(405,'Replay method is not allowed');
       const attempt={id:randomUUID(),tenant,jobId,at:new Date().toISOString(),accepted:false,outcome:'pending'};state.submitRequests.push(attempt);persist();
       try{
-        const {fields,files}=await parsedForm(request);
+        const {fields,files}=await parsedForm(request,scenario.productionControls);
         if(fields.tenant!==tenant||fields.jobId!==jobId)throw new RequestError(409,'Replay tenant or job identity changed');
         if(!/^[^\s@]+@example\.(?:invalid|test)$/.test(fields.email||''))throw new RequestError(400,'Only explicitly fictional applicant email is accepted');
         const key=identity(tenant,jobId,fields.email);
@@ -143,6 +152,7 @@ export async function startGreenhouseFixture({port=17322,host='127.0.0.1',root,t
         fs.writeFileSync(path.join(uploads,id+'.bin'),file.bytes,{mode:0o600,flag:'wx'});state.receipts[key]=receipt;
         attempt.accepted=true;attempt.outcome='accepted';attempt.account=fields.email;
         try{persist();}catch(error){delete state.receipts[key];attempt.accepted=false;fs.unlinkSync(path.join(uploads,id+'.bin'));throw error;}
+        if(scenario.productionControls)return json(response,200,{accepted:true,fixtureOnly:true});
         return send(response,303,'','text/html; charset=utf-8',{'Set-Cookie':`greenhouse_replay=${browserId}; Path=/greenhouse/${tenant}; HttpOnly; SameSite=Strict`,Location:`/greenhouse/${tenant}/jobs/${jobId}/receipt${scenario.loseReceipt?'?pending=1':''}`});
       }catch(error){attempt.outcome=error instanceof RequestError?'rejected':'storage-failure';persist();throw error;}
     }catch(error){if(!response.headersSent)json(response,error instanceof RequestError?error.status:500,{ok:false,error:error instanceof RequestError?error.message:'Replay fixture failed'});else response.end();}

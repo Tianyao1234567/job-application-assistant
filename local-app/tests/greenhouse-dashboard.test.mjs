@@ -110,3 +110,7 @@ test('Greenhouse settings select a restricted adapter and do not turn arbitrary 
   assert.match(h.app.siteControls(site).textContent,/待适配/);assert.doesNotMatch(h.app.siteControls(site).textContent,/重新检查页面/);
   const actions=h.app.taskActions({...s.tasks[0],needsConfirmation:true,canResume:true});assert.match(actions.textContent,/确认岗位、资料与提交/);assert.doesNotMatch(actions.textContent,/重新检查并继续/);
 });
+test('a single observed human-selected dynamic option is confirmable without claiming complete choices',()=>{
+ const h=harness({});const q={type:'text',customControl:true,optionsComplete:false,manualSelection:true,options:[{text:'Fictional selected city',disabled:false}]};
+ const input=h.app.questionInput(q,'manual-observed');assert.notEqual(input.blocked,true);input.node.value='Fictional selected city';assert.equal(input.valid(),true);input.node.value='Unobserved city';assert.equal(input.valid(),false);
+});

@@ -21,7 +21,7 @@
     const base=(replay?'/greenhouse':'')+'/'+expected.tenant;
     const job=typeof expected.jobId==='string'&&/^\d{1,30}$/.test(expected.jobId)?expected.jobId:null;
     const detail=job?base+'/jobs/'+job:null;
-    if(!(detail&&(url.pathname===detail||replay&&url.pathname===detail+'/receipt'))&&!(allowList&&url.pathname===base))return fail('structure','公司租户或岗位标识已变化。');
+    if(!(detail&&(url.pathname===detail||url.pathname===detail+'/confirmation'||replay&&url.pathname===detail+'/receipt'))&&!(allowList&&url.pathname===base))return fail('structure','公司租户或岗位标识已变化。');
     const title=norm(document.title),suffix=' at '+norm(expected.company);
     if(!title.toLowerCase().endsWith(suffix.toLowerCase()))return fail('account','页面企业名称与确认的公司不符。');
     return {ok:true,url,source:url.origin+(detail||base),base,job};
@@ -80,6 +80,20 @@
       }
     }catch{}
     return [];
+  }
+  function submissionProtocol(expected) {
+    try{
+      for(const script of document.querySelectorAll('script')){
+        const source=script.textContent||'';if(source.length>1500000)continue;
+        const match=/^\s*window\.__remixContext\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(source);if(!match)continue;
+        const loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
+        if(loader?.urlToken!==expected.tenant||String(loader.jobPostId)!==expected.jobId||loader.jobPost?.public_url!==expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId)continue;
+        const submit=new URL(loader.submitPath,location.href),confirmation=new URL(loader.confirmationPath,location.href),base=(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId;
+        if(submit.pathname!==base||submit.username||submit.password||!(submit.origin===expected.origin||!expected.replay&&submit.origin==='https://boards.greenhouse.io')||confirmation.origin!==expected.origin||confirmation.pathname!==base+'/confirmation')continue;
+        return {submitUrl:submit.href,confirmationUrl:confirmation.href,rule:'greenhouse-response-ok-v1'};
+      }
+    }catch{}
+    return null;
   }
   function selectedChoice(node) {
     const group=node.closest?.('.select');
@@ -201,7 +215,7 @@
       const fields=await Promise.all(result.records.map(record=>question(expected,record)));
       const fillable=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
       const questions=fields.filter((field,index)=>(field.required||field.alreadyPopulated)&&field.type!=='file'&&!(fillable.has(field.key)&&!field.customControl)&&!ownedAnswer(expected,field,result.records[index]));
-      return {ok:true,login:current.login,jobMetadata,applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
+      return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
   function fieldTarget(current,expected,key,value,explicit=false) {

@@ -1,3 +1,5 @@
+import {registerGreenhouseReceipts} from './greenhouse-receipts.js';
+if(chrome.webRequest)registerGreenhouseReceipts(chrome);
 import {lockStorage} from './shared/storage.js';
 // Restrict the profile database to extension-owned contexts.
 lockStorage();
