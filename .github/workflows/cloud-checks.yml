@@ -96,7 +96,7 @@ jobs:
       - name: Install locked local PDF runtime for the changed flow
         if: ${{ steps.scope.outputs.profile == 'true' }}
         working-directory: runtime-deps
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
       - name: Local application state, authentication, and actual fixture HTTP regressions
         run: |
           if [[ "${{ steps.scope.outputs.profile }}" == true ]]; then
@@ -162,7 +162,7 @@ jobs:
       - name: Install only the new local PDF runtime
         if: ${{ inputs.browser == 'profile-import' }}
         working-directory: /workspace/runtime-deps
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
       - name: Run the single selected browser regression
         run: |
           if [[ "$CLOUD_BROWSER_CHECK" == demo || "$CLOUD_BROWSER_CHECK" == candidate ]]; then

@@ -58,5 +58,7 @@ export async function extractResume(bytes,sha256) {
  });
  if(!result.ok){const messages={dependency:'尚未安装本机PDF解析组件，请使用新版的升级/依赖准备入口；原附件及资料已保留。',encrypted:'PDF已加密，请选择本人可读取的文字型PDF；原附件已保留。',budget:'PDF超出本机解析预算，请选择较短的文字型简历；原附件已保留。',invalid:'无法可靠解析这份PDF，原附件已保留，资料未改动。'};return {status:result.reason,message:messages[result.reason]||messages.invalid};}
  if(!result.pages.some(p=>p.lines.join('').trim()))return {status:'no-text',message:'未提取到可用文字，可能是扫描PDF；当前不支持OCR。原附件已保留，可仅补当前申请的缺项。'};
- return {status:'ready',...resumeCandidates(result.pages,sha256),message:'已生成未确认草稿，请一次核对提取结果；空白项保持未知。'};
+ const parsed=resumeCandidates(result.pages,sha256);
+ if(!parsed.candidates.length)return {status:'unmapped',pageCount:parsed.pageCount,message:'PDF有文字，但未识别到可直接映射的资料字段。原附件及资料已保留，可只补当前申请缺项。'};
+ return {status:'ready',...parsed,message:'已生成未确认草稿，请一次核对提取结果；空白项保持未知。'};
 }

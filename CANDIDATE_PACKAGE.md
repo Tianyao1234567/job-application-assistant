@@ -1,10 +1,14 @@
 # 候选源码包与文件校验
 
+新版 `0.2.0-candidate.6` 增加本机PDF提取、一次核对、集中补答和稳定事实复用，69个运行/说明文件。交付来源、下载与必要验证见[PDF交付001](docs/PROFILE_IMPORT_DELIVERY_001.md)；现有candidate.5用户采用[原目录保留数据升级](UPGRADE_001.md)，不重装环境或下载兼容浏览器。candidate.6待Manager验收；candidate.5附件P1验收保持有效。
+
+以下candidate.5记录为此前交付快照：
+
 当前修复候选为 `0.2.0-candidate.5`，运行源文件62个。绑定原生上传实际File字节、精确对象引用摘要和成功响应；提交引用必须逐字节匹配该摘要，并绑定任务/profile/页面/源文件。缺证提交前暂停；跨界后结果未知不重投。修复交付及实际下载来源见 [交付003](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/GREENHOUSE_DELIVERY_003.md)。它仍需Node24及锁定运行依赖，不是免安装成品。
 
-**candidate.4 不放行首次真实申请**：同名S3对象绑定存在P1缺陷，旧下载与109项/MV3证据不代表该缺陷通过。candidate.5仍待Manager定点验收；真实企业完整投递未执行。其余通过部分沿用原来源，不重跑旧MV3/Windows/录屏。
+**candidate.4 不放行首次真实申请**：同名S3对象绑定存在P1缺陷，旧下载与109项/MV3证据不代表该缺陷通过。candidate.5附件P1已由Manager验收；真实企业完整投递未执行。其余通过部分沿用原来源，不重跑旧MV3/Windows/录屏。
 
-candidate.5实际来源 `3856a49a78852c4729a6be4d64f01f19acdcd1c3`：[下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427069267)（需GitHub登录，北京时间2026-10-29 21:00:40到期）。内层ZIP560519字节、62个运行文件，SHA-256 `7b9fff5a071f3cd2c2e80f65729f189635db9a7b5d68dd125396755ca95cbafb`。30项受影响检查、新增扩展原生上传/精确对象定点检查及包逐文件核验通过。先解压外层artifact，再解压内层ZIP；安装/启动方式沿用Windows说明。后续文档提交不改变包来源；仍待Manager验收，不能直接向真实企业试投。
+candidate.5实际来源 `3856a49a78852c4729a6be4d64f01f19acdcd1c3`：[下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427069267)（需GitHub登录，北京时间2026-10-29 21:00:40到期）。内层ZIP560519字节、62个运行文件，SHA-256 `7b9fff5a071f3cd2c2e80f65729f189635db9a7b5d68dd125396755ca95cbafb`。30项受影响检查、新增扩展原生上传/精确对象定点检查及包逐文件核验通过。先解压外层artifact，再解压内层ZIP；安装/启动方式沿用Windows说明。后续文档提交不改变包来源；已验收附件P1，首次真实申请仍需本人确认。
 
 历史 candidate.2 交付：[source-candidate artifact12342167482](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39591700007/artifacts/12342167482)，来源`a605bb1be89250a48a027e94134bf82c49d6debc`，59个源码文件加SOURCE。内层ZIP444113字节，SHA-256 `46b46ce813bc92ad772dd9a422d3b5f7051b0c2f958b3494426d523edc5c0305`，北京时间2026-10-28 19:24:39到期。实际Windows原生解包核验、后台9项及可见浏览器4项均通过，待PM验收。包内文档为打包时快照，构建后结论见仓库最新报告；研究脚本与测试工具仍只在完整开发仓库，不在运行源码候选中。
 
@@ -18,9 +22,9 @@ candidate.5实际来源 `3856a49a78852c4729a6be4d64f01f19acdcd1c3`：[下载](ht
 
 清单排除 `.runtime`、`node_modules`、测试目录/输出、缓存、日志、截图/录像、真实资料、密钥及浏览器配置目录；即使这些路径被意外加入 Git，也不在候选 allowlist 内。不会通过归档整个仓库把运行数据一起带入。演示图像是另一份短期托管 artifact，不在本包或源码 Git 历史中。
 
-输出目录为 `.runtime/delivery/0.2.0-candidate.5-<来源SHA前12位>/`：
+当前输出目录为 `.runtime/delivery/0.2.0-candidate.6-<来源SHA前12位>/`：
 
-- `job-application-assistant-0.2.0-candidate.5-<来源SHA前12位>.zip`：UTF-8 源码 ZIP，内部单个 `job-application-assistant/` 目录。
+- `job-application-assistant-0.2.0-candidate.6-<来源SHA前12位>.zip`：UTF-8 源码 ZIP，内部单个 `job-application-assistant/` 目录。
 - `SOURCE.json`：与 ZIP 内同名文件完全一致，记录完整来源 SHA、验收基线 SHA、候选版本、依赖边界，以及每个源文件的相对路径、字节数和 SHA-256。生成的 SOURCE 本身不递归计入自身清单。
 - `SHA256SUMS.txt`：ZIP 与 SOURCE 的独立 SHA-256。浏览器下载后可据报告中同来源 SHA 的 CI 校验值核对。
 

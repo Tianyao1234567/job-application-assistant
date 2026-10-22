@@ -46,7 +46,7 @@ test('confirmed conflicts require explicit replacement, old translation is clear
 });
 test('scanned/invalid PDF explicitly fails without changing saved profile, answers or original attachment',async t=>{
  const store=demoStore(t),before=structuredClone(store.state.profile),answers=structuredClone(store.state.answers);
- for(const [bytes,status]of [[fictionalPDF([],{blank:true}),'no-text'],[Buffer.from('%PDF-1.4\nnot a document'),'invalid'],[Buffer.from('not PDF'),'invalid']]){
+ for(const [bytes,status]of [[fictionalPDF([],{blank:true}),'no-text'],[fictionalPDF(['Unmapped fictional document content']),'unmapped'],[Buffer.from('%PDF-1.4\nnot a document'),'invalid'],[Buffer.from('not PDF'),'invalid']]){
   store.setResume({name:'fictional.pdf',mode:'demo',base64:bytes.toString('base64')});const result=await extractResume(bytes,hash(bytes));assert.equal(result.status,status);
   store.saveResumeImport(result,{resumeVersion:store.state.resume.version,sha256:hash(bytes),profileVersion:store.state.profile.version});
   assert.deepEqual(store.state.profile,before);assert.deepEqual(store.state.answers,answers);assert.deepEqual(fs.readFileSync(store.state.resume.file),bytes);

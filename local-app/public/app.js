@@ -142,7 +142,7 @@ function markActionPending(token, busy) {
 async function submitOnce(form, token, operation) {
   if (pendingForms.has(token)) return;
   pendingForms.add(token);form.setAttribute('aria-busy','true');
-  const mark = busy => document.querySelectorAll('[data-form-token]').forEach(node => {if(node.dataset.formToken===token)node.disabled=busy;});
+  const mark = busy => {document.querySelectorAll('[data-form-token]').forEach(node => {if(node.dataset.formToken===token)node.disabled=busy;});if(token==='resume'){const input=document.querySelector('[data-focus="resume-file"]');if(input)input.disabled=busy;}};
   mark(true);
   try {await operation();}
   finally {pendingForms.delete(token);form.removeAttribute('aria-busy');mark(false);}
@@ -635,7 +635,7 @@ function renderProfile() {
   const uploadForm=el('form',{'aria-label':'上传简历文件'});
   const fileInput=el('input',{disabled:pendingForms.has('resume'),type:'file',accept:'.pdf,.doc,.docx,.txt','aria-label':'选择本机简历文件','data-focus':'resume-file'});
   const selected=el('p',{class:'selected-file',text:selectedResumeFile?`待上传：${selectedResumeFile.name} · ${selectedResumeFile.size} 字节`:'尚未选择文件'});
-  fileInput.addEventListener('change',()=>{selectedResumeFile=fileInput.files[0]||null;selected.textContent=selectedResumeFile?`已选择：${selectedResumeFile.name} · ${selectedResumeFile.size} 字节`:'尚未选择文件';if(selectedResumeFile&&/\.pdf$/i.test(selectedResumeFile.name))uploadForm.requestSubmit();});
+  fileInput.addEventListener('change',()=>{if(pendingForms.has('resume'))return;selectedResumeFile=fileInput.files[0]||null;selected.textContent=selectedResumeFile?`已选择：${selectedResumeFile.name} · ${selectedResumeFile.size} 字节`:'尚未选择文件';if(selectedResumeFile&&/\.pdf$/i.test(selectedResumeFile.name))uploadForm.requestSubmit();});
   const resumeMode=el('select',{'aria-label':'简历用途','data-focus':'resume-mode'},el('option',{value:'demo',text:'本地演示 · 虚构简历'}),el('option',{value:'real',text:'真实模式 · 本人简历'}));resumeMode.value=drafts.get('resume-mode')||state.resume?.mode||state.profile.mode;
   resumeMode.addEventListener('change',()=>drafts.set('resume-mode',resumeMode.value));
   uploadForm.append(field('简历用途',resumeMode),p('选择PDF后自动在本机提取，不发送到第三方服务。','details-note'),el('label',{class:'upload-zone'},el('strong',{text:'选择这台电脑上的简历'}),el('small',{text:'PDF / Word / 文本 · 最大 8 MB，不读取任意系统路径'}),fileInput),selected,submitButton('保存文件 / 重新提取PDF','resume'));

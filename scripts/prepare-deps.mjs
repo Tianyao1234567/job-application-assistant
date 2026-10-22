@@ -10,8 +10,13 @@ export function dependencyStatus(projectRoot){
  const runtime=path.join(projectRoot,'runtime-deps'),require=createRequire(path.join(runtime,'package.json'));
  const expected=JSON.parse(fs.readFileSync(path.join(runtime,'package.json'),'utf8')).dependencies;
  const versions={};for(const name of Object.keys(expected)){try{versions[name]=JSON.parse(fs.readFileSync(path.join(runtime,'node_modules',name,'package.json'),'utf8')).version;}catch{versions[name]=null;}}
+ // npm may succeed when an optional native package failed. PDF.js's Node
+ // entry needs DOMMatrix even for text extraction, so verify it in a fresh
+ // process (no cached failed resolution after an install in this process).
+ const probe=spawnSync(process.execPath,['--input-type=commonjs','-e',"if(typeof require(process.cwd()+'/node_modules/@napi-rs/canvas').DOMMatrix!=='function')process.exit(1);"],{cwd:runtime,stdio:'ignore',timeout:10000});
+ const nativePDF=probe.status===0&&!probe.error;
  let browser=null;try{if(versions.playwright===expected.playwright){const executable=require('playwright').chromium.executablePath();if(fs.existsSync(executable))browser=executable;}}catch{}
- return {expected,versions,missing:Object.keys(expected).filter(name=>versions[name]!==expected[name]),browser};
+ return {expected,versions,nativePDF,missing:[...Object.keys(expected).filter(name=>versions[name]!==expected[name]),...(!nativePDF?['PDF本机平台组件']:[])],browser};
 }
 export function prepareDependencies({projectRoot=root,run=spawnSync}={}){
  const local=path.join(projectRoot,'.runtime');for(const dir of ['cache','browsers','tmp'])fs.mkdirSync(path.join(local,dir),{recursive:true});
@@ -23,7 +28,7 @@ export function prepareDependencies({projectRoot=root,run=spawnSync}={}){
  const npm=process.platform==='win32'?process.execPath:'npm';
  const npmCLI=path.join(path.dirname(process.execPath),'node_modules','npm','bin','npm-cli.js');
  if(process.platform==='win32'&&!fs.existsSync(npmCLI))throw new Error('未找到Node.js自带的npm，请保留原目录并检查Node安装。');
- const args=['install','--ignore-scripts','--no-audit','--no-fund','--cache',path.join(local,'cache')];
+ const args=['install','--include=optional','--ignore-scripts','--no-audit','--no-fund','--cache',path.join(local,'cache')];
  const result=run(npm,process.platform==='win32'?[npmCLI,...args]:args,{cwd:path.join(projectRoot,'runtime-deps'),env,stdio:'inherit',shell:false});
  if(result.error||result.status!==0)throw new Error('必要运行依赖未补齐；原资料、浏览器及任务保留。请检查网络后重试“补充运行依赖”，无需重装浏览器。');
  const after=dependencyStatus(projectRoot);if(after.missing.length)throw new Error('必要运行依赖版本仍不完整，未启动申请；请保留现有目录。');

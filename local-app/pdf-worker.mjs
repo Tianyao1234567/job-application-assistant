@@ -1,11 +1,8 @@
 // No URL or third-party service is accepted here. Only the selected PDF bytes.
 import {parentPort,workerData} from 'node:worker_threads';
-import {createRequire} from 'node:module';
-import {pathToFileURL} from 'node:url';
-const require=createRequire(new URL('../runtime-deps/package.json',import.meta.url));
 let document;
 try{
- const {getDocument}=await import(pathToFileURL(require.resolve('pdfjs-dist/legacy/build/pdf.mjs')).href);
+ const {getDocument}=await import(new URL('../runtime-deps/node_modules/pdfjs-dist/legacy/build/pdf.mjs',import.meta.url).href);
  document=await getDocument({data:new Uint8Array(workerData),isEvalSupported:false,useSystemFonts:false,disableFontFace:true,useWasm:false,useWorkerFetch:false,disableAutoFetch:true,disableRange:true,disableStream:true,verbosity:0}).promise;
  if(document.numPages>30)throw new Error('PAGE_BUDGET');
  const pages=[];let size=0;
@@ -24,5 +21,5 @@ try{
   pages.push({page:n,lines:lines.filter(Boolean)});page.cleanup();
  }
  parentPort.postMessage({ok:true,pages});
-}catch(error){parentPort.postMessage({ok:false,reason:error.name==='PasswordException'?'encrypted':error.code==='MODULE_NOT_FOUND'||error.code==='ERR_MODULE_NOT_FOUND'?'dependency':/BUDGET/.test(error.message)?'budget':'invalid'});}
+}catch(error){parentPort.postMessage({ok:false,reason:error.name==='PasswordException'?'encrypted':error.code==='MODULE_NOT_FOUND'||error.code==='ERR_MODULE_NOT_FOUND'||/DOMMatrix|@napi-rs\/canvas|native binding/.test(error.message)?'dependency':/BUDGET/.test(error.message)?'budget':'invalid'});}
 finally{await document?.destroy();}

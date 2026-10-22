@@ -8,11 +8,12 @@ import {Store} from '../model.mjs';
 import {ROOT} from '../paths.mjs';
 import {temporary} from './profile-test-runtime.mjs';
 const write=(file,data)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,data);};
-function installation(t,{pdf=true}={}){
+function nativeFixture(root){write(path.join(root,'runtime-deps/node_modules/@napi-rs/canvas/package.json'),JSON.stringify({main:'index.js'}));write(path.join(root,'runtime-deps/node_modules/@napi-rs/canvas/index.js'),'exports.DOMMatrix=class FictionalMatrix {};');}
+function installation(t,{pdf=true,native=true}={}){
  const root=temporary(t,'upgrade original folder '),browser=path.join(root,'.runtime/browsers/chromium/executable');
  write(path.join(root,'runtime-deps/package.json'),JSON.stringify({dependencies:{playwright:'1.58.2','pdfjs-dist':'5.4.296'}}));
  write(path.join(root,'runtime-deps/node_modules/playwright/package.json'),JSON.stringify({version:'1.58.2',main:'index.js'}));write(path.join(root,'runtime-deps/node_modules/playwright/index.js'),'exports.chromium={executablePath:()=>'+JSON.stringify(browser)+'};');write(browser,'FICTIONAL EXISTING BROWSER');
- if(pdf)write(path.join(root,'runtime-deps/node_modules/pdfjs-dist/package.json'),JSON.stringify({version:'5.4.296'}));return {root,browser};
+ if(pdf)write(path.join(root,'runtime-deps/node_modules/pdfjs-dist/package.json'),JSON.stringify({version:'5.4.296'}));if(native)nativeFixture(root);return {root,browser};
 }
 test('documented merge into original folder keeps resumes, profile, answers, tasks, login profile, key and browsers byte-for-byte',t=>{
  const {root,browser}=installation(t),data=path.join(root,'.runtime/data'),store=new Store({data});store.demo();
@@ -37,4 +38,9 @@ test('only missing PDF dependency is prepared with browser downloads/scripts dis
 test('failed dependency preparation preserves data/browser and clearly reports retry without reinstall',t=>{
  const {root,browser}=installation(t,{pdf:false});write(path.join(root,'.runtime/data/state.json'),'FICTIONAL PERSISTED STATE');const original=fs.readFileSync(browser);
  assert.throws(()=>prepareDependencies({projectRoot:root,run:()=>({status:1})}),/原资料、浏览器及任务保留/);assert.equal(fs.readFileSync(path.join(root,'.runtime/data/state.json'),'utf8'),'FICTIONAL PERSISTED STATE');assert.deepEqual(fs.readFileSync(browser),original);
+});
+test('a current PDF package with a missing native optional component is repaired, never falsely reported ready',t=>{
+ const {root,browser}=installation(t,{native:false}),original=fs.readFileSync(browser);assert.deepEqual(dependencyStatus(root).missing,['PDF本机平台组件']);
+ const result=prepareDependencies({projectRoot:root,run(command,args){assert.ok(args.includes('--include=optional'));nativeFixture(root);return {status:0};}});assert.deepEqual(result.installed,['PDF本机平台组件']);assert.equal(result.reusedBrowser,true);assert.deepEqual(fs.readFileSync(browser),original);
+ const broken=installation(t,{native:false});assert.throws(()=>prepareDependencies({projectRoot:broken.root,run:()=>({status:0})}),/版本仍不完整/);
 });
