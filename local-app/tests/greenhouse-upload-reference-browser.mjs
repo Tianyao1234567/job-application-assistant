@@ -15,7 +15,7 @@ const bytes=Buffer.from('Fictional native upload object binding. No actual appli
 const file={name:'fictional.txt',size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
 const directory=await testDirectory('greenhouse-object'),uploads=[],external=[],results=[];
 const mode=process.env.GREENHOUSE_REFERENCE_MODE||'page-eval';assert.ok(['page-eval','extension'].includes(mode));
-let browser,context,worker;const hash=value=>createHash('sha256').update(value).digest('hex');
+let browser,context,worker,runnerPage;const hash=value=>createHash('sha256').update(value).digest('hex');
 const server=http.createServer(async(req,res)=>{
  if(req.method==='POST'&&req.url==='/greenhouse-upload'){
   const chunks=[];for await(const chunk of req)chunks.push(chunk);
@@ -33,9 +33,10 @@ try{
   browser=context.browser();worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:15000});
   assert.match(worker.url(),/^chrome-extension:\/\/[a-p]{32}\//);
  }else{browser=await chromium.launch(browserOptions());context=await browser.newContext();}
- await context.route('**/*',route=>{if(new URL(route.request().url()).origin!==origin){external.push(route.request().url());return route.abort();}return route.continue();});
+ await context.route('**/*',route=>{const url=new URL(route.request().url());if(['http:','https:'].includes(url.protocol)&&url.origin!==origin){external.push(route.request().url());return route.abort();}return route.continue();});
+ if(mode==='extension'){runnerPage=await context.newPage();await runnerPage.goto(new URL('runner/index.html',worker.url()).href);}
  const page=await context.newPage();await page.goto(source);
- const capture=options=>mode==='extension'?worker.evaluate(async options=>{
+ const capture=options=>mode==='extension'?runnerPage.evaluate(async options=>{
    const {captureUploadReference}=await import(chrome.runtime.getURL('greenhouse-receipts.js'));
    const tab=(await chrome.tabs.query({url:'http://127.0.0.1/*'})).find(t=>t.url==='http://127.0.0.1:17322/greenhouse/reference-test/jobs/1234567');
    const frames=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:captureUploadReference,args:[options]});
@@ -74,4 +75,8 @@ try{
  const evidence={scope:'Focused native upload/object binding only; no rerun of accepted MV3 scenarios or production acceptance',mode,browser:browser.version(),results,uploads:uploads.length,externalRequests:external.length};
  await fs.writeFile(evidenceRoot+'/greenhouse-upload-reference-browser.json',JSON.stringify(evidence,null,2));
  console.log('::notice title=Greenhouse exact upload reference::'+JSON.stringify(evidence));
+}catch(error){
+ const diagnostic={mode,results,message:String(error.stack||error).slice(0,3500)};
+ await fs.writeFile(evidenceRoot+'/greenhouse-upload-reference-browser.json',JSON.stringify(diagnostic,null,2));
+ console.error('::error title=Greenhouse upload reference diagnostic::'+JSON.stringify(diagnostic));throw error;
 }finally{await context?.close();await browser?.close();await new Promise(resolve=>server.close(resolve));await removeTestDirectory(directory);}
