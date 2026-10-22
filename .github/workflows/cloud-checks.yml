@@ -296,12 +296,12 @@ jobs:
               data=get(target);name=parsed.path.rsplit('/',1)[-1];(root/name).write_bytes(data)
               records.append({'url':target,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
               code=data.decode()
-              for word in ['confirmationPath','submitPath','executeAsync','countryOptions']:
+              for word in ['await to(', 'performAssessment', 'countries']:
                   start=0
                   for index in range(2):
                       position=code.find(word,start)
                       if position<0: break
-                      snippet=code[max(0,position-220):position+1100]
+                      snippet=code[max(0,position-220):position+2800]
                       encoded=json.dumps({'file':name,'word':word,'code':snippet}).replace('%','%25').replace('\r','%0D').replace('\n','%0A')
                       print('::notice title=Public protocol::'+encoded)
                       start=position+len(word)

@@ -255,7 +255,12 @@
   }
   function captchaVisible() {
     const frames=[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i],input[autocomplete="one-time-code"]')];
-    if(!frames.some(visible))return false;
+    const active=frames.filter(frame=>{
+      if(!visible(frame))return false;
+      try{const url=new URL(frame.getAttribute?.('src')||'',location.href);if(['www.google.com','www.recaptcha.net'].includes(url.hostname)&&url.pathname.includes('/anchor')&&url.searchParams.get('size')==='invisible')return false;}catch{}
+      return true;
+    });
+    if(!active.length)return false;
     // Only observe provider completion. Never write, return, or persist tokens.
     const responses=[...document.querySelectorAll('textarea[name="g-recaptcha-response"],input[name="g-recaptcha-response"],textarea[name="h-captcha-response"]')];
     return responses.length!==1||!responses[0].value?.trim();

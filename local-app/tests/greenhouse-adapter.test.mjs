@@ -280,3 +280,17 @@ test('completed CAPTCHA is observed without exposing its response, and expiry bl
   assert.equal(JSON.stringify(await h.inspect()).includes(response.value),false);
   response.value='';assert.equal((await h.api.validateSubmit(expected,before.layout,file)).ok,false);assert.equal(h.clicks,0);
 });
+test('invisible enterprise badge does not block its normal assessment; visible challenge remains human-only',async()=>{
+ const h=harness();await h.complete();const inspected=await h.inspect(),query=h.document.querySelectorAll.bind(h.document);
+ let src='https://www.recaptcha.net/recaptcha/enterprise/anchor?size=invisible';
+ h.document.querySelectorAll=selector=>selector.includes('iframe[src*="captcha"')?[{getClientRects:()=>[1],getAttribute:()=>src}]:query(selector);
+ assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,true);
+ src='https://www.recaptcha.net/recaptcha/enterprise/bframe';
+ assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,false);assert.equal(h.clicks,0);
+});
+test('scoped loader requiredness identifies optional cover letter without guessing from absent star',async()=>{
+ const h=harness();h.field('cover_letter').group={querySelector:()=>({textContent:'Cover Letter'})};
+ const query=h.document.querySelectorAll.bind(h.document),loader={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':{urlToken:'fictional',jobPostId:'1234567',jobPost:{public_url:expected.origin+'/greenhouse/fictional/jobs/1234567',questions:[{label:'Cover Letter',required:false,fields:[{name:'cover_letter',type:'input_file'}]}]}}}}};
+ h.document.querySelectorAll=selector=>selector==='script'?[{textContent:'window.__remixContext = '+JSON.stringify(loader)+';'}]:query(selector);
+ const result=await h.inspect(),cover=result.fields.find(f=>f.key==='cover_letter');assert.equal(cover.attachmentRequirementKnown,true);assert.equal(cover.required,false);
+});
