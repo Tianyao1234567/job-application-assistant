@@ -475,5 +475,10 @@ jobs:
           PY
       - name: Publish the verified single-file download
         run: |
-          gh release create v0.2.0-candidate.7-update '.runtime/delivery/update-ffc18124fb12/更新.cmd' '.runtime/delivery/update-ffc18124fb12/UPDATE.json' --target ffc18124fb12405d395c6a5e28460d11a83ad80d --prerelease --title 'candidate.7 单文件更新（待Manager验收）' --notes-file .runtime/update-release-notes.md
+          if gh release upload v0.2.0-candidate.7-update '.runtime/delivery/update-ffc18124fb12/更新.cmd' '.runtime/delivery/update-ffc18124fb12/UPDATE.json' > .runtime/update-publish.log 2>&1; then
+            cat .runtime/update-publish.log
+          else
+            python3 -c 'from pathlib import Path; message=Path(".runtime/update-publish.log").read_text()[-2500:]; print("::error title=Verified update upload::"+message.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
           gh api repos/Tianyao1234567/job-application-assistant/releases/tags/v0.2.0-candidate.7-update --jq '{html_url,target_commitish,assets:[.assets[]|{name,size,digest,browser_download_url}]}'
