@@ -15,6 +15,7 @@ const json=async file=>JSON.parse(await fs.readFile(file,'utf8'));
 const stable=value=>Array.isArray(value)?'['+value.map(stable).join(',')+']':value&&typeof value==='object'?'{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stable(value[k])).join(',')+'}':JSON.stringify(value);
 function savedFacts(state){const data={...state};delete data.issues;data.sites=state.sites.map(site=>Object.fromEntries(Object.entries(site).filter(([key])=>key!=='login')));data.tasks=state.tasks.map(task=>Object.fromEntries(Object.entries(task).filter(([key])=>!['status','phase','steps','updatedAt','issue'].includes(key))));return data;}
 export function extensionId(manifest){return [...digest(Buffer.from(manifest.key,'base64')).slice(0,32)].map(c=>String.fromCharCode(97+parseInt(c,16))).join('');}
+export function unpackedExtensionId(directory,platform=process.platform){const bytes=Buffer.from(platform==='win32'?directory.replace(/^[a-z](?=:)/,c=>c.toUpperCase()):directory,platform==='win32'?'utf16le':'utf8');return [...digest(bytes).slice(0,32)].map(c=>String.fromCharCode(97+parseInt(c,16))).join('');}
 export function safeRelative(name){assert(typeof name==='string'&&name.length<240&&!name.includes('\\')&&!name.includes(':')&&!name.includes('\0')&&name.split('/').every(p=>p&&p!=='.'&&p!=='..')&&!name.startsWith('.runtime/')&&!name.includes('/node_modules/'),'UPDATE_UNSAFE_PATH');return name;}
 async function noLinks(root,file){let cursor=path.resolve(root);assert(equalPath(cursor,root),'UPDATE_ROOT_INVALID');const rel=path.relative(cursor,file);assert(rel&&!rel.startsWith('..')&&!path.isAbsolute(rel),'UPDATE_UNSAFE_PATH');for(const part of rel.split(path.sep)){cursor=path.join(cursor,part);if(await exists(cursor))assert(!(await fs.lstat(cursor)).isSymbolicLink(),'UPDATE_LINK_REFUSED');}}
 async function ordinary(root,file){await noLinks(root,file);const stat=await fs.lstat(file);assert(stat.isFile(),'UPDATE_FILE_REQUIRED');return fs.readFile(file);}
@@ -65,9 +66,11 @@ export async function extensionOwner(root,oldRoot){
  if(!await exists(preferences)){assert(!(await exists(path.join(production,'Default/Local Extension Settings'))),'UPDATE_EXTENSION_OWNER');return null;}
  const prefs=[await json(preferences)];const secure=path.join(production,'Default/Secure Preferences');await noLinks(root,secure);if(await exists(secure))prefs.push(await json(secure));
  const current=await json(path.join(root,'autofill-extension/manifest.json'));
- const entries=[...new Map(prefs.flatMap(pref=>Object.entries(pref.extensions?.settings||{})).filter(([id,item])=>/^[a-p]{32}$/.test(id)&&(!current.key||id===extensionId(current))&&typeof item.path==='string'&&path.basename(item.path)==='autofill-extension'&&item.manifest?.name===current.name&&item.manifest?.version===current.version&&(!oldRoot||[root,oldRoot].some(r=>equalPath(item.path,path.join(r,'autofill-extension')))))).entries()];
+ // Chromium deliberately omits cached manifests for unpacked/command-line
+ // extensions. The verified baseline supplies the manifest; the cold storage
+ // probe must independently match this installation's pairing key and identity.
+ const entries=[...new Map(prefs.flatMap(pref=>Object.entries(pref.extensions?.settings||{})).filter(([id,item])=>/^[a-p]{32}$/.test(id)&&[4,8].includes(item.location)&&typeof item.path==='string'&&path.isAbsolute(item.path)&&path.basename(item.path)==='autofill-extension'&&id===(current.key?extensionId(current):unpackedExtensionId(item.path))&&(!item.manifest||Object.keys(item.manifest).length===0||item.manifest.name===current.name&&item.manifest.version===current.version)&&(!oldRoot||[root,oldRoot].some(r=>equalPath(item.path,path.join(r,'autofill-extension')))))).entries()];
  assert(entries.length===1,'UPDATE_EXTENSION_OWNER');const [id,entry]=entries[0];
- assert(entry.manifest?.name===current.name&&entry.manifest?.version===current.version,'UPDATE_EXTENSION_OWNER');
  const storage=path.join(production,'Default/Local Extension Settings',id);await noLinks(root,storage);assert(await exists(storage),'UPDATE_EXTENSION_STORAGE_MISSING');await treeFiles(storage);
  return {id,storage,production,oldRoot:path.dirname(entry.path)};
 }
@@ -106,7 +109,7 @@ async function rollback(root,txn,bundle,{preserveState=false}={}){
  if(recovery){const destination=path.join(root,'.runtime/browser/production');await noLinks(root,destination);const replaced=path.join(txn,'profile-before-recovery');if(await exists(replaced)){if(await exists(destination))assert(JSON.stringify(await treeFiles(destination))===JSON.stringify(journal.profileTree),'UPDATE_RECOVERY_CONFLICT');else await fs.rename(recovery,destination);}else{await fs.rename(destination,replaced);try{await fs.rename(recovery,destination);}catch(error){await fs.rename(replaced,destination);throw error;}}}
  journal.phase='rolled-back';await saveJSON(file,journal);
 }
-async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,extensionPrepare=prepareExtension,dependencies,failAfterWrite=false,restore=false}={}){
+async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,extensionPrepare=prepareExtension,dependencies,failAfterWrite=false,restore=false,requireLaunchLock=()=>{}}={}){
  validateBundle(bundle);root=path.resolve(root);assert(!(await fs.lstat(root)).isSymbolicLink(),'UPDATE_LINK_REFUSED');
  const updates=path.join(root,'.runtime/updates');await noLinks(root,updates);
  const restoring=restore?await json(path.join(root,'.runtime/installation.json')).catch(()=>null):null;
@@ -126,7 +129,7 @@ async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,ext
  if(owner){await fs.cp(owner.production,path.join(txn,'browser-profile'),{recursive:true});journal.profileTree=await treeFiles(owner.production);assert(JSON.stringify(journal.profileTree)===JSON.stringify(await treeFiles(path.join(txn,'browser-profile'))),'UPDATE_BACKUP_HASH');journal.profileBackup='browser-profile';}
  await saveJSON(path.join(txn,'journal.json'),journal);
  try{
-  const migration=await extensionPrepare(root,txn,bundle,owner,relocated.state);journal.phase='writing';await saveJSON(path.join(txn,'journal.json'),journal);
+  const migration=await extensionPrepare(root,txn,bundle,owner,relocated.state);requireLaunchLock();journal.phase='writing';await saveJSON(path.join(txn,'journal.json'),journal);
   for(const [name,value]of Object.entries(bundle.changes))await atomic(path.join(root,name),Buffer.from(value,'base64'));
   if(failAfterWrite)throw new Error('UPDATE_SIMULATED_FAILURE');
   await saveJSON(path.join(root,'SOURCE.json'),bundle.target.manifest||bundle.target);await saveJSON(stateFile,relocated.state);
@@ -137,11 +140,12 @@ async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,ext
  }catch(error){await rollback(root,txn,bundle);throw error;}
 }
 async function launchLocks(root){
- if(process.platform!=='win32')return async()=>{};
+ if(process.platform!=='win32')return {release:async()=>{},requireHeld:()=>{}};
  const code="$ErrorActionPreference='Stop';try{$a=[IO.File]::Open((Join-Path $env:JOB_UPDATE_LOCK_ROOT '.runtime\\start.lock'),'OpenOrCreate','ReadWrite','None');$b=[IO.File]::Open((Join-Path $env:JOB_UPDATE_LOCK_ROOT '.runtime\\browser-start.lock'),'OpenOrCreate','ReadWrite','None');[Console]::WriteLine('LOCKED');[Console]::ReadLine()|Out-Null}finally{if($b){$b.Dispose()};if($a){$a.Dispose()}}";
  const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(code,'utf16le').toString('base64')],{windowsHide:true,env:{...process.env,JOB_UPDATE_LOCK_ROOT:root},stdio:['pipe','pipe','ignore']});
+ let ended=false;const finished=new Promise(resolve=>{const end=()=>{ended=true;resolve();};child.once('close',end);child.once('error',end);});child.stdin.on('error',()=>{});
  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{child.kill();reject(new Error('UPDATE_START_LOCK'));},15000);child.once('error',()=>{clearTimeout(timer);reject(new Error('UPDATE_START_LOCK'));});child.once('exit',()=>{clearTimeout(timer);reject(new Error('UPDATE_START_LOCK'));});child.stdout.on('data',data=>{if(data.toString().includes('LOCKED')){clearTimeout(timer);resolve();}});});
- return async()=>{const done=new Promise(resolve=>child.once('exit',resolve));child.stdin.end('\n');await done;};
+ return {requireHeld:()=>assert(!ended&&child.exitCode===null&&child.signalCode===null,'UPDATE_START_LOCK_LOST'),release:async()=>{if(!ended&&!child.stdin.destroyed)child.stdin.end('\n');let timer;try{await Promise.race([finished,new Promise((_,reject)=>{timer=setTimeout(()=>{child.kill();reject(new Error('UPDATE_START_LOCK'));},5000);})]);}finally{clearTimeout(timer);}}};
 }
 export async function runUpdate(bundle,root,options={}){
  validateBundle(bundle);root=path.resolve(root);await ordinary(root,path.join(root,'启动.cmd'));await ordinary(root,path.join(root,'SOURCE.json'));
@@ -152,10 +156,10 @@ export async function runUpdate(bundle,root,options={}){
  await fs.mkdir(updates,{recursive:true});const lock=path.join(updates,'update.lock');
  if(await exists(lock)){const pid=Number(await fs.readFile(lock,'utf8'));assert(Number.isInteger(pid)&&pid>0,'UPDATE_LOCK_INVALID');let alive=true;try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')alive=false;}assert(!alive,'UPDATE_ALREADY_RUNNING');await fs.rm(lock);}
  const handle=await fs.open(lock,'wx');await handle.writeFile(String(process.pid));
- let release;
- try{const check=options.checkStopped||requireStopped;await check(root,oldRoots);release=await launchLocks(root);await check(root,oldRoots,{stop:false});return await runUpdateTransaction(bundle,root,options);}finally{await release?.();await handle.close();await fs.rm(lock,{force:true});}
+ let gate;
+ try{const check=options.checkStopped||requireStopped;await check(root,oldRoots);gate=await launchLocks(root);await check(root,oldRoots,{stop:false});gate.requireHeld();return await runUpdateTransaction(bundle,root,{...options,requireLaunchLock:gate.requireHeld});}finally{try{await gate?.release();}finally{await handle.close();await fs.rm(lock,{force:true});}}
 }
 if(globalThis.__JOB_UPDATE_BUNDLE){
  try{const result=await runUpdate(globalThis.__JOB_UPDATE_BUNDLE,process.env.JOB_UPDATE_ROOT,{restore:process.env.JOB_UPDATE_MODE==='--restore'});console.log(result.restored?'UPDATE_RESTORED: 已恢复更新前文件及资料。若此前刚搬目录，可整体放回原位置。':result.alreadyCurrent?'UPDATE_CURRENT: 程序已更新。请使用原“启动.cmd”；迁移待首次真实扩展连接核验。':'UPDATE_COMPLETE: 程序文件更新完成，资料与浏览器保留。请使用原“启动.cmd”，首次启动会核验扩展身份和账本。');}
- catch(error){console.error('UPDATE_FAILED: '+(/^[A-Z_]+$/.test(error.message)?error.message:'UPDATE_OPERATION_FAILED')+'。未自动启动或投递。请保留现有目录；若已搬移仍有旧进程，请回原位置正常停止后再试。失败事务会恢复备份；如首次启动核验失败，正常停止后运行“更新.cmd --restore”恢复更新前文件。');process.exitCode=1;}
+ catch(error){console.error('UPDATE_FAILED: '+(/^[A-Z_]+$/.test(error.message)?error.message:'UPDATE_OPERATION_FAILED')+'。未自动启动或投递。请保留现有目录；若已搬移仍有旧进程，请回原位置正常停止后再试。失败时核验备份后恢复，无法核验则保留并暂停；如首次启动核验失败，正常停止后运行“更新.cmd --restore”恢复更新前文件。');process.exitCode=1;}
 }

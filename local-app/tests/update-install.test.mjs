@@ -9,7 +9,7 @@ import {ROOT} from '../paths.mjs';
 import {Store} from '../model.mjs';
 import {SOURCE_PATHS,VERSION} from '../../scripts/package-candidate.mjs';
 import {baselineManifest,UPDATE_BASELINES,renderUpdater} from '../../scripts/package-update.mjs';
-import {validateBundle,runUpdate,relocateState,extensionOwner,windowsArguments} from '../../scripts/update-install.mjs';
+import {validateBundle,runUpdate,relocateState,extensionOwner,windowsArguments,unpackedExtensionId} from '../../scripts/update-install.mjs';
 import {migrateStorage,persistentStorage,canonical} from '../../autofill-extension/shared/migration.js';
 import {verifiedUpload} from '../../autofill-extension/greenhouse-receipts.js';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -61,18 +61,24 @@ test('private storage migration preserves identity, attempts and user data; arch
 });
 test('the one-file CMD contains an integrity checked engine and both baseline deltas, without extracting external files first',async()=>{
  const cmd=renderUpdater(bundle,await fs.readFile(path.join(ROOT,'scripts/update-install.mjs'),'utf8')).toString('utf8');assert.ok(cmd.startsWith('@echo off\r\nsetlocal DisableDelayedExpansion'));assert.ok(cmd.includes('JOB_UPDATE_FILE=%~f0'));assert.equal(cmd.includes('^&'),false);
- const body=Buffer.from(/^# JA_BODY (.+)$/m.exec(cmd)[1].trim(),'base64'),expected=/^# JA_SHA256 (.+)$/m.exec(cmd)[1].trim();assert.equal(hash(body),expected);const code=gunzipSync(body).toString('utf8');assert.ok(code.includes('globalThis.__JOB_UPDATE_BUNDLE'));assert.ok(cmd.includes('pause'));assert.ok(Object.keys(bundle.changes).length<bundle.target.files.length,'delivery contains a delta, not the whole source tree');
+ const body=Buffer.from(/^# JA_BODY (.+)$/m.exec(cmd)[1].trim(),'base64'),expected=/^# JA_SHA256 (.+)$/m.exec(cmd)[1].trim();assert.equal(hash(body),expected);assert.equal(body[9],255);const code=gunzipSync(body).toString('utf8');assert.ok(code.includes('globalThis.__JOB_UPDATE_BUNDLE'));assert.ok(cmd.includes('pause'));assert.ok(Object.keys(bundle.changes).length<bundle.target.files.length,'delivery contains a delta, not the whole source tree');
 });
-test('extension owner can be recovered from a unique known manifest without a resume, and linked profile paths are refused',async t=>{
- const env=await installation(t),manifest=JSON.parse(await fs.readFile(path.join(env.root,'autofill-extension/manifest.json'),'utf8')),production=path.join(env.root,'.runtime/browser/production'),id='a'.repeat(32);await fs.mkdir(path.join(production,'Default/Local Extension Settings',id),{recursive:true});
- await fs.writeFile(path.join(production,'Default/Preferences'),JSON.stringify({extensions:{settings:{[id]:{path:path.join(env.original,'autofill-extension'),manifest}}}}));const owner=await extensionOwner(env.root,null);assert.equal(owner.id,id);assert.equal(owner.oldRoot,env.original);
+test('unpacked extension owner without cached manifest is exact; wrong ID/type, ambiguity and linked paths are refused',async t=>{
+ const env=await installation(t),manifest=JSON.parse(await fs.readFile(path.join(env.root,'autofill-extension/manifest.json'),'utf8')),production=path.join(env.root,'.runtime/browser/production'),id=unpackedExtensionId(path.join(env.original,'autofill-extension'));await fs.mkdir(path.join(production,'Default/Local Extension Settings',id),{recursive:true});
+ await fs.writeFile(path.join(production,'Default/Preferences'),JSON.stringify({extensions:{settings:{[id]:{path:path.join(env.original,'autofill-extension'),location:8}}}}));const owner=await extensionOwner(env.root,null);assert.equal(owner.id,id);assert.equal(owner.oldRoot,env.original);
+ const preferenceFile=path.join(production,'Default/Preferences'),entry={path:path.join(env.original,'autofill-extension'),location:8};
+ const setPrefs=settings=>fs.writeFile(preferenceFile,JSON.stringify({extensions:{settings}}));
+ await setPrefs({[id]:{...entry,location:1}});await assert.rejects(()=>extensionOwner(env.root,null),/OWNER/);
+ await setPrefs({['b'.repeat(32)]:entry});await assert.rejects(()=>extensionOwner(env.root,null),/OWNER/);
+ const other=path.join(env.original,'other','autofill-extension');await setPrefs({[id]:entry,[unpackedExtensionId(other)]:{path:other,location:8}});await assert.rejects(()=>extensionOwner(env.root,null),/OWNER/);
+ await setPrefs({[id]:entry});
  const moved=production+'-original';await fs.rename(production,moved);await fs.symlink(moved,production,'dir');await assert.rejects(()=>extensionOwner(env.root,null),/LINK/);
 });
 test('Windows argument ownership parser retains quoted Unicode and exclamation-mark paths exactly',()=>{
  assert.deepEqual(windowsArguments('"C:\\Program Files\\nodejs\\node.exe" "C:\\fictional ! 中文\\scripts\\windows-service.mjs"'),['C:\\Program Files\\nodejs\\node.exe','C:\\fictional ! 中文\\scripts\\windows-service.mjs']);
  assert.deepEqual(windowsArguments('chrome.exe --user-data-dir="C:\\fictional ! 中文\\.runtime\\browser\\production"'),['chrome.exe','--user-data-dir=C:\\fictional ! 中文\\.runtime\\browser\\production']);
 });
-async function fakeOwner(env){const production=path.join(env.root,'.runtime/browser/production'),id='a'.repeat(32),manifest=JSON.parse(await fs.readFile(path.join(env.root,'autofill-extension/manifest.json'),'utf8'));await fs.mkdir(path.join(production,'Default/Local Extension Settings',id),{recursive:true});await fs.writeFile(path.join(production,'Default/Preferences'),JSON.stringify({extensions:{settings:{[id]:{path:path.join(env.original,'autofill-extension'),manifest}}}}));await fs.writeFile(path.join(production,'private-fixture'),'Fictional login bytes');return production;}
+async function fakeOwner(env){const production=path.join(env.root,'.runtime/browser/production'),id=unpackedExtensionId(path.join(env.original,'autofill-extension')),manifest=JSON.parse(await fs.readFile(path.join(env.root,'autofill-extension/manifest.json'),'utf8'));await fs.mkdir(path.join(production,'Default/Local Extension Settings',id),{recursive:true});await fs.writeFile(path.join(production,'Default/Preferences'),JSON.stringify({extensions:{settings:{[id]:{path:path.join(env.original,'autofill-extension'),location:8}}}}));await fs.writeFile(path.join(production,'private-fixture'),'Fictional login bytes');return production;}
 test('interrupted rollback resumes after moving the profile aside or after restoring it before journal completion',async t=>{
  for(const layout of ['moved-aside','restored']){const env=await installation(t),production=await fakeOwner(env);await assert.rejects(()=>runUpdate(bundle,env.root,{...fakeOptions,failAfterWrite:true}));const updates=path.join(env.root,'.runtime/updates'),name=(await fs.readdir(updates)).find(n=>n.startsWith('txn-')),txn=path.join(updates,name),journal=JSON.parse(await fs.readFile(path.join(txn,'journal.json'),'utf8'));journal.phase='writing';await fs.writeFile(path.join(txn,'journal.json'),JSON.stringify(journal));
   if(layout==='moved-aside'){await fs.rm(path.join(txn,'profile-before-recovery'),{recursive:true});await fs.rename(production,path.join(txn,'profile-before-recovery'));}

@@ -10,6 +10,9 @@ import {buildCandidate} from './package-candidate.mjs';
 import {validateBundle} from './update-install.mjs';
 export const UPDATE_BASELINES=['3856a49a78852c4729a6be4d64f01f19acdcd1c3','38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac'];
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url))),sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+// Gzip's OS byte differs between hosted Windows and the delivery workspace.
+// Normalize the non-content header so the delivered file has the tested hash.
+function portableGzip(bytes){const compressed=gzipSync(bytes,{level:9});compressed.fill(0,4,8);compressed[9]=255;return compressed;}
 function git(directory,args){const r=spawnSync('git',args,{cwd:directory,maxBuffer:8*1024*1024});if(r.status!==0)throw new Error('UPDATE_BUILD_GIT');return r.stdout;}
 export async function baselineManifest(projectRoot,source){
  const script=git(projectRoot,['show',source+':scripts/package-candidate.mjs']).toString('utf8');
@@ -21,9 +24,9 @@ export async function baselineManifest(projectRoot,source){
 }
 export function renderUpdater(bundle,engine){
  validateBundle(bundle);
- const packed=gzipSync(Buffer.from(JSON.stringify(bundle)),{level:9});
+ const packed=portableGzip(Buffer.from(JSON.stringify(bundle)));
  const code="import {gunzipSync} from 'node:zlib';\nglobalThis.__JOB_UPDATE_BUNDLE=JSON.parse(gunzipSync(Buffer.from('"+packed.toString('base64')+"','base64')).toString('utf8'));\n"+engine;
- const bytes=gzipSync(Buffer.from(code),{level:9}),checksum=sha(bytes);
+ const bytes=portableGzip(Buffer.from(code)),checksum=sha(bytes);
  const ps=`$ErrorActionPreference='Stop'
 try {
   $raw=[IO.File]::ReadAllText($env:JOB_UPDATE_FILE)

@@ -23,7 +23,7 @@ try{installation=JSON.parse(await fs.readFile(installationFile,'utf8'));}catch(e
 if(browserTest && !root.includes(path.sep+'.runtime'+path.sep)) throw new Error('BROWSER_TEST_ISOLATION_REQUIRED');
 const testArgs=browserTest ? ['--remote-debugging-address=127.0.0.1','--remote-debugging-port=17323'] : [];
 await fs.rm(readyFile,{force:true});
-let context,closed=false,closing=false;
+let context,closed=false,closing=false,migrationWorker,needsActivation=false;
 async function close(){
   closing=true;
   if(context && !closed) await context.close().catch(()=>{});
@@ -40,13 +40,14 @@ try{
     args:['--disable-extensions-except='+extension,'--load-extension='+extension,'--no-first-run','--disable-breakpad','--disable-crash-reporter',...testArgs],
   });
   context.once('close',()=>{closed=true;});
-  if(installation?.migration?.pending){
+  if(installation?.migration){
     const migration=installation.migration;
     const worker=context.serviceWorkers().find(w=>w.url()===`chrome-extension://${migration.extensionId}/background.js`)||await context.waitForEvent('serviceworker',{predicate:w=>w.url()===`chrome-extension://${migration.extensionId}/background.js`,timeout:remaining()});
     const data=await worker.evaluate(()=>chrome.storage.local.get(null));
-    if(data.localBridge?.profileId!==migration.profileId||createHash('sha256').update(canonical(persistentStorage(data))).digest('hex')!==migration.storageHash)throw new Error('MIGRATION_STORAGE_MISMATCH');
+    migrationWorker=worker;needsActivation=migration.pending===true||data.localMigrationHold===true;
+    if(needsActivation&&(data.localBridge?.profileId!==migration.profileId||createHash('sha256').update(canonical(persistentStorage(data))).digest('hex')!==migration.storageHash))throw new Error('MIGRATION_STORAGE_MISMATCH');
     // Keep task execution held while a new runner establishes a real heartbeat.
-    const runner=await context.newPage();await runner.goto(`chrome-extension://${migration.extensionId}/runner/index.html`,{timeout:remaining()});
+    if(needsActivation){const runner=await context.newPage();await runner.goto(`chrome-extension://${migration.extensionId}/runner/index.html`,{timeout:remaining()});}
   }
   const downloads=page=>page.on('download',download=>download.saveAs(path.join(runtime,'downloads',path.basename(download.suggestedFilename()))).catch(()=>{}));
   context.on('page',downloads);
@@ -85,8 +86,8 @@ try{
     const actualId=new URL(runner.url()).hostname;
     if(installation?.migration){
       if(profileId!==installation.migration.profileId||actualId!==installation.migration.extensionId)throw new Error('MIGRATION_IDENTITY_MISMATCH');
-      await page.waitForFunction(async ({id,since,hold})=>{const key=document.querySelector('meta[name="local-key"]').content;const state=await(await fetch('/api/state',{headers:{'X-Local-Key':key},cache:'no-store'})).json();return state.connection.extensionId===id&&(!hold||state.manualPaused===true)&&Date.parse(state.connection.lastSeen)>=since;},{id:actualId,since:started,hold:installation.migration.pending===true},{timeout:remaining()});
-      if(installation.migration.pending){const worker=context.serviceWorkers().find(w=>new URL(w.url()).hostname===actualId);await worker.evaluate(()=>chrome.storage.local.remove('localMigrationHold'));installation.migration.pending=false;installation.migration.verifiedAt=new Date().toISOString();await fs.writeFile(installationFile+'.next',JSON.stringify(installation,null,2));await fs.rename(installationFile+'.next',installationFile);}
+      await page.waitForFunction(async ({id,since,hold})=>{const key=document.querySelector('meta[name="local-key"]').content;const state=await(await fetch('/api/state',{headers:{'X-Local-Key':key},cache:'no-store'})).json();return state.connection.extensionId===id&&(!hold||state.manualPaused===true)&&Date.parse(state.connection.lastSeen)>=since;},{id:actualId,since:started,hold:needsActivation},{timeout:remaining()});
+      if(needsActivation){installation.migration.pending=false;installation.migration.verifiedAt=new Date().toISOString();await fs.writeFile(installationFile+'.next',JSON.stringify(installation,null,2));await fs.rename(installationFile+'.next',installationFile);await migrationWorker.evaluate(()=>chrome.storage.local.remove('localMigrationHold'));}
     }
     if(!closing && !closed)await fs.writeFile(readyFile,JSON.stringify({pid:process.pid,ready:true,extensionConnected:true,profileId,extensionId:actualId,migrationVerified:installation?.migration?.pending===false,headless:false}),{mode:0o600});
     while(!closed && !closing)await new Promise(resolve=>setTimeout(resolve,200));
