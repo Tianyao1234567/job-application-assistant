@@ -5,14 +5,14 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 
-export const VERSION='0.2.0-candidate.6';
+export const VERSION='0.2.0-candidate.7';
 export const BASELINE='b6cfdee0bbded79010bb97866fd1ad538275270f';
 export const PREFIX='job-application-assistant/';
 export const SOURCE_PATHS=Object.freeze([
   'README.md','SPEC.md','AGENTS.md','DEVELOPMENT_SNAPSHOT.md','CLOUD_SETUP.md','CLOUD_HANDOFF.md',
   'GITHUB_MIGRATION_STATUS.md','DEV_REPORT_003.md','WINDOWS_START_001.md','CANDIDATE_PACKAGE.md',
   '启动.cmd','停止.cmd','打开投递浏览器.cmd','安装运行环境.cmd','补充运行依赖.cmd','UPGRADE_001.md',
-  'scripts/prepare-deps.mjs','scripts/runtime.ps1','scripts/start.ps1','scripts/stop.ps1','scripts/open-browser.ps1','scripts/setup.ps1',
+  'scripts/prepare-deps.mjs','scripts/update-install.mjs','scripts/runtime.ps1','scripts/start.ps1','scripts/stop.ps1','scripts/open-browser.ps1','scripts/setup.ps1',
   'scripts/browser.mjs','scripts/windows-service.mjs','scripts/windows-browser-control.mjs','scripts/package-candidate.mjs','runtime-deps/package.json','runtime-deps/package-lock.json',
   'local-app/CONTRACT.md','local-app/server.mjs','local-app/model.mjs','local-app/pdf-worker.mjs','local-app/resume-import.mjs','local-app/profile-draft.mjs','local-app/greenhouse.mjs','local-app/fixture.mjs','local-app/paths.mjs',
   'local-app/public/index.html','local-app/public/app.js','local-app/public/style.css',
@@ -22,7 +22,7 @@ export const SOURCE_PATHS=Object.freeze([
   'autofill-extension/options/index.html','autofill-extension/options/options.js',
   'autofill-extension/popup/index.html','autofill-extension/popup/popup.js',
   'autofill-extension/runner/index.html','autofill-extension/runner/runner.js','autofill-extension/runner/local-adapter.js','autofill-extension/runner/greenhouse-adapter.js',
-  'autofill-extension/shared/schema.js','autofill-extension/shared/profile-facts.js','autofill-extension/shared/match.js','autofill-extension/shared/storage.js',
+  'autofill-extension/shared/schema.js','autofill-extension/shared/profile-facts.js','autofill-extension/shared/migration.js','autofill-extension/shared/match.js','autofill-extension/shared/storage.js',
   'autofill-extension/shared/ui.js','autofill-extension/shared/style.css',
   'autofill-extension/workspace/index.html','autofill-extension/workspace/workspace.js'
 ]);

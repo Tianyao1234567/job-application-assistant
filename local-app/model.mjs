@@ -207,7 +207,7 @@ export class Store {
     let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
     const stats={demo:{submitted:0,today:0},real:{submitted:0,today:0}};
     for(const t of s.tasks){if(t.status==='submitted'){stats[t.mode].submitted++;if(this.day(t.submittedAt)===decision.day)stats[t.mode].today++;}}
-    return {...s,now:this.now(),connection:{connected,lastSeen:this.lastSeen?new Date(this.lastSeen).toISOString():null,profileId:this.connection?.profileId||null},nextRun,readiness:this.readiness(),stats};
+    return {...s,now:this.now(),connection:{connected,lastSeen:this.lastSeen?new Date(this.lastSeen).toISOString():null,profileId:this.connection?.profileId||null,extensionId:this.connection?.extensionId||null},nextRun,readiness:this.readiness(),stats};
   }
   day(at=this.now()){return scheduleDecision({scheduleEnabled:false},null,new Date(at).getTime()).day;}
   setSettings({settings,sites}){

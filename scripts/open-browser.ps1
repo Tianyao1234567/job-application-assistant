@@ -1,5 +1,6 @@
 ﻿param([switch]$Close)
 . (Join-Path $PSScriptRoot 'runtime.ps1')
+if (-not $Close -and (Test-Path -LiteralPath (Join-Path $runtimeRoot 'updates\update.lock'))) { throw 'UPDATE_IN_PROGRESS: 更新正在进行，请等待成功提示后再启动。' }
 if ($Close) { Stop-ProjectBrowser; return }
 if (Test-Path -LiteralPath (Join-Path $runtimeRoot 'server.stop')) { throw 'SERVER_STOPPING: 后台正在停止，请等待停止完成。' }
 if (-not (Test-ProjectServer)) { throw 'SERVER_REQUIRED: 请先双击“启动.cmd”，或先启动本项目后台。' }

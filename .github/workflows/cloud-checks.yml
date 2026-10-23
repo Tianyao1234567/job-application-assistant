@@ -29,6 +29,7 @@ on:
           - demo
           - candidate
           - windows-browser
+          - windows-update
           - public-site-browser
           - real-site-browser
           - video
@@ -76,9 +77,15 @@ jobs:
           profile_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','补充运行依赖.cmd','.github/workflows/cloud-checks.yml','scripts/cloud-check.mjs','scripts/package-candidate.mjs','scripts/prepare-deps.mjs','autofill-extension/shared/schema.js','autofill-extension/shared/profile-facts.js','autofill-extension/runner/greenhouse-adapter.js','local-app/greenhouse.mjs','local-app/model.mjs','local-app/server.mjs','local-app/public/app.js','runtime-deps/package.json','runtime-deps/package-lock.json','local-app/pdf-worker.mjs','local-app/resume-import.mjs','local-app/profile-draft.mjs','local-app/tests/pdf-fixture.mjs','local-app/tests/pdf-import.test.mjs','local-app/tests/profile-answers.test.mjs','local-app/tests/profile-test-runtime.mjs','local-app/tests/profile-import-browser.mjs','local-app/tests/upgrade.test.mjs','local-app/tests/greenhouse-adapter.test.mjs'}
           profile_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',profile_baseline,'HEAD'],text=True).splitlines() if profile_known else []
           profile=profile_known and any(p in profile_files for p in ['local-app/resume-import.mjs','local-app/tests/pdf-import.test.mjs']) and all(p in profile_allowed or p.startswith('docs/GREENHOUSE_DELIVERY_') or p.startswith('docs/PROFILE_IMPORT_DELIVERY_') for p in profile_files)
+          update_baseline='38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac'
+          update_known=subprocess.run(['git','merge-base','--is-ancestor',update_baseline,'HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+          update_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','.github/workflows/cloud-checks.yml','scripts/package-candidate.mjs','scripts/package-update.mjs','scripts/update-install.mjs','scripts/test-windows-update.mjs','scripts/start.ps1','scripts/open-browser.ps1','scripts/browser.mjs','autofill-extension/manifest.json','autofill-extension/background.js','autofill-extension/runner/runner.js','autofill-extension/shared/migration.js','local-app/model.mjs','local-app/server.mjs','local-app/tests/update-install.test.mjs'}
+          update_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',update_baseline,'HEAD'],text=True).splitlines() if update_known else []
+          update=update_known and 'scripts/update-install.mjs' in update_files and all(p in update_allowed or p.startswith('docs/UPDATE_DELIVERY_') for p in update_files)
+          if os.environ.get('SELECTED_CHECK')=='windows-update' and not update: raise RuntimeError('Updater-only check includes changes outside approved scope')
           if os.environ.get('SELECTED_CHECK')=='greenhouse-reference' and not focused: raise RuntimeError('Reference-only check includes changes outside its accepted scope')
           if os.environ.get('SELECTED_CHECK')=='profile-import' and not profile: raise RuntimeError('PDF-only check includes changes outside its approved scope')
-          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\nprofile='+str(profile).lower()+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\nprofile='+str(profile).lower()+'\nupdate='+str(update).lower()+'\n')
           print('PDF/batch/preserved-data upgrade only; reuse accepted Greenhouse evidence' if profile else 'Exact upload object rework only' if focused else 'General changed scope')
           PY
       - uses: actions/setup-node@v6
@@ -90,7 +97,7 @@ jobs:
       - name: Check source syntax and JSON
         run: node scripts/cloud-check.mjs
       - name: Necessary schema and protection unit regressions
-        if: ${{ steps.scope.outputs.focused != 'true' && steps.scope.outputs.profile != 'true' }}
+        if: ${{ steps.scope.outputs.focused != 'true' && steps.scope.outputs.profile != 'true' && steps.scope.outputs.update != 'true' }}
         working-directory: autofill-extension
         run: npm test
       - name: Install locked local PDF runtime for the changed flow
@@ -99,7 +106,9 @@ jobs:
         run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
       - name: Local application state, authentication, and actual fixture HTTP regressions
         run: |
-          if [[ "${{ steps.scope.outputs.profile }}" == true ]]; then
+          if [[ "${{ steps.scope.outputs.update }}" == true ]]; then
+            node --test local-app/tests/update-install.test.mjs local-app/tests/package-candidate.test.mjs
+          elif [[ "${{ steps.scope.outputs.profile }}" == true ]]; then
             node --test local-app/tests/pdf-import.test.mjs local-app/tests/profile-answers.test.mjs local-app/tests/upgrade.test.mjs local-app/tests/package-candidate.test.mjs local-app/tests/dashboard.test.mjs
             node --test --test-name-pattern='batch conflict evidence' local-app/tests/greenhouse-adapter.test.mjs
             node --test --test-name-pattern='示例资料|拒绝未知|拒绝不正确|日期保留|未知值 null|稳定ID|自定义答案|手机号|中英文' autofill-extension/tests/unit.test.js
@@ -392,3 +401,35 @@ jobs:
           name: greenhouse-public-source
           path: .runtime/public-source/
           retention-days: 3
+
+  windows-update:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser == 'windows-update' }}
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      JOB_ASSISTANT_NONINTERACTIVE: '1'
+      JOB_ASSISTANT_BROWSER_TEST: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build the single updater and run only relocation acceptance
+        run: node scripts/test-windows-update.mjs
+      - name: Preserve the downloadable update file and bounded evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: single-file-update
+          path: |
+            .runtime/delivery/update-*/更新.cmd
+            .runtime/delivery/update-*/UPDATE.json
+            .runtime/tests/evidence/windows-update.json
+          if-no-files-found: error
+          retention-days: 7

@@ -4,11 +4,41 @@
   "version": "0.2.0",
   "minimum_chrome_version": "116",
   "description": "本机求职管理后台执行端；支持本地演示与受限 Greenhouse 适配，每个真实岗位须本人确认，结果未知不重投。",
-  "permissions": ["activeTab", "scripting", "storage", "alarms", "webRequest"],
-  "host_permissions": ["http://127.0.0.1/*", "https://job-boards.greenhouse.io/*", "https://boards.greenhouse.io/*"],
-  "content_scripts": [{"matches":["http://127.0.0.1/*"],"js":["bridge/dashboard.js"],"run_at":"document_idle","all_frames":false}],
-  "background": {"service_worker": "background.js", "type": "module"},
-  "action": {"default_popup": "popup/index.html", "default_title": "求职填表助手"},
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://job-boards.greenhouse.io/*",
+    "https://boards.greenhouse.io/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "bridge/dashboard.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "求职填表助手"
+  },
   "options_page": "options/index.html",
-  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321 http://127.0.0.1:17322"}
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321 http://127.0.0.1:17322"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsgxSszAhZO/GSbTf8SpkY+6GNUa+jwWY+t1p3Vef1q+sVJMQnFQjU9O6Jgm8vkVtXQqEUGgpEgfPc2ZiUG+lvsJpxGxwxwLwuSNRfE9+zer6YHkaVbmvklKABm1T/jDz7x3Y8qJs+MsQxD0YBJjhpNx4RytDPmvuBMPGi95Z19ZpYnVlOwU4v/hBdcycizYIswv0cYglPEbfKRN/KuFuZdDLNKTuoHPJKBkxI6VLMi259Tv0D73S65ZjpLypSQZjXHoAcANCzPGRp5brD6bIVecRqPOMULZLDh3smMIpJ9e2IqsAK9xWJdJi9Rmta/9Gtdv6pw+G+yl5T2I9uJ/KPQIDAQAB"
 }

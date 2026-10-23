@@ -426,12 +426,14 @@ async function execute(command) {
 async function tick() {
   if(busy || stopped)return;busy=true;
   try{
-    const stored=await chrome.storage.local.get(['localBridge','localResultOutbox']);
+    const stored=await chrome.storage.local.get(['localBridge','localResultOutbox','localMigrationHold']);
+    if(stored.localMigrationHold===true){status.textContent='更新迁移记录正在核验，保持暂停。';return;}
     if(!stored.localBridge?.key){status.textContent='请先从本地管理后台连接插件。';return;}
     bridge=stored.localBridge;
     if(stored.localResultOutbox){
-      await api('result',stored.localResultOutbox);
-      await chrome.storage.local.remove('localResultOutbox');
+      const acknowledged=await api('result',stored.localResultOutbox);
+      if(acknowledged?.ok===true)await chrome.storage.local.remove('localResultOutbox');
+      else{const {localUnacknowledgedResults=[]}=await chrome.storage.local.get('localUnacknowledgedResults');await chrome.storage.local.set({localUnacknowledgedResults:[...localUnacknowledgedResults,stored.localResultOutbox]});await chrome.storage.local.remove('localResultOutbox');}
     }
     const reply=await api('poll',identity());
     const command=reply.command;
@@ -441,8 +443,7 @@ async function tick() {
     try{result=await execute(command);}catch(error){result=fail(error.kind || (command.op==='submit'?'unknown':'failure'),error instanceof Stop?error.message:command.op==='submit'?'提交结果待核实，系统不会重复提交。':'页面操作未完成，请检查当前浏览器页面后恢复。');}
     const outbox={clientId,commandId:command.id,result};
     await chrome.storage.local.set({localResultOutbox:outbox});
-    await api('result',outbox);
-    await chrome.storage.local.remove('localResultOutbox');
+    if((await api('result',outbox))?.ok===true)await chrome.storage.local.remove('localResultOutbox');
   }catch{status.textContent='本地服务已断开；停止新动作，正在等待重连。';}finally{busy=false;}
 }
 async function start() {

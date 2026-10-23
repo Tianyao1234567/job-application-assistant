@@ -1,5 +1,6 @@
 ﻿param([switch]$BackendOnly)
 . (Join-Path $PSScriptRoot 'runtime.ps1')
+if ((Test-Path -LiteralPath (Join-Path $runtimeRoot 'updates\update.lock'))) { throw 'UPDATE_IN_PROGRESS: 更新正在进行，请等待成功提示后再启动。' }
 # Dependency failure must not leave a partly started service behind.
 if (-not $BackendOnly) { Assert-ProjectBrowserDependencies }
 $startLock = $null

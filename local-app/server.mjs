@@ -59,6 +59,8 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
   fixturePort = 17322, startFixture = true, testMode = false, testKey, now,
   browserOpen, browserClose} = {}) {
   const paths = initializePaths(dataDir), store = new Store(paths, now ? {now} : {});
+  const installation=path.join(paths.runtime,'installation.json');
+  if(fs.existsSync(installation)&&JSON.parse(fs.readFileSync(installation,'utf8')).migration?.pending){store.pause();store.save();}
   const key = localKey(paths.data);
   const managedBrowser = !testMode && process.platform === 'win32' && !browserOpen ? createWindowsBrowserControl() : undefined;
   let fixture, timer, closing, fixtureProbe, fixtureProbeCookie;
