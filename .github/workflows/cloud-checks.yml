@@ -469,13 +469,14 @@ jobs:
           assert report['source']=='ffc18124fb12405d395c6a5e28460d11a83ad80d'
           assert len(data)==report['bytes']==240077
           assert hashlib.sha256(data).hexdigest()==report['sha256']=='305799c1baae7acec48f3d7cb0efe50c8a5d2329a24650a9607903004e6c2111'
+          (folder/'update.cmd').write_bytes(data)
           report.pop('directory',None)
           (folder/'UPDATE.json').write_text(json.dumps(report,indent=2)+'\n')
           pathlib.Path('.runtime/update-release-notes.md').write_text('单文件更新候选，待Manager验收。兼容已知candidate.5/6；14项检查和两条实际Windows搬迁/真实扩展/再次启动场景通过。\n\n先在原位置正常停止；按需整体搬迁并保留隐藏.runtime及全部依赖，再将一个更新.cmd放到实际启动.cmd同级双击。看到UPDATE_COMPLETE后由用户正常启动。保留资料、答案、附件、提交账本和原浏览器，unknown不重投；首次真实申请仍需本人确认。\n\n来源：'+report['source']+'\n\n240077字节；SHA-256：'+report['sha256']+'\n\n[验证与限制](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/UPDATE_DELIVERY_001.md) · [操作与恢复](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/UPGRADE_001.md)\n')
           PY
       - name: Publish the verified single-file download
         run: |
-          if gh release upload v0.2.0-candidate.7-update '.runtime/delivery/update-ffc18124fb12/更新.cmd' '.runtime/delivery/update-ffc18124fb12/UPDATE.json' > .runtime/update-publish.log 2>&1; then
+          if gh release upload v0.2.0-candidate.7-update '.runtime/delivery/update-ffc18124fb12/update.cmd' '.runtime/delivery/update-ffc18124fb12/UPDATE.json' > .runtime/update-publish.log 2>&1; then
             cat .runtime/update-publish.log
           else
             python3 -c 'from pathlib import Path; message=Path(".runtime/update-publish.log").read_text()[-2500:]; print("::error title=Verified update upload::"+message.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'

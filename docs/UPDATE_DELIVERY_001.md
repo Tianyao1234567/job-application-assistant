@@ -4,7 +4,7 @@ Engineer交付，**待Manager验收**。任务：[2026-10-23单文件更新＋�
 
 ## 下载与来源
 
-- **直接下载一个[更新.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.7-update/%E6%9B%B4%E6%96%B0.cmd)**；[发布页及校验文件](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/v0.2.0-candidate.7-update)。无需解压源码包或先安装更新器。
+- **直接下载一个[更新脚本 update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.7-update/update.cmd)**；[发布页及校验文件](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/v0.2.0-candidate.7-update)。无需解压源码包或先安装更新器。GitHub将中文附件名归一化，最终下载名为`update.cmd`，可直接运行，不必改名；文中的“更新.cmd”指这个单文件更新脚本。
 - 版本：`0.2.0-candidate.7`。运行/更新文件来源：`ffc18124fb12405d395c6a5e28460d11a83ad80d`。
 - 文件：**240077字节**；SHA-256：`305799c1baae7acec48f3d7cb0efe50c8a5d2329a24650a9607903004e6c2111`。
 - 两基线差异并集为25个程序文件，目标清单71个文件；相对candidate.5有25项差异，相对candidate.6有13项差异。单文件另含基线/目标清单和更新引擎，不包含完整71文件源码包、浏览器、依赖或个人数据。
@@ -30,7 +30,7 @@ Engineer交付，**待Manager验收**。任务：[2026-10-23单文件更新＋�
 
 更新完成只代表文件事务已提交；首次生产启动还须实际固定ID扩展、原身份、逻辑存储摘要和新心跳核验。验证标记原子落盘后才解除迁移hold；标记写入失败时继续hold，标记成功但hold解除失败可在下次核验后接续。全局手动暂停保持不变。
 
-写入/依赖失败先核验备份后恢复；中断可重复执行以恢复。备份损坏时拒绝覆盖有效配置。`更新.cmd --restore`仅用于首次核验尚未完成且没有新增/修改用户事实的本次更新，恢复前会冷读取真实扩展存储并比对迁移摘要；扩展中新增资料或映射也会拒绝恢复，不能仅比较后台状态。不能当常规降级入口；刚搬迁时还原的是旧绝对附件路径，应整体放回原位置再运行旧版。依赖补充不清空node_modules、不下载浏览器；失败恢复不删除已下载依赖。
+写入/依赖失败先核验备份后恢复；中断可重复执行以恢复。备份损坏时拒绝覆盖有效配置。`update.cmd --restore`仅用于首次核验尚未完成且没有新增/修改用户事实的本次更新，恢复前会冷读取真实扩展存储并比对迁移摘要；扩展中新增资料或映射也会拒绝恢复，不能仅比较后台状态。不能当常规降级入口；刚搬迁时还原的是旧绝对附件路径，应整体放回原位置再运行旧版。依赖补充不清空node_modules、不下载浏览器；失败恢复不删除已下载依赖。
 
 ## 必要验证
 
@@ -40,7 +40,7 @@ Engineer交付，**待Manager验收**。任务：[2026-10-23单文件更新＋�
 - GitHub-hosted Windows 2025、Node 24、Playwright 1.58.2及对应Chromium：candidate.5与candidate.6各一条真实旧安装深目录启动→正常停止→完整移至短目录→运行单个CMD→新真实浏览器/扩展→停止再启动的完整场景。
 - 两场景核对原资料/答案/任务、附件字节与摘要、原profileId、提交尝试、旧outbox/回执归档、新实际扩展ID及心跳、Cookie、手动暂停、unknown拒绝恢复、重复更新；缺少的PDF依赖补齐/已安装依赖复用。原浏览器二进制前后SHA-256一致。
 - Windows实际负例：candidate.5首次核验前在真实扩展保存新资料，实际运行--restore拒绝并保留新资料；损坏CMD拒绝且不改状态；旧PID指向另一个真实Node进程时拒绝且不结束该进程。unknown恢复实际HTTP 400并核对提交边界拒绝原因。
-- Windows构建文件摘要与交付工作区复现结果一致。CI的`single-file-update`附件含CMD、UPDATE.json及`windows-update.json`；检查注释同时保留无私人路径的两场景布尔证据和摘要。
+- Windows构建文件摘要与交付工作区复现结果一致；[托管上传39935566468](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39935566468)重建同一已测SHA、校验固定摘要后上传。GitHub服务器资产摘要与上述SHA-256一致，文件名调整不改变字节。CI的`single-file-update`附件含CMD、UPDATE.json及`windows-update.json`；检查注释同时保留无私人路径的两场景布尔证据和摘要。
 
 沿用candidate.6的43项/6场景、此前Greenhouse/MV3证据，不重跑旧全套或录屏。此前失败运行是定位及修复记录，不计作本次通过证据。
 
