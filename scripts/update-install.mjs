@@ -170,5 +170,5 @@ export async function runUpdate(bundle,root,options={}){
 }
 if(globalThis.__JOB_UPDATE_BUNDLE){
  try{const result=await runUpdate(globalThis.__JOB_UPDATE_BUNDLE,process.env.JOB_UPDATE_ROOT,{restore:process.env.JOB_UPDATE_MODE==='--restore'});console.log(result.restored?'UPDATE_RESTORED: 已恢复更新前文件及资料。若此前刚搬目录，可整体放回原位置。':result.alreadyCurrent?'UPDATE_CURRENT: 程序已更新。请使用原“启动.cmd”；迁移待首次真实扩展连接核验。':'UPDATE_COMPLETE: 程序文件更新完成，资料与浏览器保留。请使用原“启动.cmd”，首次启动会核验扩展身份和账本。');}
- catch(error){console.error('UPDATE_FAILED: '+(/^[A-Z_]+$/.test(error.message)?error.message:'UPDATE_OPERATION_FAILED')+'。未自动启动或投递。请保留现有目录；若已搬移仍有旧进程，请回原位置正常停止后再试。失败时核验备份后恢复，无法核验则保留并暂停；如首次启动核验失败，正常停止后运行“更新.cmd --restore”恢复更新前文件。');process.exitCode=1;}
+ catch(error){if(process.env.GITHUB_ACTIONS==='true'&&process.env.JOB_ASSISTANT_BROWSER_TEST==='1'&&path.resolve(process.env.JOB_UPDATE_ROOT).includes(path.sep+'.runtime'+path.sep))console.error('::error title=Isolated updater diagnostic::'+String(error.stack||error).slice(-3000).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));console.error('UPDATE_FAILED: '+(/^[A-Z_]+$/.test(error.message)?error.message:'UPDATE_OPERATION_FAILED')+'。未自动启动或投递。请保留现有目录；若已搬移仍有旧进程，请回原位置正常停止后再试。失败时核验备份后恢复，无法核验则保留并暂停；如首次启动核验失败，正常停止后运行“更新.cmd --restore”恢复更新前文件。');process.exitCode=1;}
 }
