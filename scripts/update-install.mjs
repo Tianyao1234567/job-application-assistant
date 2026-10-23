@@ -65,7 +65,7 @@ export async function extensionOwner(root,oldRoot){
  if(!await exists(preferences)){assert(!(await exists(path.join(production,'Default/Local Extension Settings'))),'UPDATE_EXTENSION_OWNER');return null;}
  const prefs=[await json(preferences)];const secure=path.join(production,'Default/Secure Preferences');await noLinks(root,secure);if(await exists(secure))prefs.push(await json(secure));
  const current=await json(path.join(root,'autofill-extension/manifest.json'));
- const entries=[...new Map(prefs.flatMap(pref=>Object.entries(pref.extensions?.settings||{})).filter(([id,item])=>/^[a-p]{32}$/.test(id)&&typeof item.path==='string'&&path.basename(item.path)==='autofill-extension'&&item.manifest?.name===current.name&&item.manifest?.version===current.version&&(!oldRoot||[root,oldRoot].some(r=>equalPath(item.path,path.join(r,'autofill-extension')))))).entries()];
+ const entries=[...new Map(prefs.flatMap(pref=>Object.entries(pref.extensions?.settings||{})).filter(([id,item])=>/^[a-p]{32}$/.test(id)&&(!current.key||id===extensionId(current))&&typeof item.path==='string'&&path.basename(item.path)==='autofill-extension'&&item.manifest?.name===current.name&&item.manifest?.version===current.version&&(!oldRoot||[root,oldRoot].some(r=>equalPath(item.path,path.join(r,'autofill-extension')))))).entries()];
  assert(entries.length===1,'UPDATE_EXTENSION_OWNER');const [id,entry]=entries[0];
  assert(entry.manifest?.name===current.name&&entry.manifest?.version===current.version,'UPDATE_EXTENSION_OWNER');
  const storage=path.join(production,'Default/Local Extension Settings',id);await noLinks(root,storage);assert(await exists(storage),'UPDATE_EXTENSION_STORAGE_MISSING');await treeFiles(storage);

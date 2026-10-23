@@ -2,6 +2,7 @@
 // actual extension/storage/heartbeat, restart and the relevant failure paths.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import syncFS from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
@@ -18,7 +19,8 @@ const write=async(file,bytes)=>{await fs.mkdir(path.dirname(file),{recursive:tru
 function run(command,args,options={}){const result=spawnSync(command,args,{encoding:'utf8',timeout:120000,...options});if(result.error||result.status!==0)throw new Error('COMMAND_FAILED '+phase+' '+String(result.output?.join(' ')||'').slice(-2200));return result.stdout;}
 async function until(name,read,predicate,timeout=45000){const end=Date.now()+timeout;while(Date.now()<end){const value=await read();if(predicate(value))return value;await new Promise(r=>setTimeout(r,150));}throw new Error('WAIT '+name);}
 const cmd=(directory,name='更新.cmd')=>spawnSync(process.env.ComSpec||'cmd.exe',['/d','/s','/c','""'+path.join(directory,name)+'""'],{windowsVerbatimArguments:true,cwd:directory,env:{...process.env,JOB_ASSISTANT_NONINTERACTIVE:'1'},encoding:'utf8',timeout:180000,maxBuffer:2*1024*1024});
-function service(directory,entry){const output=run('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(root,'scripts/test-windows-browser.ps1'),'-CandidateRoot',directory,'-CommandOnly','-Entry',entry],{env:{...process.env,JOB_ASSISTANT_NONINTERACTIVE:'1',JOB_ASSISTANT_BROWSER_TEST:'1'}});const result=JSON.parse(output.trim());assert.equal(result.exitCode,0,'SERVICE_'+entry+' '+JSON.stringify(result.markers));return result;}
+let sequence=0;
+function service(directory,entry){const stem=path.join(parent,'helper-'+(++sequence)),out=syncFS.openSync(stem+'.stdout','w'),err=syncFS.openSync(stem+'.stderr','w');let reply;try{reply=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(root,'scripts/test-windows-browser.ps1'),'-CandidateRoot',directory,'-CommandOnly','-Entry',entry],{stdio:['ignore',out,err],timeout:100000,env:{...process.env,JOB_ASSISTANT_NONINTERACTIVE:'1',JOB_ASSISTANT_BROWSER_TEST:'1'}});}finally{syncFS.closeSync(out);syncFS.closeSync(err);}const output=syncFS.readFileSync(stem+'.stdout','utf8');assert.equal(reply.status,0,'SERVICE_HELPER '+entry+' '+output.slice(-1000));const result=JSON.parse(output.trim());assert.equal(result.exitCode,0,'SERVICE_'+entry+' '+JSON.stringify(result.markers));return result;}
 async function api(directory,route='/state',body){const key=(await fs.readFile(path.join(directory,'.runtime/data/local-key'),'utf8')).trim();const response=await fetch(BASE+'/api'+route,{method:body?'POST':'GET',headers:{'X-Local-Key':key,...(body?{Origin:BASE,'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});assert.equal(response.status,200);return response.json();}
 async function connect(directory){const require=createRequire(path.join(directory,'runtime-deps/package.json')),{chromium}=require('playwright');managed=await chromium.connectOverCDP('http://127.0.0.1:17323');const context=managed.contexts()[0];const runner=await until('runner',()=>Promise.resolve(context.pages().find(p=>/^chrome-extension:\/\/[a-p]{32}\/runner\/index.html$/.test(p.url()))),Boolean);return {context,runner};}
 async function installOld(source,index){
