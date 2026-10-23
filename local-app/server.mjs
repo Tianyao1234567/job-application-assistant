@@ -2,10 +2,11 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {createWindowsBrowserControl} from '../scripts/windows-browser-control.mjs';
 import {ROOT, initializePaths, insideRoot} from './paths.mjs';
 import {Store} from './model.mjs';
+import {extractResume} from './resume-import.mjs';
 import {createFixture} from './fixture.mjs';
 
 const extensionOrigin = /^chrome-extension:\/\/([a-p]{32})$/;
@@ -56,10 +57,13 @@ function keyMatches(actual, expected) {
 
 export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), port = 17321,
   fixturePort = 17322, startFixture = true, testMode = false, testKey, now,
-  browserOpen} = {}) {
+  browserOpen, browserClose} = {}) {
   const paths = initializePaths(dataDir), store = new Store(paths, now ? {now} : {});
+  const installation=path.join(paths.runtime,'installation.json');
+  if(fs.existsSync(installation)&&JSON.parse(fs.readFileSync(installation,'utf8')).migration?.pending){store.pause();store.save();}
   const key = localKey(paths.data);
-  let fixture, timer, browserProcess, closing, fixtureProbe, fixtureProbeCookie;
+  const managedBrowser = !testMode && process.platform === 'win32' && !browserOpen ? createWindowsBrowserControl() : undefined;
+  let fixture, timer, closing, fixtureProbe, fixtureProbeCookie;
   async function fixtureHealth() {
     const label = '虚构本地招聘测试站';
     if (!fixture) return {id: 'fixture', status: 'warning', label,
@@ -205,21 +209,29 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
       if (url.pathname === '/api/action') {
         if (body.action === 'browser-open') {
           if (testMode) throw new RequestError(409, '测试服务不启动生产浏览器');
+          if (closing) throw new RequestError(409, '后台正在停止，请等待停止完成');
           if (browserOpen) await browserOpen();
           else {
-            if (process.platform !== 'win32') throw new RequestError(409, '云端不启动生产浏览器；请使用隔离的托管浏览器检查');
-            if (!browserProcess || browserProcess.exitCode !== null) {
-              browserProcess = spawn(process.execPath, [path.join(ROOT, 'scripts/browser.mjs')], {cwd: ROOT, stdio: 'ignore'});
-              browserProcess.on('error', () => { browserProcess = null; });
-            }
+            if (!managedBrowser) throw new RequestError(409, '云端不启动生产浏览器；请使用隔离的托管浏览器检查');
+            await managedBrowser.open();
           }
-          json(res, 200, {ok: true}); return;
+          json(res, 200, {ok: true, ready: true}); return;
         }
         json(res, 200, store.action(body)); return;
       }
       if (url.pathname === '/api/settings') store.setSettings(body);
       else if (url.pathname === '/api/profile') store.setProfile(body);
-      else if (url.pathname === '/api/resume') store.setResume(body);
+      else if (url.pathname === '/api/resume' || url.pathname === '/api/resume/extract') {
+        if(url.pathname==='/api/resume')store.setResume(body);
+        const resume=store.state.resume;
+        if(!resume)throw new RequestError(400,'请先选择本机简历');
+        if(/\.pdf$/i.test(resume.name)){
+          const binding={sha256:resume.sha256,resumeVersion:resume.version,profileVersion:store.state.profile.version};
+          const result=await extractResume(fs.readFileSync(insideRoot(resume.file)),resume.sha256);
+          const extraction=store.saveResumeImport(result,binding);json(res,200,{ok:true,extraction});return;
+        }
+      }
+      else if(url.pathname==='/api/resume/confirm'){const result=store.confirmResumeImport(body);json(res,200,{ok:true,...result});return;}
       else throw new RequestError(404, '找不到管理接口');
       json(res, 200, {ok: true});
     } catch (error) {
@@ -236,9 +248,16 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
   } catch (error) { await fixture?.close(); throw error; }
   return {server, store, fixture, url: `http://127.0.0.1:${server.address().port}`, close() {
     if (!closing) closing = (async () => {
-      clearInterval(timer); store.state.paused = true; store.state.running = false; store.save();
+      clearInterval(timer);
+      // Stop creates the same durable hold as explicit pause. Re-closing an
+      // already held service must not keep revising unchanged queued tasks.
+      if (!store.state.manualPaused || !store.state.paused || store.state.running) store.pause();
+      store.save();
+      let browserError;
+      try {if (browserClose) await browserClose(); else await managedBrowser?.close();} catch (error) {browserError = error;}
       await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
       await fixture?.close();
+      if (browserError) throw browserError;
     })();
     return closing;
   }};

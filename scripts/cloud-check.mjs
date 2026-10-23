@@ -27,10 +27,10 @@ if(process.argv[2]==='container-browser'){
   }
 }else if(process.argv[2]==='browser'){
   if(process.env.GITHUB_ACTIONS!=='true' || process.platform!=='linux') throw new Error('Browser regression is limited to the Linux hosted Actions job.');
-  const selected={generic:'autofill-extension/tests/browser.mjs','ui-mocked':'autofill-extension/tests/ui.mjs',extension:'autofill-extension/tests/extension.mjs',workflow:'local-app/tests/workflow-browser.mjs','acceptance-a':'local-app/tests/acceptance-a-browser.mjs','acceptance-b':'local-app/tests/acceptance-b-browser.mjs','acceptance-c':'local-app/tests/acceptance-c-browser.mjs'}[process.env.CLOUD_BROWSER_CHECK];
+  const selected={generic:'autofill-extension/tests/browser.mjs','ui-mocked':'autofill-extension/tests/ui.mjs',extension:'autofill-extension/tests/extension.mjs',workflow:'local-app/tests/workflow-browser.mjs',greenhouse:'local-app/tests/greenhouse-production-browser.mjs','greenhouse-reference':'local-app/tests/greenhouse-upload-reference-browser.mjs','profile-import':'local-app/tests/profile-import-browser.mjs','acceptance-a':'local-app/tests/acceptance-a-browser.mjs','acceptance-b':'local-app/tests/acceptance-b-browser.mjs','acceptance-c':'local-app/tests/acceptance-c-browser.mjs'}[process.env.CLOUD_BROWSER_CHECK];
   if(!selected) throw new Error('Choose one supported browser regression.');
   // One child and one browser at a time. Only workflow covers the integrated local journey.
-  run([selected],process.env.CLOUD_BROWSER_CHECK.startsWith('acceptance-')?360_000:process.env.CLOUD_BROWSER_CHECK==='workflow'?240_000:120_000);
+  run([selected],process.env.CLOUD_BROWSER_CHECK.startsWith('acceptance-')?360_000:['workflow','greenhouse'].includes(process.env.CLOUD_BROWSER_CHECK)?240_000:120_000);
 }else{
   const excluded=new Set(['node_modules','.runtime','.git','test-results','test-results-001','playwright-report','coverage']);
   let checked=0;
@@ -48,6 +48,6 @@ if(process.argv[2]==='container-browser'){
       checked++;
     }
   }
-  for(const directory of ['autofill-extension','local-app','scripts']) await inspect(path.join(root,directory));
+  for(const directory of ['autofill-extension','local-app','scripts','runtime-deps']) await inspect(path.join(root,directory));
   console.log('Syntax/JSON files checked: '+checked+'. No browser or application server started.');
 }

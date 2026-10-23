@@ -1,6 +1,10 @@
 # v0.2.0 开发中快照
 
-状态：沿用 `dev/local-workflow-foundation` 和 WIP PR #4，待产品经理验收。开发、安装和自动测试在 Cloud 或 GitHub 托管 runner 执行，不使用用户电脑代跑。
+2026-10-22 PM-0011阶段：PR #5已有约80秒真实连续虚构站视频，run39635267114 / source dbc495e，完整目标POST/接收/回执各1，实际WebM开始播放验证；到期北京时间10/25 00:32。Mattermost官方招聘页→Greenhouse5381946008的27控件已观察，增强只读准备记录原题/选项/必填证据/限定scope，真实执行仍禁用。完整真实站填写/附件/恢复/提交回执未验证，继续分阶段开发；见DEV_REPORT_005与docs/REAL_ADAPTER_STAGE_001.md。Windows后台9+实际可见浏览器4的开发验证已通过、待PM复核，不能用下方历史“尚未验证”描述覆盖最新结果。无常驻公开后台，当前用户配合0项。
+
+2026-10-21 PM-0010接续：当前分支`dev/pm9-demo-windows-readiness` / PR #5继续draft。PM已接收candidate.1完整性、Windows后台9项及公开入口准备；F1已在托管Windows实际9+4通过，最终候选来源`a605bb1be89250a48a027e94134bf82c49d6debc`；F2新7图演示来源`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`，岗位资料与图05最终像素实际通过；F3完整URL已修复，第四范式只读逐项结果见`DEV_REPORT_005.md`及`docs/4PARADIGM_READONLY.md`。这是开发验证、待PM验收，不能替PM记录通过。众行机器人待确认、不追问、不阻塞；无需用户电脑安装或代跑。
+
+状态：PM-0009已验收`dev/local-workflow-foundation` / PR #4的云端虚构站最低闭环，交付head为`b6cfdee0bbded79010bb97866fd1ad538275270f`；PR #4仍draft、未合并。下一阶段从该head建立独立`dev/pm9-demo-windows-readiness`分支，准备演示、Windows候选与真实站只读方案。开发、安装和自动测试在Cloud或GitHub托管runner执行，不使用用户电脑代跑。
 
 本地 HTTP 后台、虚构招聘测试站和管理界面已实现。后台与测试站仅监听 loopback；管理台显示实际 API、扩展连接和任务状态。Manifest V3 扩展执行岗位发现、通用保护填写、多段经历、真实附件上传、缺答暂停与恢复、网站登录准备及结果核对。Windows 启停入口保留，尚未实际验收。
 
@@ -12,4 +16,6 @@ PM-0008后续A→B→C新增实际补证分别6/6、8/8、4/4通过，见`DEV_RE
 
 最新实际被测代码`3cb6de36da6cc597ecd69040e704ebc1cad5278a`：C组运行39389113681真实4/4；同SHA原12段必要回归39389485864真实12/12，3次HTTP申请/3份接收/3份回执，两项安全场景各0 POST、5个提交边界保留。两次均workflow_dispatch，157项基础测试通过；47源码/JSON检查另计。
 
-以上是开发分组交付，完整产品及16项仍待产品经理复核，PR #4保持draft/WIP。真实招聘网站、个人账号、真实申请和Windows生产浏览器仍未验证，未让用户电脑代跑。最新报告提交与实际被测代码提交分别列出，不以文档head代称另一SHA已通过浏览器。
+以上A/B/C及16项分层证据已由[PM-0009](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6291239731)接受，验收范围是云端虚构站。真实招聘网站、个人账号、真实申请和Windows可见浏览器仍未验证。下一阶段实际演示/候选包/Windows服务入口证据与最小配合清单见独立分支的DEV_REPORT_004；源码包校验、服务启停和可见浏览器安装分别报告，不以文档head代称另一SHA已通过浏览器。
+
+PM-0009下一阶段开发交付：PR #5，演示/只读调研实际源1118d9f、候选及Windows源17c3efd；7张真实截图与离线index、55文件候选源码包/摘要已生成，托管Windows实际9/9后台与入口检查通过、160基础测试通过。演示仅显式选择时短期上传，不进Git；默认普通测试不截图。Windows版本探测失败、测试I/O停滞取消和修复后的实际通过分别保留在DEV_REPORT_004。真实站入口未核实或访问受限时如实待确认，没有注册或提交；本轮成果待PM复核。

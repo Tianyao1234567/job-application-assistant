@@ -2,6 +2,7 @@ name: Cloud checks
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -15,20 +16,37 @@ on:
           - ui-mocked
           - extension
           - workflow
+          - greenhouse
+          - greenhouse-reference
+          - profile-import
+          - public-protocol
           - acceptance-a
           - acceptance-b
           - acceptance-c
+          - site-readiness
+          - source-package
+          - windows-candidate
+          - demo
+          - candidate
+          - windows-browser
+          - windows-update
+          - publish-update
+          - public-site-browser
+          - real-site-browser
+          - video
 
 permissions:
   contents: read
 
-# One workflow run for this project. needs below also serializes its two jobs.
+# Feature branches are checked through PRs to avoid duplicate push/PR runs.
+# One workflow run for this project; browser selections remain explicit.
 concurrency:
   group: cloud-checks-${{ github.repository }}
   cancel-in-progress: true
 
 jobs:
   source-and-unit:
+    if: ${{ github.event_name != 'workflow_dispatch' || !contains(fromJSON('["public-protocol","publish-update"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -42,6 +60,35 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Scope accepted Greenhouse reference rework
+        id: scope
+        env:
+          SELECTED_CHECK: ${{ inputs.browser }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          baseline='ff528ecb4535fc5d9d0d3ed75edf6485a9c923e0'
+          known=subprocess.run(['git','merge-base','--is-ancestor',baseline,'HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+          allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','.github/workflows/cloud-checks.yml','scripts/cloud-check.mjs','scripts/package-candidate.mjs','autofill-extension/greenhouse-receipts.js','autofill-extension/runner/runner.js','local-app/greenhouse.mjs','local-app/model.mjs','local-app/tests/greenhouse-receipts.test.mjs','local-app/tests/greenhouse-runner.test.mjs','local-app/tests/greenhouse-upload-reference-browser.mjs'}
+          files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',baseline,'HEAD'],text=True).splitlines() if known else []
+          focused=known and all(p in allowed or p.startswith('docs/GREENHOUSE_DELIVERY_') for p in files)
+          profile_baseline='3856a49a78852c4729a6be4d64f01f19acdcd1c3'
+          profile_known=subprocess.run(['git','merge-base','--is-ancestor',profile_baseline,'HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+          profile_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','补充运行依赖.cmd','.github/workflows/cloud-checks.yml','scripts/cloud-check.mjs','scripts/package-candidate.mjs','scripts/prepare-deps.mjs','autofill-extension/shared/schema.js','autofill-extension/shared/profile-facts.js','autofill-extension/runner/greenhouse-adapter.js','local-app/greenhouse.mjs','local-app/model.mjs','local-app/server.mjs','local-app/public/app.js','runtime-deps/package.json','runtime-deps/package-lock.json','local-app/pdf-worker.mjs','local-app/resume-import.mjs','local-app/profile-draft.mjs','local-app/tests/pdf-fixture.mjs','local-app/tests/pdf-import.test.mjs','local-app/tests/profile-answers.test.mjs','local-app/tests/profile-test-runtime.mjs','local-app/tests/profile-import-browser.mjs','local-app/tests/upgrade.test.mjs','local-app/tests/greenhouse-adapter.test.mjs'}
+          profile_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',profile_baseline,'HEAD'],text=True).splitlines() if profile_known else []
+          profile=profile_known and any(p in profile_files for p in ['local-app/resume-import.mjs','local-app/tests/pdf-import.test.mjs']) and all(p in profile_allowed or p.startswith('docs/GREENHOUSE_DELIVERY_') or p.startswith('docs/PROFILE_IMPORT_DELIVERY_') for p in profile_files)
+          update_baseline='38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac'
+          update_known=subprocess.run(['git','merge-base','--is-ancestor',update_baseline,'HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+          update_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','.github/workflows/cloud-checks.yml','scripts/package-candidate.mjs','scripts/package-update.mjs','scripts/update-install.mjs','scripts/test-windows-update.mjs','scripts/start.ps1','scripts/open-browser.ps1','scripts/browser.mjs','autofill-extension/manifest.json','autofill-extension/background.js','autofill-extension/runner/runner.js','autofill-extension/shared/migration.js','local-app/model.mjs','local-app/server.mjs','local-app/tests/update-install.test.mjs'}
+          update_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',update_baseline,'HEAD'],text=True).splitlines() if update_known else []
+          update=update_known and 'scripts/update-install.mjs' in update_files and all(p in update_allowed or p.startswith('docs/UPDATE_DELIVERY_') or p.startswith('docs/PROFILE_IMPORT_DELIVERY_') for p in update_files)
+          if os.environ.get('SELECTED_CHECK')=='windows-update' and not update: raise RuntimeError('Updater-only check includes changes outside approved scope')
+          if os.environ.get('SELECTED_CHECK')=='greenhouse-reference' and not focused: raise RuntimeError('Reference-only check includes changes outside its accepted scope')
+          if os.environ.get('SELECTED_CHECK')=='profile-import' and not profile: raise RuntimeError('PDF-only check includes changes outside its approved scope')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\nprofile='+str(profile).lower()+'\nupdate='+str(update).lower()+'\n')
+          print('PDF/batch/preserved-data upgrade only; reuse accepted Greenhouse evidence' if profile else 'Exact upload object rework only' if focused else 'General changed scope')
+          PY
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -51,13 +98,36 @@ jobs:
       - name: Check source syntax and JSON
         run: node scripts/cloud-check.mjs
       - name: Necessary schema and protection unit regressions
+        if: ${{ steps.scope.outputs.focused != 'true' && steps.scope.outputs.profile != 'true' && steps.scope.outputs.update != 'true' }}
         working-directory: autofill-extension
         run: npm test
+      - name: Install locked local PDF runtime for the changed flow
+        if: ${{ steps.scope.outputs.profile == 'true' }}
+        working-directory: runtime-deps
+        run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
       - name: Local application state, authentication, and actual fixture HTTP regressions
-        run: node --test local-app/tests/*.test.mjs
+        run: |
+          if [[ "${{ steps.scope.outputs.update }}" == true ]]; then
+            if node --test local-app/tests/update-install.test.mjs local-app/tests/package-candidate.test.mjs > .runtime/update-unit.log 2>&1; then
+              cat .runtime/update-unit.log
+            else
+              python3 -c 'from pathlib import Path; message=Path(".runtime/update-unit.log").read_text()[-3500:]; print("::error title=Updater targeted checks::"+message.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+              exit 1
+            fi
+          elif [[ "${{ steps.scope.outputs.profile }}" == true ]]; then
+            node --test local-app/tests/pdf-import.test.mjs local-app/tests/profile-answers.test.mjs local-app/tests/upgrade.test.mjs local-app/tests/package-candidate.test.mjs local-app/tests/dashboard.test.mjs
+            node --test --test-name-pattern='batch conflict evidence' local-app/tests/greenhouse-adapter.test.mjs
+            node --test --test-name-pattern='示例资料|拒绝未知|拒绝不正确|日期保留|未知值 null|稳定ID|自定义答案|手机号|中英文' autofill-extension/tests/unit.test.js
+          elif [[ "${{ steps.scope.outputs.focused }}" == true ]]; then
+            node --test local-app/tests/greenhouse-receipts.test.mjs local-app/tests/greenhouse-runner.test.mjs local-app/tests/runner-registration.test.mjs local-app/tests/package-candidate.test.mjs
+          elif [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.browser }}" == greenhouse ]]; then
+            node --test local-app/tests/greenhouse-*.test.mjs local-app/tests/runner-registration.test.mjs
+          else
+            node --test local-app/tests/*.test.mjs
+          fi
   browser:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser != 'none' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","greenhouse","greenhouse-reference","profile-import","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
@@ -82,6 +152,11 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
       CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
+      GREENHOUSE_REFERENCE_MODE: ${{ inputs.browser == 'greenhouse-reference' && 'extension' || '' }}
+      GREENHOUSE_BROWSER_MODE: ${{ inputs.browser == 'greenhouse' && 'extension' || '' }}
+      # Screenshots are opt-in only for this reviewed fictional demonstration.
+      CLOUD_DEMO_CAPTURE: ${{ inputs.browser == 'video' && 'reviewed-fictional-video' || (inputs.browser == 'demo' || inputs.browser == 'candidate') && 'reviewed-fictional' || '' }}
+      REAL_SITE_READONLY: ${{ (inputs.browser == 'public-site-browser' || inputs.browser == 'real-site-browser') && '1' || '' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -99,13 +174,312 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify and copy the image Chromium into checkout-local runtime
         run: node scripts/cloud-check.mjs container-browser
+      - name: Install only the new local PDF runtime
+        if: ${{ inputs.browser == 'profile-import' }}
+        working-directory: /workspace/runtime-deps
+        run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
       - name: Run the single selected browser regression
-        run: xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
+        run: |
+          if [[ "$CLOUD_BROWSER_CHECK" == demo || "$CLOUD_BROWSER_CHECK" == candidate ]]; then
+            xvfb-run --auto-servernum node local-app/tests/demo-browser.mjs
+          elif [[ "$CLOUD_BROWSER_CHECK" == public-site-browser ]]; then
+            xvfb-run --auto-servernum node local-app/tests/public-site-browser.mjs
+          elif [[ "$CLOUD_BROWSER_CHECK" == real-site-browser ]]; then
+            xvfb-run --auto-servernum node local-app/tests/real-site-browser.mjs
+          elif [[ "$CLOUD_BROWSER_CHECK" == video ]]; then
+            xvfb-run --auto-servernum node local-app/tests/demo-video.mjs
+          else
+            xvfb-run --auto-servernum node scripts/cloud-check.mjs browser
+          fi
       - name: Preserve fictional workflow evidence, including failures
-        if: ${{ always() && (inputs.browser == 'workflow' || startsWith(inputs.browser, 'acceptance-')) }}
+        if: ${{ always() && (inputs.browser == 'workflow' || inputs.browser == 'greenhouse' || inputs.browser == 'greenhouse-reference' || inputs.browser == 'profile-import' || startsWith(inputs.browser, 'acceptance-')) }}
         uses: actions/upload-artifact@v6
         with:
           name: fictional-workflow-evidence
           path: /workspace/.runtime/tests/evidence/*browser*.json
           if-no-files-found: warn
           retention-days: 7
+      - name: Preserve only reviewed fictional demonstration media
+        if: ${{ success() && (inputs.browser == 'demo' || inputs.browser == 'candidate') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-demo-reviewed
+          path: /workspace/.runtime/tests/evidence/demo-reviewed/
+          if-no-files-found: error
+          retention-days: 3
+      - name: Preserve bounded public browser observations
+        if: ${{ always() && (inputs.browser == 'public-site-browser' || inputs.browser == 'real-site-browser') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: public-browser-readonly
+          path: /workspace/.runtime/tests/evidence/*site-browser.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve reviewed continuous fictional recording
+        if: ${{ success() && inputs.browser == 'video' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-continuous-video
+          path: /workspace/.runtime/tests/evidence/demo-video-reviewed/
+          if-no-files-found: error
+          retention-days: 3
+
+  site-readiness:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.browser == 'site-readiness' || inputs.browser == 'candidate') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Read only public recruitment entry points
+        env:
+          SITE_RESEARCH_READONLY: '1'
+        run: node scripts/research-recruitment.mjs
+      - name: Preserve bounded public entry evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: public-site-readiness
+          path: .runtime/research/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  candidate-package:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser","greenhouse","greenhouse-reference","profile-import"]'), inputs.browser) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build and verify source-only candidate
+        run: node scripts/package-candidate.mjs build
+      - uses: actions/upload-artifact@v6
+        with:
+          name: source-candidate
+          path: .runtime/delivery/*
+          if-no-files-found: error
+          retention-days: 7
+
+  candidate-windows:
+    needs: candidate-package
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["windows-candidate","candidate","windows-browser"]'), inputs.browser) }}
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@v6
+        with:
+          name: source-candidate
+          path: .runtime/candidate-download
+      - name: Verify actual candidate and exercise Windows service scripts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateZip = @(Get-ChildItem -LiteralPath '.runtime/candidate-download' -Filter '*.zip' -Recurse)
+          if ($candidateZip.Count -ne 1) { throw 'Expected exactly one source candidate ZIP.' }
+          node scripts/package-candidate.mjs verify $candidateZip[0].FullName --source $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate source verification failed.' }
+          $extractRoot = Join-Path $PWD '.runtime/delivery/candidate smoke'
+          Expand-Archive -LiteralPath $candidateZip[0].FullName -DestinationPath $extractRoot
+          $candidateRoot = Join-Path $extractRoot 'job-application-assistant'
+          $manifest = Get-Content -LiteralPath (Join-Path $candidateRoot 'SOURCE.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          foreach ($file in $manifest.files) {
+            $actual = (Get-FileHash -LiteralPath (Join-Path $candidateRoot $file.path) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $file.sha256) { throw 'Native Windows extraction differs from the source manifest.' }
+          }
+          Write-Host '::notice title=Windows native ZIP extraction::All manifest files match after PowerShell Expand-Archive; visible browser installation is not tested.'
+          & scripts/test-windows-candidate.ps1 -CandidateRoot $candidateRoot
+      - name: Exercise the actual managed Windows browser through dashboard and CMD
+        if: ${{ inputs.browser == 'windows-browser' }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateRoot = Join-Path $PWD '.runtime/delivery/candidate smoke/job-application-assistant'
+          & scripts/test-windows-browser.ps1 -CandidateRoot $candidateRoot
+      - name: Preserve bounded Windows evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-candidate-evidence
+          path: |
+            .runtime/tests/evidence/windows-candidate.json
+            .runtime/tests/evidence/windows-browser.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  public-protocol:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser == 'public-protocol' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Read bounded public application modules with verified HTTPS
+        run: |
+          python3 - <<'PY'
+          import urllib.request, urllib.parse, re, pathlib, hashlib, json, gzip, base64
+          root=pathlib.Path('.runtime/public-source');root.mkdir(parents=True,exist_ok=True)
+          url='https://job-boards.greenhouse.io/mattermost/jobs/5381946008'
+          def get(url):
+              with urllib.request.urlopen(url,timeout=20) as r:
+                  data=r.read(1500001)
+                  if len(data)>1500000: raise RuntimeError('Public module budget exceeded')
+                  return data
+          html=get(url).decode()
+          # Anonymous public form metadata only; discard signing fields/tokens.
+          try:
+              meta=json.loads(get('https://boards.greenhouse.io/mattermost/jobs/5381946008/uncacheable_attributes/presigned_fields?fields%5B%5D=resume'))
+              print('::notice title=Public upload origin::'+json.dumps({'url':meta.get('url')}))
+          except Exception as error:
+              print('::notice title=Public upload origin::Unavailable '+type(error).__name__)
+
+          urls=re.findall(r'https://job-boards\.cdn\.greenhouse\.io/assets/[^"\s<>]+\.js',html)
+          queue=list(dict.fromkeys(u for u in urls if 'vendor-' not in u and 'manifest-' not in u));seen=set();records=[]
+          while queue and len(seen)<18:
+              target=queue.pop(0)
+              if target in seen: continue
+              seen.add(target)
+              parsed=urllib.parse.urlparse(target)
+              if parsed.scheme!='https' or parsed.netloc!='job-boards.cdn.greenhouse.io' or not re.fullmatch(r'/assets/[A-Za-z0-9_.$-]+\.js',parsed.path): raise RuntimeError('Unexpected public asset scope')
+              data=get(target);name=parsed.path.rsplit('/',1)[-1];(root/name).write_bytes(data)
+              records.append({'url':target,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
+              code=data.decode()
+              if name.startswith('entry.client-'):
+                  packed=base64.b64encode(gzip.compress(data)).decode()
+                  (root/'public-entry-parts.json').write_text(json.dumps([{'index':part//3500,'file':name,'sha256':hashlib.sha256(data).hexdigest(),'data':packed[part:part+3500]} for part in range(0,len(packed),3500)]))
+              for word in ['class Na']:
+                  start=0
+                  for index in range(2):
+                      position=code.find(word,start)
+                      if position<0: break
+                      snippet=code[max(0,position-220):position+2800]
+                      encoded=json.dumps({'file':name,'word':word,'code':snippet}).replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                      print('::notice title=Public protocol::'+encoded)
+                      start=position+len(word)
+
+              for relative in re.findall(r'["\'](\./[^"\']+\.js)["\']',data.decode()):
+                  if 'vendor-' not in relative: queue.append(urllib.parse.urljoin(target,relative))
+          (root/'sources.json').write_text(json.dumps(records,indent=2));print(json.dumps(records))
+          PY
+      - name: Preserve public module part group 1
+        run: |
+          python3 - <<'PY'
+          import json
+          parts=json.load(open('.runtime/public-source/public-entry-parts.json'))
+          for part in parts[0:10]: print('::notice title=Public module part::'+json.dumps(part))
+          PY
+      - name: Preserve public module part group 2
+        run: |
+          python3 - <<'PY'
+          import json
+          parts=json.load(open('.runtime/public-source/public-entry-parts.json'))
+          for part in parts[10:20]: print('::notice title=Public module part::'+json.dumps(part))
+          PY
+      - name: Preserve public module part group 3
+        run: |
+          python3 - <<'PY'
+          import json
+          parts=json.load(open('.runtime/public-source/public-entry-parts.json'))
+          for part in parts[20:30]: print('::notice title=Public module part::'+json.dumps(part))
+          PY
+      - uses: actions/upload-artifact@v6
+        with:
+          name: greenhouse-public-source
+          path: .runtime/public-source/
+          retention-days: 3
+
+  windows-update:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser == 'windows-update' }}
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      JOB_ASSISTANT_NONINTERACTIVE: '1'
+      JOB_ASSISTANT_BROWSER_TEST: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build the single updater and run only relocation acceptance
+        run: node scripts/test-windows-update.mjs
+      - name: Preserve the downloadable update file and bounded evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: single-file-update
+          path: |
+            .runtime/delivery/update-*/更新.cmd
+            .runtime/delivery/update-*/UPDATE.json
+            .runtime/tests/evidence/windows-update.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-update:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser == 'publish-update' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Rebuild only the exact Windows-tested update source
+        run: |
+          git checkout --detach ffc18124fb12405d395c6a5e28460d11a83ad80d
+          node scripts/package-update.mjs
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          folder=pathlib.Path('.runtime/delivery/update-ffc18124fb12')
+          report=json.loads((folder/'UPDATE.json').read_text())
+          data=(folder/'更新.cmd').read_bytes()
+          assert report['source']=='ffc18124fb12405d395c6a5e28460d11a83ad80d'
+          assert len(data)==report['bytes']==240077
+          assert hashlib.sha256(data).hexdigest()==report['sha256']=='305799c1baae7acec48f3d7cb0efe50c8a5d2329a24650a9607903004e6c2111'
+          (folder/'update.cmd').write_bytes(data)
+          report.pop('directory',None)
+          (folder/'UPDATE.json').write_text(json.dumps(report,indent=2)+'\n')
+          pathlib.Path('.runtime/update-release-notes.md').write_text('单文件更新候选，待Manager验收。兼容已知candidate.5/6；14项检查和两条实际Windows搬迁/真实扩展/再次启动场景通过。\n\n先在原位置正常停止；按需整体搬迁并保留隐藏.runtime及全部依赖，再将一个更新.cmd放到实际启动.cmd同级双击。看到UPDATE_COMPLETE后由用户正常启动。保留资料、答案、附件、提交账本和原浏览器，unknown不重投；首次真实申请仍需本人确认。\n\n来源：'+report['source']+'\n\n240077字节；SHA-256：'+report['sha256']+'\n\n[验证与限制](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/UPDATE_DELIVERY_001.md) · [操作与恢复](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/UPGRADE_001.md)\n')
+          PY
+      - name: Publish the verified single-file download
+        run: |
+          if gh release upload v0.2.0-candidate.7-update '.runtime/delivery/update-ffc18124fb12/update.cmd' '.runtime/delivery/update-ffc18124fb12/UPDATE.json' > .runtime/update-publish.log 2>&1; then
+            cat .runtime/update-publish.log
+          else
+            python3 -c 'from pathlib import Path; message=Path(".runtime/update-publish.log").read_text()[-2500:]; print("::error title=Verified update upload::"+message.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
+          gh api repos/Tianyao1234567/job-application-assistant/releases/tags/v0.2.0-candidate.7-update --jq '{html_url,target_commitish,assets:[.assets[]|{name,size,digest,browser_download_url}]}'

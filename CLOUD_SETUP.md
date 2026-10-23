@@ -6,7 +6,7 @@
 
 `.github/workflows/cloud-checks.yml` 使用 GitHub 托管的 `ubuntu-24.04`、Node.js 24，每个仓库同一时刻仅一个工作流运行，后来的运行取消旧运行；每个作业最长 10 分钟，基础检查与按需浏览器作业依次执行。没有 self-hosted runner、测试矩阵、真实账号、生产会话或用户资料。仓库令牌只有读取代码权限，不持久化到 checkout。
 
-push 和 PR 默认仅执行以下必要检查，不安装测试依赖、不下载浏览器：
+main 的push及开发分支的PR默认仅执行以下必要检查，不安装测试依赖、不下载浏览器。开发分支已有PR时只保留PR事件，避免同一次提交的push/PR互相取消占用队列；未建PR的分支可显式调度browser=none：
 
 ```sh
 node scripts/cloud-check.mjs
@@ -28,7 +28,7 @@ node local-app/server.mjs --data-dir .runtime/dev-data
 
 后台仅监听 `127.0.0.1:17321`，虚构招聘测试站监听 `127.0.0.1:17322`；Ctrl+C 同时关闭服务，数据保留。配对密钥在数据目录内生成，不写进版本库或日志。`/` 应返回包含配对 meta 的后台 HTML；未经配对的 `/api/state` 必须返回 401。这不代表插件已连接。后台显示实际连接和任务状态；演示资料只能显式初始化到没有任务的新数据目录。
 
-云端自动化浏览器仅使用 GitHub 托管 Actions 的隔离 profile；不要启动或清空 `.runtime/browser/production` 来跑测试。Windows 原有启动入口保留给未来本机验收，本轮没有在 Windows 执行验证。真实网站仍待适配。
+云端自动化浏览器仅使用 GitHub 托管 Actions 的隔离 profile；不要启动或清空 `.runtime/browser/production` 来跑测试。Windows入口的实际后台/浏览器结果以DEV_REPORT_005分层记录；托管测试只使用隔离候选副本。真实网站仍待适配。
 
 ## 按需的一项浏览器回归
 
@@ -55,7 +55,7 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 
 完成仓库连接后，在 Codex 的云端工作入口选择该仓库和分支，并记录真实云端任务入口、提交及运行结果。Windows 启停脚本只保留为将来本机验收入口，Linux 云端不调用 PowerShell、Win32_Process 或 node.exe。不能因为 GitHub 已有代码就声称本机对话已变成云端任务。Codex Cloud 连接操作由迁移负责人按当前实际可用界面核实。
 
-真实 Windows 插件安装、可见执行浏览器、本人登录与真实网站行为仍待按需本机验收。真实投递运行地点没有随开发迁移自动改变。
+本人Windows现场、本人登录与真实网站行为仍待按需由PM组织轻量验收，不能由托管Windows结果代称。真实投递运行地点没有随开发迁移自动改变。
 
 ## 配置依据
 
@@ -63,8 +63,29 @@ gh workflow run cloud-checks.yml --repo Tianyao1234567/job-application-assistant
 
 ## PM-0008 分组补证
 
+本节为PM-0009已接受的云端虚构站基线；不重复扩大同类测试。下一阶段独立分支及演示/候选/Windows/真实站准备见DEV_REPORT_004，PR #4保持未合并状态。
+
 `browser=acceptance-a` 在同一固定镜像中串行运行真实隔离profile的登录/身份/会话补证，脚本为`local-app/tests/acceptance-a-browser.mjs`。不扩展原12段脚本，不在本机下载或运行浏览器。每组300秒上限，共享仓库并发限制和10分钟作业上限；最终字段受限Checks汇总与`acceptance-a-browser.json`提供独立证据。最新被测SHA、运行与其他组状态见`DEV_REPORT_003.md`。
 
 `browser=acceptance-b` 单独运行`local-app/tests/acceptance-b-browser.mjs`的真实保护负例，限制与A组相同。输出只包含固定场景/布尔事实/计数，不包含scan原始数据、答案、凭据或人工原值；独立可控未适配端统计所有请求，原生申请HTTP计数在fixture来源检查之外观察。最终结果保存`acceptance-b-browser.json`并提供Checks汇总。
 
 `browser=acceptance-c` 单独运行`local-app/tests/acceptance-c-browser.mjs`，覆盖进行中后台/申请页刷新、原生提交结果页实际GET刷新、runner/profile/服务重启、整站跳过恢复与其他站继续。保存`acceptance-c-browser.json`。执行结束关闭浏览器/服务后仅删除本次隔离子目录，并验证目录消失；默认不保存截图/录像。公开JSON递归过滤私有字段、编码前擦除已知key/profile身份及注册的虚构凭据/Cookie/完整资料标记，保存后回读检查。公开Checks只给出布尔审计结果和受限事实，不上传原始profile或目录。
+
+## PM-0009 独立交付选择
+
+同一Cloud checks工作流在已验收head派生的独立分支上提供以下显式手动选择，普通push/PR仍只做源码和必要Node检查，默认不截图、录像或调研外网。
+
+- `browser=demo`：固定Linux镜像中实际加载扩展，明确的虚构演示，最多一个浏览器实例；仅成功审查后上传精简PNG、离线index和manifest到独立`fictional-demo-reviewed` artifact，保留3天。默认测试行为不变。
+- `browser=source-package`：从明确Git allowlist构建候选ZIP、SOURCE和校验文件并回读验证，artifact保留7天；不打入运行数据或依赖。
+- `browser=windows-candidate`：构建同SHA候选包，然后在GitHub托管Windows runner通过原生Expand-Archive和逐项摘要验证，再实际执行受控副本中的CMD/PowerShell后台检查，证据保留7天。它不安装或启动可见浏览器。
+- `browser=site-readiness`：托管Linux上受限公开GET调研，带超时、响应大小和并发限制，不登录、不注册、不投递；来源身份、ATS空壳、重定向或失败须另行人工解释，HTTP200不自动算核实。
+- `browser=candidate`：同次有界任务组合上述交付；仅演示子任务会开浏览器。各结果和未执行/skipped作业仍分别报告。
+
+新候选运行依赖单独放`runtime-deps`，只锁定Playwright 1.58.2；源码/JSON检查也覆盖该目录。开发测试仍用完整Git checkout的原依赖。用户当前无需运行本机安装/测试。
+
+
+## PM-0010新增显式选择
+
+`browser=windows-browser`从本轮源码候选包在GitHub托管Windows安装锁定运行依赖/Chromium，实际验证管理台与CMD共用的可见执行浏览器、扩展连接与停止重启；不会使用用户电脑。初始无扩展UI控制浏览器仅用于点击真实管理台，响应就绪后立即关闭；仅一个浏览器执行扩展。`browser=public-site-browser`在托管Linux使用单个隔离浏览器，只读观察官网实际出链与公开页面，方法拦截限制须与外部限制分开报告。实际通过与失败以DEV_REPORT_005和对应源码/运行记录为准。
+
+PM-0011显式选项：`browser=video`在同一锁定镜像内使用已有官方ffmpeg和实际扩展浏览器，生成单段连续虚构流程WebM；编码前审查JPEG源帧，完成文件在Chromium验证开始播放，仅成功才上传`fictional-continuous-video`、保留3天。`browser=real-site-browser`单匿名浏览器沿官方实际出链读取公开岗位/空白表单，GET/HEAD之外全部阻止；Greenhouse准备记录保存实际原题/选项/必填证据/版本，生产执行仍禁用，证据`public-browser-readonly`保留7天。两个选项分别手动调度，先等自动PR检查结束，不在同一全局并发组中互相取消。普通CI不启动浏览器或媒体捕获，不安装用户电脑依赖。

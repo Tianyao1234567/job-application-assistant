@@ -1,6 +1,6 @@
 # Project collaboration rules
 
-The developer implements, tests, fixes and delivers. The product manager owns requirements, delivery review and acceptance. User instructions take priority. The user permits this source repository to be public; this does not authorize uploading personal data.
+Start with [HANDOFF.md](HANDOFF.md), the unified entry point on the effective development branch. There are only two roles: Engineer implements, tests, fixes and delivers; Manager owns requirements, tasks, delivery review and acceptance. Accounts may alternate roles; normally one Manager + Engineer pair owns the current work. User instructions take priority. The user permits this source repository to be public; this does not authorize uploading personal data.
 
 ## Work location and data
 
@@ -11,12 +11,15 @@ The developer implements, tests, fixes and delivers. The product manager owns re
 
 ## Collaboration
 
-- Read `GITHUB_MIGRATION_STATUS.md` for the verified collaboration Issue. At the start, at important stage changes and before ending, read its latest comments and referenced tasks. Until an Issue exists, do not invent one or claim remote handoff is complete.
-- Use PM-xxxx and DEV-xxxx identifiers. Append only your own real conclusions; do not rewrite the other party's history or impersonate them.
-- Deliver code through branches and PRs. Include commit SHA, actual test results, links, failures and unverified items. Developers mark delivery as pending acceptance; only the product manager records acceptance.
-- Issue comments do not automatically wake another conversation unless a trigger has actually been configured and verified. Do not claim another party read or accepted a message without evidence.
-- Source upload, remote development execution, automated CI and real application execution are separate milestones. Report each honestly.
+- Read `HANDOFF.md` first, then the latest relevant Issue/PR and referenced requirements as needed. GitHub is the shared source; do not scan the user's local project or reread all history each turn. PR #5 inherits unmerged PR #4; use the effective branch named in HANDOFF, not old main.
+- Confirm the current owner and execution status before taking over. Engineers need an explicit task, branch, acceptance criteria and execution authority. If the previous writer may still be active, resolve ownership before branch writes; do not overwrite their work.
+- Preserve original task requirements in the existing Issue/PR. At meaningful progress or handoff, push code and record completed work, branch/SHA, actual validation, remaining work/blockers and next action. Resume from the last verified pushed checkpoint; unpushed work may be unrecoverable.
+- Update shared state only for substantive progress, decisions or handoff, not every chat reply. Role + linked task/comment identifies work; historical PM/DEV identifiers remain valid but no global counter or A/B roles are required.
+- Deliver through branches/PRs with actual evidence and unverified items. Engineer delivery is pending acceptance; Manager records acceptance. Do not merge PR #4/#5 without explicit authorization.
+- Issue comments do not automatically wake another conversation. Do not claim another party read, accepted or stopped work without evidence; accounts do not share chat memory, credentials or workspaces.
+- Follow HANDOFF's user-teaching and personal acceptance rules: provide a usable installation/start/access route before inviting use; first real application requires the user's confirmation of the job, profile, attachment and submission action. Prefer direct user observation over default recordings/demo packages.
+- The user's latest instructions and HANDOFF's current coordination rules supersede conflicting legacy handoff/role/display instructions. Source upload, cloud development, automated CI and real application execution remain separate milestones.
 
 ## Implementation priorities
 
-Read `SPEC.md`, `DEVELOPMENT_SNAPSHOT.md`, `local-app/CONTRACT.md` and the current collaboration Issue. Preserve profile validation, original-value protection and structure checks. Never fabricate application answers or completion logs. Persist the submission boundary before clicking submit; an unknown result must never be automatically resubmitted.
+Prioritize the first real-site end-to-end application flow. Read the task's necessary references via HANDOFF, including `SPEC.md` and `local-app/CONTRACT.md`. Reuse valid unaffected evidence; run necessary checks for actual changes, defer nonblocking bugs/polish, and do not expand acceptance criteria without an explicit scope change. Preserve profile validation, original-value protection and structure checks. Never fabricate application answers or completion logs. Persist the submission boundary before clicking submit; an unknown result must never be automatically resubmitted.

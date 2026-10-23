@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {ROOT, insideRoot} from './paths.mjs';
+import {importedCandidates,applyProfileDraft,profileValue,setProfileValue} from './profile-draft.mjs';
+import {stableProfileKey,profileFactAnswer} from '../autofill-extension/shared/profile-facts.js';
 import {emptyProfile, validateProfile, flattenProfile} from '../autofill-extension/shared/schema.js';
+import {isGreenhouse,greenhouseReplay,greenhouseJob,validateGreenhouseSite,greenhouseQuestion,greenhouseAnswer,validNetworkReceipt} from './greenhouse.mjs';
 
 export const VERSION = '0.2.0';
 export const DASHBOARD = 'http://127.0.0.1:17321';
@@ -11,7 +14,8 @@ const terminal = new Set(['submitted','unknown','failed','skipped','cancelled'])
 const uid = () => crypto.randomUUID();
 const clone = x => structuredClone(x);
 const short = (x, max = 200) => typeof x === 'string' ? x.trim().slice(0, max) : '';
-const sameTarget = (a,b) => !!a&&!!b&&['origin','tenant','expectedAccount','adapter','mode'].every(key=>a[key]===b[key]);
+const sameTarget = (a,b) => !!a&&!!b&&['origin','tenant','expectedAccount','adapter','mode','company'].every(key=>a[key]===b[key]);
+const supportedSite = site => site?.adapter==='local-v1'||isGreenhouse(site);
 const sameClient = (a,b) => !!a&&!!b&&['clientId','profileId','extensionId'].every(key=>a[key]===b[key]);
 const resumable = new Set(['paused','waiting_user','failed','skipped']);
 const submissionSteps = new Set(['提交阶段已记录','提交回执未确认','已核对接收记录','核对接收结果']);
@@ -37,6 +41,7 @@ function validateSite(site) {
   if (!/^https?:/.test(origin) || new URL(site.origin).username || new URL(site.origin).password) throw new Error('网站地址不正确');
   const supported = origin===FIXTURE && site.adapter==='local-v1' && ['alpha','beta'].includes(site.tenant);
   const result = {id:site.id,name:short(site.name),origin,tenant:short(site.tenant || 'default',64),expectedAccount:short(site.expectedAccount,80),adapter:supported?'local-v1':'unsupported',mode:supported?'demo':'real',enabled:site.enabled===true,skipped:site.skipped===true};
+  if(isGreenhouse(site))Object.assign(result,validateGreenhouseSite(site,origin,FIXTURE));
   if (!result.name || !result.expectedAccount) throw new Error('请填写网站名称和申请账号标识');
   for (const key of ['listUrl','loginUrl']) {
     const value = short(site[key],2000);
@@ -87,6 +92,101 @@ export class Store {
   canResumeTask(t){return resumable.has(t.status)&&!this.hasSubmissionBoundary(t);}
   canVerifyTask(t){return t.status!=='submitting'&&this.hasSubmissionBoundary(t);}
   invalidateTask(t){t.revision=(t.revision||0)+1;if(!terminal.has(t.status)&&t.status!=='submitting')t.phase='inspect';}
+  confirmedTask(t){
+    const site=this.site(t.siteId),c=t.confirmation,email=t.profileSnapshot?.data?.personal?.email;
+    const applicantMatches=email?.confirmed===true&&[email.zh,email.en].some(value=>typeof value==='string'&&value.trim().toLowerCase()===site.expectedAccount);
+    return isGreenhouse(site)&&applicantMatches&&!!c&&c.submitConfirmed===true&&c.jobId===t.jobId&&c.url===t.url&&c.company===site.company&&c.expectedAccount===site.expectedAccount&&c.profileVersion===this.state.profile.version&&c.resumeVersion===this.state.resume?.version&&c.resumeSha256===this.state.resume?.sha256&&c.profileId===t.executionProfileId&&c.profileId===this.connection?.profileId&&t.profileVersion===c.profileVersion&&t.resumeVersion===c.resumeVersion&&t.profileSnapshot?.mode===site.mode&&t.resumeSnapshot?.mode===site.mode;
+  }
+  confirmTask(t,body){
+    const site=this.site(t.siteId);
+    if(!isGreenhouse(site)||this.hasSubmissionBoundary(t))throw new Error('该任务不能重新确认投递；已进入提交阶段时只能核对结果');
+    if(body.submitConfirmed!==true||body.jobId!==t.jobId||body.profileVersion!==this.state.profile.version||body.resumeVersion!==this.state.resume?.version||body.profileId!==this.connection?.profileId||!body.profileId||!this.lastSeen||this.clock()-this.lastSeen>=6000)throw new Error('请在执行浏览器已连接时，明确确认当前岗位、资料版本、附件版本及提交动作');
+    if(t.executionProfileId&&t.executionProfileId!==body.profileId)throw new Error('必须返回原执行浏览器配置恢复同一任务，不能切换执行 profile');
+    const profile=this.state.profile,email=profile.data.personal.email;
+    if(!profile.version||!this.state.resume||profile.mode!==site.mode||this.state.resume.mode!==site.mode||!email?.confirmed||![email.zh,email.en].some(value=>typeof value==='string'&&value.trim().toLowerCase()===site.expectedAccount))throw new Error('申请邮箱、资料和附件必须经本人确认，且与网站账号及运行模式一致');
+    this.invalidateTask(t);this.resolveTask(t);
+    const versionsChanged=t.profileVersion!==profile.version||t.resumeVersion!==this.state.resume.version;
+    t.executionProfileId=body.profileId;t.profileSnapshot=clone(profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=profile.version;t.resumeVersion=this.state.resume.version;
+    if(versionsChanged){const keep=t.answerSupplement?.profileVersion===profile.version&&t.answerSupplement?.resumeVersion===this.state.resume.version?new Set(t.answerSupplement.scopes):new Set();delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).filter(([scope])=>keep.has(scope)));t.questions=[];}delete t.answerSupplement;
+    t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,submitConfirmed:true,confirmedAt:this.now()};
+    t.status='queued';t.phase='inspect';this.step(t,'本人已确认此次申请',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；填写前仍重新核对原值、结构和岗位。`);
+  }
+  holdConfirmation(t){
+    t.status='waiting_user';t.phase='inspect';
+    this.issue(t,'confirmation','申请确认或版本已变化','请返回原执行浏览器，重新核对当前岗位、资料、附件及提交动作。未继续填写、上传或提交。');
+  }
+  invalidateGreenhouseVersions(){
+    for(const t of this.state.tasks)if(isGreenhouse(this.site(t.siteId))&&t.confirmation&&!this.hasSubmissionBoundary(t)&&(t.profileVersion!==this.state.profile.version||t.resumeVersion!==this.state.resume?.version)){this.invalidateTask(t);this.holdConfirmation(t);}
+  }
+  applicableAnswer(t,q){
+    if(!this.validQuestion(t,q))return null;
+    const site=this.site(t.siteId),own=t.answers?.[q.scope],memory=this.state.answers.find(a=>a.siteId===site.id&&a.scope===q.scope&&a.confirmed===true);
+    for(const candidate of [own,memory])if(candidate&&['scope','version','text','source','purpose'].every(key=>candidate[key]===q[key])&&(!q.alreadyPopulated||q.currentValue===candidate.value||q.manualSelection&&q.options?.length===1&&q.options[0].text===candidate.value)){try{return greenhouseAnswer(q,candidate.value);}catch{}}
+    const fact=profileFactAnswer(q,t.profileSnapshot?.data||this.state.profile.data);
+    if(fact!==null){try{return greenhouseAnswer(q,fact);}catch{}}
+    return null;
+  }
+  answerBatch(t){
+    const site=this.site(t.siteId),questions=isGreenhouse(site)?(t.questions||[]).filter(q=>this.applicableAnswer(t,q)===null):t.question&&!t.answer?[t.question]:[];
+    return {version:hash(Buffer.from(JSON.stringify({questions,layout:t.layout,revision:t.revision,profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version}))),questions:questions.map(q=>({...clone(q),profileKey:stableProfileKey(q),existingFact:stableProfileKey(q)?clone(profileValue(this.state.profile.data,stableProfileKey(q))||null):null}))};
+  }
+  selectGreenhouseQuestion(t){
+    t.question=t.questions?.[0]||null;delete t.answer;
+    if(!t.question){t.phase='preflight';return;}
+    const q=t.question,value=this.applicableAnswer(t,q);
+    if(value!==null){t.answer={...q,value,confirmed:true};t.answers ||= {};t.answers[q.scope]=clone(t.answer);t.phase='answer';return;}
+    t.status='waiting_answer';this.issue(t,'answer','集中补充当前申请缺项',q.text,q);this.step(t,'等待补充答案','当前已收集缺项将在待处理清单中集中展示。');
+  }
+  saveAnswerBatch(t,body){
+    if(t.status!=='waiting_answer'||this.hasSubmissionBoundary(t))throw new Error('本任务当前不能保存缺项答案；已提交阶段只允许核对结果');
+    const batch=this.answerBatch(t),site=this.site(t.siteId);
+    if(body.batchVersion!==batch.version||!Array.isArray(body.answers)||body.answers.length!==batch.questions.length||new Set(body.answers.map(a=>a.scope)).size!==body.answers.length)throw new Error('原题、选项、资料或缺项清单已变化，请核对后整批保存');
+    const checked=body.answers.map(input=>{
+      const q=batch.questions.find(q=>q.scope===input.scope);
+      if(!q||input.version!==q.version||!this.validQuestion(t,q)||!['task','scope','profile'].includes(input.save))throw new Error('问题版本或保存用途不适用，尚未保存任何答案');
+      const value=isGreenhouse(site)?greenhouseAnswer(q,input.answer):short(input.answer,5000);
+      if(!value)throw new Error('当前申请缺项不能为空');
+      const profileKey=stableProfileKey(q);
+      if(input.save==='profile'&&!profileKey)throw new Error('该问题不属于可跨岗位复用的稳定个人事实');
+      return {q,value,input,profileKey};
+    });
+    const profile=clone(this.state.profile.data);let changed=false;
+    for(const {q,value,input,profileKey}of checked)if(input.save==='profile'){
+      const old=profileValue(profile,profileKey),oldValue=old?.zh||old?.en;
+      if(old?.confirmed&&oldValue&&oldValue!==value&&input.replace!==true)throw new Error('稳定事实与原已确认资料冲突，必须明确选择替换；整批未保存');
+      if(!old?.confirmed||oldValue!==value){setProfileValue(profile,profileKey,{zh:value,en:oldValue===value?old?.en||null:null,confirmed:true,source:('本人补答：'+q.text).slice(0,200)});changed=true;}
+    }
+    validateProfile(profile);
+    if(changed&&this.state.profile.mode==='real'&&Object.values(profile.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
+    t.answers ||= {};
+    for(const {q,value,input}of checked){
+      const answer={...q,value,confirmed:true};delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
+      if(!isGreenhouse(site))t.answer=answer;
+      if(input.save==='scope'){this.state.answers=this.state.answers.filter(a=>!(a.scope===q.scope&&a.siteId===site.id));this.state.answers.push({...clone(answer),siteId:site.id,confirmedAt:this.now()});}
+    }
+    this.invalidateTask(t);this.resolveTask(t);t.status='queued';t.phase='inspect';
+    if(changed){
+      this.state.profile={...this.state.profile,data:profile,version:this.state.profile.version+1,updatedAt:this.now()};
+      const scopes=Object.values(t.answers).filter(answer=>answer.confirmed===true&&this.validQuestion(t,answer)&&(!stableProfileKey(answer)||profileValue(profile,stableProfileKey(answer))?.zh===answer.value)).map(answer=>answer.scope);
+      t.answerSupplement={profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version,scopes};
+      this.invalidateGreenhouseVersions();
+    }
+    this.step(t,'已集中保存缺项答案','稳定事实按明确选择维护资料；其他答案仅用于已展示的任务或原题范围。资料版本变化仍需核对本次申请，已答内容保留。');
+    return {saved:checked.length,profileChanged:changed,needsConfirmation:isGreenhouse(site)&&!this.confirmedTask(t)};
+  }
+  editMemory(body){
+    const index=this.state.answers.findIndex(a=>a.scope===body.scope);if(index<0)throw new Error('找不到这条限定用途的已记住答案');
+    const stored=this.state.answers[index];
+    if(body.action==='memory-revoke')this.state.answers.splice(index,1);
+    else{
+      const site=this.site(stored.siteId),task={jobId:stored.scope.split(':')[2],url:stored.source};
+      if(isGreenhouse(site)&&!greenhouseQuestion(site,task,stored))throw new Error('原题或限定用途已变化，不能修改这条答案');
+      stored.value=isGreenhouse(site)?greenhouseAnswer(stored,body.answer):short(body.answer,5000);if(!stored.value)throw new Error('答案不能为空');stored.confirmed=true;stored.confirmedAt=this.now();
+    }
+    // Revocation/edit applies to resumed tasks as well, without touching fields
+    // the user already entered on the website. Their next step is inspection.
+    for(const t of this.state.tasks)if(!this.hasSubmissionBoundary(t)&&(t.answer?.scope===stored.scope||t.answers?.[stored.scope])){if(t.answer?.scope===stored.scope)delete t.answer;if(t.answers)delete t.answers[stored.scope];this.invalidateTask(t);if(t.status==='running')t.status='queued';}
+  }
   pause(){this.state.paused=true;this.state.running=false;this.state.manualPaused=true;for(const t of this.state.tasks)if(['queued','running'].includes(t.status)){this.invalidateTask(t);t.status='queued';}}
   readiness(){
     const s=this.state,missing=[];
@@ -97,17 +197,17 @@ export class Store {
     for(const field of ['name','email','phone'])if(!s.profile.data.personal[field]?.confirmed||!s.profile.data.personal[field]?.zh)missing.push(`请确认${{name:'姓名',email:'邮箱',phone:'手机'}[field]}`);
     if(!s.resume)missing.push('请选择简历文件');
     if(s.profile.mode!==s.settings.mode||s.resume&&s.resume.mode!==s.settings.mode)missing.push('资料、简历与当前运行模式不一致');
-    if(!s.sites.some(site=>site.enabled&&site.mode===s.settings.mode&&site.adapter==='local-v1'))missing.push(s.settings.mode==='real'?'真实网站尚待适配，本轮不能执行真实投递':'请启用本地测试站');
+    if(!s.sites.some(site=>site.enabled&&site.mode===s.settings.mode&&supportedSite(site)))missing.push(s.settings.mode==='real'?'请配置已适配并固定公司范围的招聘网站':'请启用本地测试站');
     return missing;
   }
   snapshot(){
     const s=clone(this.state),connected=this.clock()-this.lastSeen<6000&&this.lastSeen>0;
-    for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;}
+    for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));if(t.status==='waiting_answer')t.answerBatch=this.answerBatch(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
     const decision=scheduleDecision(s.settings,s.lastSchedule,this.clock());
     let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
     const stats={demo:{submitted:0,today:0},real:{submitted:0,today:0}};
     for(const t of s.tasks){if(t.status==='submitted'){stats[t.mode].submitted++;if(this.day(t.submittedAt)===decision.day)stats[t.mode].today++;}}
-    return {...s,now:this.now(),connection:{connected,lastSeen:this.lastSeen?new Date(this.lastSeen).toISOString():null,profileId:this.connection?.profileId||null},nextRun,readiness:this.readiness(),stats};
+    return {...s,now:this.now(),connection:{connected,lastSeen:this.lastSeen?new Date(this.lastSeen).toISOString():null,profileId:this.connection?.profileId||null,extensionId:this.connection?.extensionId||null},nextRun,readiness:this.readiness(),stats};
   }
   day(at=this.now()){return scheduleDecision({scheduleEnabled:false},null,new Date(at).getTime()).day;}
   setSettings({settings,sites}){
@@ -126,7 +226,7 @@ export class Store {
   setProfile({data,mode,confirmed}){
     if(confirmed!==true||!['demo','real'].includes(mode))throw new Error('请先确认资料及用途');
     const validated=validateProfile(data);if(mode==='real'&&Object.values(validated.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
-    this.state.profile={version:this.state.profile.version+1,data:validated,mode,updatedAt:this.now()};this.save();
+    this.state.profile={version:this.state.profile.version+1,data:validated,mode,updatedAt:this.now()};this.invalidateGreenhouseVersions();this.save();
   }
   setResume({name,mime,base64,mode}){
     name=short(name,150);if(!name||!['demo','real'].includes(mode)||typeof base64!=='string'||base64.length>11500000||!/^[\w+/=\s]+$/.test(base64))throw new Error('请选择8MB以内的有效简历文件');
@@ -134,7 +234,21 @@ export class Store {
     if(mode==='real'&&/测试|demo|fictional/i.test(name))throw new Error('测试简历不能用于真实投递');
     const bytes=Buffer.from(base64,'base64');if(!bytes.length||bytes.length>8*1024*1024)throw new Error('简历文件为空或超过8MB');
     const sha256=hash(bytes),dir=insideRoot(path.join(this.paths.data,'resumes'));fs.mkdirSync(dir,{recursive:true});const file=insideRoot(path.join(dir,sha256+'.bin'));fs.writeFileSync(file,bytes);
-    this.state.resume={version:(this.state.resume?.version||0)+1,name:path.basename(name.replaceAll('\\','/')),mime:short(mime,100)||'application/octet-stream',size:bytes.length,sha256,mode,file,updatedAt:this.now()};this.save();
+    this.state.resumeImport=null;
+    this.state.resume={version:(this.state.resume?.version||0)+1,name:path.basename(name.replaceAll('\\','/')),mime:short(mime,100)||'application/octet-stream',size:bytes.length,sha256,mode,file,updatedAt:this.now()};this.invalidateGreenhouseVersions();this.save();
+  }
+  saveResumeImport(result,binding){
+    if(this.state.resume?.version!==binding.resumeVersion||this.state.resume?.sha256!==binding.sha256)return {status:'stale',message:'简历已更换，旧提取结果没有应用；请核对当前附件。'};
+    this.state.resumeImport={...result,id:uid(),...binding,candidates:importedCandidates(result.candidates||[],this.state.profile.version&&this.state.profile.mode!==this.state.resume.mode?emptyProfile():this.state.profile.data),createdAt:this.now()};this.save();return this.state.resumeImport;
+  }
+  confirmResumeImport(body){
+    const draft=this.state.resumeImport;
+    if(!draft||draft.status!=='ready'||body.id!==draft.id||body.confirmed!==true||body.profileVersion!==this.state.profile.version||draft.profileVersion!==this.state.profile.version||draft.resumeVersion!==this.state.resume?.version||draft.sha256!==this.state.resume?.sha256)throw new Error('提取草稿、资料或附件版本已变化，请重新核对当前PDF后保存');
+    const switchesMode=this.state.profile.version&&this.state.profile.mode!==this.state.resume.mode;
+    const {data,count}=applyProfileDraft(switchesMode?emptyProfile():this.state.profile.data,draft,body.selections);
+    if(count&&this.state.resume.mode==='real'&&Object.values(data.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
+    if(count){if(switchesMode&&body.replaceMode!==true)throw new Error('原资料与本次附件用途不同，请明确确认切换资料用途');if(switchesMode){this.state.profileArchives ||= {};this.state.profileArchives[this.state.profile.mode]=clone(this.state.profile);}this.setProfile({data,mode:this.state.resume.mode,confirmed:true});}
+    draft.status='saved';draft.savedAt=this.now();draft.savedProfileVersion=this.state.profile.version;this.save();return {count};
   }
   demo(){
     if(this.state.tasks.length||this.command||this.queue.length||this.state.running)throw new Error('演示初始化仅适用于全新数据目录；已有任务或运行中的配置不会覆盖');
@@ -147,37 +261,59 @@ export class Store {
     this.state.paused=true;this.state.running=false;this.save();
   }
   enqueueControl(op,site,payload={}){
-    if(site.adapter!=='local-v1'){
+    if(!supportedSite(site)){
       site.login={status:'unknown',checkedAt:this.now(),message:'这个网站尚待适配，不能可靠自动检查登录'};this.save();throw new Error('这个网站尚待适配，请等待接入验证');
     }
     if(!this.queue.some(c=>c.op===op&&c.siteId===site.id)&&!(this.command?.op===op&&this.command.siteId===site.id))this.queue.push({id:uid(),op,siteId:site.id,payload,control:true});
   }
+  jobMetadata(site,job,jobId){
+    if(!job||job.tenant!==site.tenant||job.jobId!==jobId)throw new Error('岗位资料与当前租户或岗位不符');
+    const parsed=new URL(job.url);
+    if(isGreenhouse(site)){
+      const identity=greenhouseJob(site,job.url);
+      if(identity.jobId!==jobId||short(job.company)!==site.company)throw new Error('Greenhouse 岗位公司或身份与固定范围不符');
+    }else if(parsed.origin!==site.origin||parsed.username||parsed.password||parsed.hash||parsed.pathname!==`/site/${site.tenant}/jobs/${jobId}`)throw new Error('岗位资料来源与详情地址不符');
+    // Never spread page-controlled records into a task. Identity, state and the
+    // durable submission boundary are owned by the backend, not job metadata.
+    return {tenant:site.tenant,jobId,url:parsed.origin+parsed.pathname,title:short(job.title),company:short(job.company),location:short(job.location)};
+  }
+  mergeJobMetadata(t,site,job,source){
+    const metadata=this.jobMetadata(site,job,t.jobId);
+    const changed=['title','company','location'].filter(key=>metadata[key]&&metadata[key]!==t[key]);
+    for(const key of changed)t[key]=metadata[key];
+    // An absent source field stays unknown and never erases a verified value.
+    t.jobMetadata={...metadata,source,checkedAt:this.now()};
+    if(changed.length)this.step(t,'岗位资料已核实',source==='detail'?'从当前岗位详情读取标题、公司和城市':'从当前站点列表补充同一岗位资料');
+  }
   add(site,job,source='自动发现'){
     if(!job||typeof job.jobId!=='string'||!/^[\w-]{1,100}$/.test(job.jobId))throw new Error('岗位稳定标识无效');
-    const parsed=new URL(job.url);if(parsed.origin!==site.origin||parsed.pathname!==`/site/${site.tenant}/jobs/${job.jobId}`)throw new Error('岗位链接与站点租户不符');
+    const parsed=new URL(job.url);if(isGreenhouse(site)){if(greenhouseJob(site,job.url).jobId!==job.jobId)throw new Error('岗位稳定标识不符');}
+    else if(parsed.origin!==site.origin||parsed.username||parsed.password||parsed.hash||parsed.pathname!==`/site/${site.tenant}/jobs/${job.jobId}`)throw new Error('岗位链接与站点租户不符');
+    if(source!=='手动加入')this.jobMetadata(site,job,job.jobId);
     const dedupeKey=[site.origin,site.tenant,job.jobId,site.expectedAccount].join('|');
-    const existing=this.state.tasks.find(t=>t.dedupeKey===dedupeKey);if(existing)return {task:existing,duplicate:true};
+    const existing=this.state.tasks.find(t=>t.dedupeKey===dedupeKey);if(existing){if(source!=='手动加入')this.mergeJobMetadata(existing,site,job,'list');return {task:existing,duplicate:true};}
     const title=short(job.title)||'待读取岗位',city=short(job.location),s=this.state.settings;
     const accepted=source==='手动加入'||s.keywords.some(k=>title.toLowerCase().includes(k.toLowerCase()))&&s.cities.some(c=>city.includes(c));
-    const t={id:uid(),jobId:job.jobId,siteId:site.id,title,company:short(job.company)||site.name,location:city,url:parsed.origin+parsed.pathname,source,discoveredAt:this.now(),filterReason:source==='手动加入'?'手动加入，执行时仍检查站点、资料和账号':accepted?'符合关键词和城市筛选':'未符合关键词或城市筛选',dedupeKey,mode:site.mode,status:accepted?(site.adapter==='local-v1'?'queued':'waiting_user'):'skipped',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};
-    this.step(t,'岗位入队',t.filterReason);this.state.tasks.push(t);if(site.adapter!=='local-v1')this.issue(t,'adapter','网站待适配','尚未验证的网站不会自动填写或提交');return {task:t,duplicate:false};
+    const t={id:uid(),jobId:job.jobId,siteId:site.id,title,company:short(job.company)||site.company||'',location:city,url:parsed.origin+parsed.pathname,source,discoveredAt:this.now(),filterReason:source==='手动加入'?'手动加入，执行时仍检查站点、资料和账号':accepted?'符合关键词和城市筛选':'未符合关键词或城市筛选',dedupeKey,mode:site.mode,status:accepted?(site.adapter==='local-v1'?'queued':'waiting_user'):'skipped',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};
+    this.step(t,'岗位入队',t.filterReason);this.state.tasks.push(t);if(source!=='手动加入')this.mergeJobMetadata(t,site,job,'list');if(isGreenhouse(site)&&accepted)this.issue(t,'confirmation','请本人确认此次申请','请核对本岗位、申请资料、附件及提交动作；确认前不会填写或上传。');else if(!supportedSite(site))this.issue(t,'adapter','网站待适配','尚未验证的网站不会自动填写或提交');return {task:t,duplicate:false};
   }
   manual(url){
     let parsed;try{parsed=new URL(url);}catch{throw new Error('请输入完整岗位链接');}
     if(parsed.username||parsed.password||!/^https?:$/.test(parsed.protocol))throw new Error('岗位链接格式不正确');
-    const site=this.state.sites.find(s=>s.origin===parsed.origin&&(s.adapter!=='local-v1'||parsed.pathname.startsWith(`/site/${s.tenant}/`)));if(!site)throw new Error('请先在设置中配置该网站');
+    const site=this.state.sites.find(s=>s.origin===parsed.origin&&(isGreenhouse(s)?(()=>{try{return !!greenhouseJob(s,parsed.href);}catch{return false;}})():s.adapter!=='local-v1'||parsed.pathname.startsWith(`/site/${s.tenant}/`)));if(!site)throw new Error('请先在设置中配置该网站及当前公司租户');
+    if(isGreenhouse(site)){const identity=greenhouseJob(site,parsed.href),result=this.add(site,{...identity,title:'待读取岗位',company:site.company,location:''},'手动加入');this.save();return result;}
     if(site.adapter!=='local-v1'){
       const stable=hash(Buffer.from(parsed.href)).slice(0,24);const existing=this.state.tasks.find(t=>t.dedupeKey===`${site.origin}|${site.tenant}|${stable}|${site.expectedAccount}`);if(existing)return {task:existing,duplicate:true};
       const t={id:uid(),jobId:stable,siteId:site.id,title:'待适配岗位',company:site.name,location:'',url:parsed.href,source:'手动加入',discoveredAt:this.now(),filterReason:'未接入的网站；岗位稳定标识须由后续适配器核实',dedupeKey:`${site.origin}|${site.tenant}|${stable}|${site.expectedAccount}`,mode:'real',status:'waiting_user',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};this.step(t,'手动加入','网站待适配');this.state.tasks.push(t);this.issue(t,'adapter','网站待适配','不能可靠识别岗位身份或执行表单；不会自动投递');this.save();return {task:t,duplicate:false};
     }
     const m=parsed.pathname.match(new RegExp(`^/site/${site.tenant}/(?:jobs|apply)/([a-zA-Z0-9_-]+)$`));if(!m)throw new Error('请加入岗位详情或申请页链接');
-    const result=this.add(site,{jobId:m[1],url:`${site.origin}/site/${site.tenant}/jobs/${m[1]}`,title:'待读取岗位',company:site.name,location:''},'手动加入');this.save();return result;
+    const result=this.add(site,{jobId:m[1],url:`${site.origin}/site/${site.tenant}/jobs/${m[1]}`,title:'待读取岗位',company:'',location:''},'手动加入');this.save();return result;
   }
   run(discover=true,{scheduled=false}={}){
     if(scheduled&&this.state.manualPaused)throw new Error('用户已全局暂停，请明确恢复后再执行每日计划');
     const missing=this.readiness();if(missing.length)throw new Error(missing.join('；'));
     this.state.paused=false;this.state.running=true;this.state.manualPaused=false;
-    if(discover)for(const site of this.state.sites.filter(s=>s.enabled&&!s.skipped&&s.mode===this.state.settings.mode))if(site.adapter==='local-v1')this.enqueueControl('discover',site);
+    if(discover)for(const site of this.state.sites.filter(s=>s.enabled&&!s.skipped&&s.mode===this.state.settings.mode))if(supportedSite(site))this.enqueueControl('discover',site);
     this.save();
   }
   action(body){
@@ -187,8 +323,11 @@ export class Store {
     else if(action==='pause')this.pause();
     else if(action==='resume')this.run(false);
     else if(action==='add')result=this.manual(body.url);
-    else if(['task-pause','task-resume','task-skip','verify','answer'].includes(action)){
+    else if(['memory-update','memory-revoke'].includes(action))this.editMemory(body);
+    else if(action==='answers')result=this.saveAnswerBatch(this.task(body.taskId),body);
+    else if(['task-pause','task-resume','task-skip','verify','answer','task-confirm'].includes(action)){
       const t=this.task(body.taskId);
+      if(action==='task-confirm')this.confirmTask(t,body);
       if(action==='task-pause'&&terminal.has(t.status))throw new Error(this.hasSubmissionBoundary(t)?'任务已进入只核对结果阶段，不能确认可撤回提交；不会再次投递':'任务当前已结束，请先核对状态');
       if(action==='task-pause'&&t.status==='submitting'){
         const authorized=!!t.submitAuthorizedAt;
@@ -201,16 +340,17 @@ export class Store {
       else if(action==='task-pause'&&!terminal.has(t.status)){this.invalidateTask(t);t.previousStatus=t.status;t.status='paused';t.pauseReason='用户暂停并接管';this.step(t,'用户暂停','停止后续自动动作；接管后可重新检查并恢复');}
       if(action==='task-resume'){
         if(this.hasSubmissionBoundary(t))throw new Error('已记录过提交阶段的任务只能核对结果，不可重新投递');
-        if(this.canResumeTask(t)){this.invalidateTask(t);t.status='queued';t.phase='inspect';this.resolveTask(t);delete t.pauseReason;this.step(t,'用户继续','重新检查同一个岗位、表单和已有接收记录');}
+        if(this.canResumeTask(t)){this.invalidateTask(t);t.status='queued';t.phase='inspect';this.resolveTask(t);delete t.pauseReason;if(isGreenhouse(this.site(t.siteId))&&!this.confirmedTask(t))this.holdConfirmation(t);this.step(t,'用户继续','重新检查同一个岗位、表单和已有接收记录');}
       }
       if(action==='task-skip'){if(this.hasSubmissionBoundary(t))throw new Error('请保留提交记录并核对结果');this.invalidateTask(t);t.status='skipped';this.resolveTask(t);this.step(t,'暂时跳过','用户保留了此任务记录');}
-      if(action==='verify'){if(!this.canVerifyTask(t))throw new Error('只有已提交或已有提交阶段记录的任务可核对');this.queue.push({id:uid(),op:'verify',siteId:t.siteId,taskId:t.id,payload:{},control:true});}
+      if(action==='verify'){if(!this.canVerifyTask(t))throw new Error('只有已提交或已有提交阶段记录的任务可核对');if(isGreenhouse(this.site(t.siteId))&&t.executionProfileId!==this.connection?.profileId)throw new Error('请返回原执行浏览器配置核对该申请');this.queue.push({id:uid(),op:'verify',siteId:t.siteId,taskId:t.id,payload:{},control:true});}
       if(action==='answer'){
         if(t.status!=='waiting_answer'||!t.question)throw new Error('此任务当前没有等待回答的普通问题');
         if(typeof body.answer!=='string'||!body.answer.trim()||body.answer.length>5000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(body.answer))throw new Error('请填写5000字以内的确认答案');
         if(!this.validQuestion(t,t.question))throw new Error('问题或限定用途未通过保护检查，不能保存答案');
-        const answer=body.answer.trim();
-        t.answer={...t.question,value:answer};if(body.save===true){this.state.answers=this.state.answers.filter(a=>a.scope!==t.question.scope);this.state.answers.push({...t.answer,siteId:t.siteId,confirmedAt:this.now()});}
+        const answer=isGreenhouse(this.site(t.siteId))?greenhouseAnswer(t.question,body.answer):body.answer.trim();
+        t.answer={...t.question,value:answer,confirmed:true};if(isGreenhouse(this.site(t.siteId))){t.answers ||= {};t.answers[t.question.scope]=clone(t.answer);}
+        if(body.save===true){this.state.answers=this.state.answers.filter(a=>a.scope!==t.question.scope);this.state.answers.push({...t.answer,siteId:t.siteId,confirmedAt:this.now()});}
         t.status='queued';t.phase='inspect';this.resolveTask(t);this.step(t,'已补充答案','继续同一任务；仅匹配原问题和限定用途');
       }
     }else if(['site-check','site-open','site-skip','site-resume'].includes(action)){
@@ -250,15 +390,26 @@ export class Store {
     const queued=this.queue.findIndex(c=>c.op!=='discover'||(!this.state.paused&&this.state.sites.some(s=>s.id===c.siteId&&s.enabled&&!s.skipped&&s.mode===this.state.settings.mode)));
     let c=queued<0?null:this.queue.splice(queued,1)[0];
     if(!c&&this.state.running&&!this.state.paused&&this.dailyUsed()<this.state.settings.dailyLimit){
-      const t=this.state.tasks.find(t=>['queued','running'].includes(t.status)&&this.state.sites.some(s=>s.id===t.siteId&&s.enabled&&!s.skipped&&s.adapter==='local-v1'&&s.mode===this.state.settings.mode));
+      const t=this.state.tasks.find(t=>['queued','running'].includes(t.status)&&this.state.sites.some(s=>s.id===t.siteId&&s.enabled&&!s.skipped&&supportedSite(s)&&s.mode===this.state.settings.mode));
       if(t){const site=this.site(t.siteId);
-        if(site.login?.status!=='ready'||site.login.profileId!==client.profileId)c={id:uid(),op:'check',siteId:site.id,payload:{},control:true};
+        if(isGreenhouse(site)&&!this.confirmedTask(t)){this.holdConfirmation(t);this.save();return {command:null};}
+        if(!isGreenhouse(site)&&(site.login?.status!=='ready'||site.login.profileId!==client.profileId))c={id:uid(),op:'check',siteId:site.id,payload:{},control:true};
         else{
           if(!t.profileSnapshot){t.profileSnapshot=clone(this.state.profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=this.state.profile.version;t.resumeVersion=this.state.resume.version;this.step(t,'锁定本次资料版本',`资料 v${t.profileVersion} · 简历 v${t.resumeVersion}`);}
           t.status='running';c={id:uid(),op:t.phase||'inspect',siteId:site.id,taskId:t.id,payload:{}};
-          if(c.op==='fill')c.payload={entries:flattenProfile(t.profileSnapshot.data).filter(e=>e.confirmed),layout:t.layout};
+          if(c.op==='fill'){
+            const entries=flattenProfile(t.profileSnapshot.data).filter(e=>e.confirmed);
+            if(isGreenhouse(site)){
+              const email=t.profileSnapshot.data.personal.email,lang=['zh','en'].find(key=>typeof email[key]==='string'&&email[key].trim().toLowerCase()===site.expectedAccount);
+              const entry=entries.find(value=>value.key==='personal.email');
+              // Applicant identity is fixed by confirmation, not by the default
+              // language preference used to flatten other profile fields.
+              if(entry&&lang){entry.value=email[lang].trim();entry.lang=lang;}
+            }
+            c.payload={entries,layout:t.layout};
+          }
           if(c.op==='upload'){const f=t.resumeSnapshot;c.payload={file:{name:f.name,mime:f.mime,size:f.size,sha256:f.sha256,base64:fs.readFileSync(insideRoot(f.file)).toString('base64')},layout:t.layout};}
-          if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,layout:t.layout};
+          if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,confirmed:t.answer.confirmed===true||!isGreenhouse(site),layout:t.layout};
           if(c.op==='preflight')c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};
           if(c.op==='submit'){c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};t.status='submitting';t.submissionStarted=true;t.submitDay=this.day();this.step(t,'提交阶段已记录','先保存提交边界，再允许明确的提交操作；结果不明不重试');}
         }
@@ -268,15 +419,17 @@ export class Store {
     c.clientId=client.clientId;c.profileId=client.profileId;c.extensionId=client.extensionId;c.claimedAt=this.clock();if(c.taskId)c.revision=this.task(c.taskId).revision||0;this.command=c;this.save();
     const site=clone(this.site(c.siteId)),task=c.taskId?this.task(c.taskId):null;
     delete site.login;
-    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId}:undefined}};
+    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.submitConfirmed===true:this.confirmedTask(task),confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true).map(answer=>clone(answer)),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
   }
   authorize({clientId,commandId}){
     this.expireCommand();
     const c=this.command;if(!c||c.id!==commandId||c.clientId!==clientId||!sameClient(c,this.connection))return {allowed:false};
-    if(c.op==='verify')return {allowed:!!c.taskId&&this.canVerifyTask(this.task(c.taskId))};
+    if(c.op==='verify')return {allowed:!!c.taskId&&this.canVerifyTask(this.task(c.taskId))&&(!isGreenhouse(this.site(c.siteId))||this.task(c.taskId).executionProfileId===this.connection.profileId)};
     if(!c.taskId){const site=this.site(c.siteId);return {allowed:c.op==='open'||c.op==='check'||(!this.state.paused&&site.enabled&&!site.skipped&&site.mode===this.state.settings.mode)};}
     const t=this.task(c.taskId),site=this.site(t.siteId);
-    const allowed=(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo';
+    const local=t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo';
+    const greenhouse=isGreenhouse(site)&&this.confirmedTask(t)&&t.mode===site.mode;
+    const allowed=(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&(local||greenhouse);
     if(allowed&&c.op==='submit'){t.submitAuthorizedAt=this.now();this.save();}
     return {allowed};
   }
@@ -309,10 +462,15 @@ export class Store {
     }
     return site.login;
   }
-  validQuestion(t,q){const site=this.site(t.siteId);return q?.key==='motivation'&&typeof q.text==='string'&&q.text.trim()&&q.text.length<=2000&&!protectedQuestion.test(q.text)&&q.scope===`local-v1:${site.tenant}:${t.jobId}:motivation:v1`;}
+  validQuestion(t,q){const site=this.site(t.siteId);if(isGreenhouse(site))return !!greenhouseQuestion(site,t,q);return q?.key==='motivation'&&typeof q.text==='string'&&q.text.trim()&&q.text.length<=2000&&!protectedQuestion.test(q.text)&&q.scope===`local-v1:${site.tenant}:${t.jobId}:motivation:v1`;}
   receipt(t,r){
+    const site=this.site(t.siteId);
+    // Production success needs the browser's scoped POST/body/response evidence
+    // and corresponding confirmation navigation; page text alone never proves it.
+    const network=isGreenhouse(site)&&validNetworkReceipt(site,t,r);
+    if(isGreenhouse(site)&&!network&&(!greenhouseReplay(site)||r?.kind!=='greenhouse-replay'||r?.tenant!==site.tenant))return false;
     if(!r||typeof r.id!=='string'||!r.id||r.jobId!==t.jobId||r.account!==this.site(t.siteId).expectedAccount||r.fileName!==t.resumeSnapshot?.name||Number(r.fileSize)!==t.resumeSnapshot?.size||r.sha256!==t.resumeSnapshot?.sha256)return false;
-    t.status='submitted';t.phase='done';t.submissionStarted=true;t.result={receiptId:r.id,jobId:r.jobId,fileName:r.fileName,fileSize:Number(r.fileSize),sha256:r.sha256,evidence:'来自目标测试站的实际接收记录，文件名称、大小和摘要与任务版本一致'};t.submittedAt ||= this.now();this.resolveTask(t);this.step(t,'已核对接收记录',`回执 ${r.id} · 附件 ${r.fileSize} 字节 · 摘要一致`);return true;
+    t.status='submitted';t.phase='done';t.submissionStarted=true;t.result={receiptId:r.id,jobId:r.jobId,fileName:r.fileName,fileSize:Number(r.fileSize),sha256:r.sha256,evidence:network?(greenhouseReplay(site)?'受控回放网络回执，非生产企业结果':(r.evidence.fileBinding==='native-upload-reference'?'目标站对本岗位、邮箱及已上传附件引用的 POST 返回2xx，并到达对应确认页；原生上传文件摘要及成功响应已核对，提交引用与该上传的精确对象摘要一致；未回读服务端附件字节，非企业申请编号':'目标站对绑定本次岗位、邮箱及附件字节的实际 POST 返回2xx，并到达对应确认页；网络受理证据不是企业申请编号')):isGreenhouse(site)?'Greenhouse 结构本地受控回放的合成回执；实际接收附件名称、大小、摘要一致，不是生产企业回执':'来自目标测试站的实际接收记录，文件名称、大小和摘要与任务版本一致'};t.submittedAt ||= this.now();this.resolveTask(t);this.step(t,'已核对接收记录',`回执 ${r.id} · 附件 ${r.fileSize} 字节 · 摘要一致`);return true;
   }
   result({clientId,commandId,result:r}){
     this.expireCommand();
@@ -321,9 +479,14 @@ export class Store {
     if(!r||typeof r!=='object')r={ok:false,kind:'failure',message:'执行端返回格式不正确'};
     if(t&&c.op!=='submit'&&c.op!=='verify'&&(t.revision||0)!==c.revision){this.save();return {ok:true,ignored:true};}
     if(t){if(Number.isInteger(r.tabId))t.tabId=r.tabId;if(typeof r.url==='string'&&r.url.startsWith(site.origin+'/'))t.currentUrl=r.url;}
-    if(r.login)r={...r,login:this.loginResult(site,r.login,c.profileId)};
+    if(r.login&&(!isGreenhouse(site)||t))r={...r,login:this.loginResult(site,r.login,c.profileId)};
+    if(t&&c.op==='inspect'&&r.jobMetadata!==undefined){
+      try{this.mergeJobMetadata(t,site,r.jobMetadata,'detail');}
+      catch{r={ok:false,kind:'structure',message:'岗位详情资料与当前租户、岗位或来源地址不符，已停止执行。',login:r.login};}
+    }
     if(c.op==='check'){
-      if(!r.login)this.loginResult(site,{status:r.kind==='login'?'login':'unknown'},c.profileId);
+      if(isGreenhouse(site)){site.login={status:r.login?.status||'unknown',message:'公开申请表检查不代表账号登录；每次任务需本人确认申请邮箱及执行浏览器',profileId:c.profileId,checkedAt:this.now(),identitySource:r.login?.identitySource||'anonymous-public-board'};}
+      else if(!r.login)this.loginResult(site,{status:r.kind==='login'?'login':'unknown'},c.profileId);
     }else if(c.op==='open'){}else if(c.op==='discover'){
       if(r.ok&&Array.isArray(r.jobs))for(const job of r.jobs.slice(0,200)){try{this.add(site,job);}catch{site.lastDiscoveryError='部分岗位结构不符合已验证接入规则';}}
       site.lastDiscoveredAt=this.now();site.lastDiscoveryCount=Array.isArray(r.jobs)?r.jobs.length:0;
@@ -349,6 +512,15 @@ export class Store {
         t.status='waiting_user';
       }else if(c.op==='inspect'){
         if(typeof r.layout!=='string'||!r.layout||r.layout.length>250000||r.question&&!this.validQuestion(t,r.question)){t.status='waiting_user';this.issue(t,'structure','申请表或问题未通过保护检查','请检查页面结构、问题原文和限定用途');this.save();return {ok:true};}
+        if(isGreenhouse(site)){
+          const questions=Array.isArray(r.questions)&&r.questions.length<=60?r.questions.map(q=>greenhouseQuestion(site,t,q,{allowIncomplete:true})):null;
+          if(!questions||questions.some(q=>!q)||new Set(questions.map(q=>q.scope)).size!==questions.length){t.status='waiting_user';this.issue(t,'structure','申请问题证据不完整','请核对当次原题、选项、用途、来源及结构版本，不会猜测答案');this.save();return {ok:true};}
+          t.layout=r.layout;t.questions=questions;t.question=questions[0]||null;t.phase='fill';delete t.answer;
+          const unresolved=questions.find(q=>q.unresolved);
+          if(unresolved){t.question=unresolved;t.status='waiting_user';t.phase='inspect';this.issue(t,'structure','需要核实实际自定义选项',unresolved.text+'；选项集合尚未完整观察，不接受猜测答案。',unresolved);this.step(t,'自定义选项待核实','原题、已观察选项、来源与版本已保存在当前任务。');this.save();return {ok:true};}
+          this.step(t,'已读取 Greenhouse 申请表','固定公司、租户、岗位及已确认申请身份；逐题保存原文、选项、用途与来源。');
+          this.save();return {ok:true};
+        }
         t.layout=r.layout;t.question=r.question||null;
         if(t.question){const saved=t.answer?.scope===t.question.scope&&t.answer.text===t.question.text?t.answer:this.state.answers.find(a=>a.scope===t.question.scope&&a.text===t.question.text&&a.siteId===site.id);if(saved)t.answer=clone(saved);else delete t.answer;}
         t.phase='fill';this.step(t,'已读取申请表','岗位、账号和表单已检查；未发现已有接收记录');
@@ -356,9 +528,10 @@ export class Store {
       else if(c.op==='upload'){
         if(r.fileName!==t.resumeSnapshot.name||Number(r.fileSize)!==t.resumeSnapshot.size||r.sha256!==t.resumeSnapshot.sha256){t.status='waiting_user';this.issue(t,'manual','附件校验未通过','请核对所选简历和页面附件');}
         else{if(r.layout)t.layout=r.layout;this.step(t,'简历已附加',`${r.fileName} · ${r.fileSize} 字节；等待站点接收后核对摘要`);
-          if(t.question&&!t.answer){t.status='waiting_answer';this.issue(t,'answer','需要补充一个答案',t.question.text,t.question);this.step(t,'等待补充答案',t.question.text);}
+          if(isGreenhouse(site))this.selectGreenhouseQuestion(t);
+          else if(t.question&&!t.answer){t.status='waiting_answer';this.issue(t,'answer','需要补充一个答案',t.question.text,t.question);this.step(t,'等待补充答案',t.question.text);}
           else t.phase=t.question?'answer':'preflight';}
-      }else if(c.op==='answer'){if(r.layout)t.layout=r.layout;t.phase='preflight';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
+      }else if(c.op==='answer'){if(r.layout)t.layout=r.layout;if(isGreenhouse(site)){t.questions=(t.questions||[]).filter(q=>q.scope!==t.question?.scope);this.selectGreenhouseQuestion(t);}else t.phase='preflight';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
       else if(c.op==='preflight'){t.phase='submit';this.step(t,'提交预检通过','登录、结构、附件和必填项通过；下一步先保存提交边界');}
       else if(c.op==='submit'){t.status='unknown';t.phase='verify';this.issue(t,'unknown','提交结果待核实','没有可靠回执，系统不会自动再次提交');}
     }

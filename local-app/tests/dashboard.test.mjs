@@ -76,6 +76,14 @@ test('POST timeout sends once and preserves unsaved answers, profile, settings a
   await h.app.refresh();assert.equal(calls.filter(call=>call.options.method==='POST').length,1);assert.deepEqual(calls.map(call=>call.path),['/api/profile','/api/state']);assert.equal(h.app.draftSnapshot(),draft);
 });
 
+test('explicit browser opening waits for cold startup with one bounded mutation and no automatic replay',async()=>{
+  const calls=[];const h=harness((path,options)=>{calls.push({path,options});return new Promise(()=>{});});
+  const opening=h.app.api('/api/action',{action:'browser-open'});const rejected=assert.rejects(opening,/结果尚未确认/);
+  assert.equal([...h.timers.values()].some(timer=>timer.delay===20000),false);
+  await h.deadline(45000);await rejected;
+  assert.equal(calls.length,1);assert.equal(calls[0].options.signal.aborted,true);assert.equal(h.timers.size,0);
+});
+
 test('read-only self-check prevents duplicate clicks, shows observed Chinese results and can run again',async()=>{
   const pending=deferred(),calls=[];const result={checkedAt:'2026-10-17T04:00:00Z',checks:[{id:'extension',status:'warning',label:'插件执行端',detail:'尚未连接，未读取实际页面。',action:'请连接投递浏览器。'}]};
   const h=harness((path,options)=>{calls.push({path,options});return calls.length===1?pending.promise:Promise.resolve(response(result));});
