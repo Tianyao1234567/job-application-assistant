@@ -9,7 +9,7 @@ import {ROOT} from '../paths.mjs';
 import {Store} from '../model.mjs';
 import {SOURCE_PATHS,VERSION} from '../../scripts/package-candidate.mjs';
 import {baselineManifest,UPDATE_BASELINES,renderUpdater} from '../../scripts/package-update.mjs';
-import {validateBundle,runUpdate,relocateState,extensionOwner,windowsArguments,unpackedExtensionId} from '../../scripts/update-install.mjs';
+import {validateBundle,runUpdate,relocateState,extensionOwner,windowsArguments,unpackedExtensionId,verifyRestorableStorage} from '../../scripts/update-install.mjs';
 import {migrateStorage,persistentStorage,canonical} from '../../autofill-extension/shared/migration.js';
 import {verifiedUpload} from '../../autofill-extension/greenhouse-receipts.js';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -90,4 +90,12 @@ test('interrupted rollback resumes after moving the profile aside or after resto
 test('corrupted backup fails recovery before deleting a valid profile and restore never becomes an update',async t=>{
  const env=await installation(t),production=await fakeOwner(env);await assert.rejects(()=>runUpdate(bundle,env.root,{...fakeOptions,failAfterWrite:true}));const updates=path.join(env.root,'.runtime/updates'),name=(await fs.readdir(updates)).find(n=>n.startsWith('txn-')),txn=path.join(updates,name),journal=JSON.parse(await fs.readFile(path.join(txn,'journal.json'),'utf8'));journal.phase='writing';await fs.writeFile(path.join(txn,'journal.json'),JSON.stringify(journal));await fs.writeFile(path.join(txn,'browser-profile/private-fixture'),'Changed backup');await assert.rejects(()=>runUpdate(bundle,env.root,fakeOptions),/BACKUP_HASH/);assert.equal(await fs.readFile(path.join(production,'private-fixture'),'utf8'),'Fictional login bytes');
  const fresh=await installation(t);await assert.rejects(()=>runUpdate(bundle,fresh.root,{...fakeOptions,restore:true}),/RESTORE_UNAVAILABLE/);assert.equal(JSON.parse(await fs.readFile(path.join(fresh.root,'SOURCE.json'),'utf8')).source.commit,fresh.baseline.source);
+});
+
+test('restore checks new extension profiles as well as backend facts before replacing the browser profile',async t=>{
+ const env=await installation(t),production=await fakeOwner(env),id='b'.repeat(32),persistent={localBridge:{profileId:'fictional-profile'},profiles:{name:'Original fictional profile'}},expected=hash(canonical(persistent)),destination=path.join(production,'Default/Local Extension Settings',id);
+ const options={...fakeOptions,extensionPrepare:async(root,txn)=>{const stage=path.join(txn,'fixture-storage');await fs.mkdir(stage);await fs.writeFile(path.join(stage,'fixture.json'),JSON.stringify(persistent));return {extensionId:id,profileId:'fictional-profile',pending:true,storageHash:expected,stageStorage:stage,destination};},extensionInspect:async()=>verifyRestorableStorage(JSON.parse(await fs.readFile(path.join(destination,'fixture.json'),'utf8')),expected)};
+ await runUpdate(bundle,env.root,options);const changed={...persistent,profiles:{name:'New fictional profile'}};await fs.writeFile(path.join(destination,'fixture.json'),JSON.stringify(changed));const stateBytes=await fs.readFile(env.stateFile);
+ await assert.rejects(()=>runUpdate(bundle,env.root,{...options,restore:true}),/RESTORE_HAS_NEW_DATA/);assert.deepEqual(JSON.parse(await fs.readFile(path.join(destination,'fixture.json'),'utf8')),changed);assert.deepEqual(await fs.readFile(env.stateFile),stateBytes);
+ await fs.writeFile(path.join(destination,'fixture.json'),JSON.stringify(persistent));assert.equal((await runUpdate(bundle,env.root,{...options,restore:true})).restored,true);assert.equal(await fs.readFile(path.join(production,'private-fixture'),'utf8'),'Fictional login bytes');
 });

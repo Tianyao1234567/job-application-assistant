@@ -16,6 +16,7 @@ const stable=value=>Array.isArray(value)?'['+value.map(stable).join(',')+']':val
 function savedFacts(state){const data={...state};delete data.issues;data.sites=state.sites.map(site=>Object.fromEntries(Object.entries(site).filter(([key])=>key!=='login')));data.tasks=state.tasks.map(task=>Object.fromEntries(Object.entries(task).filter(([key])=>!['status','phase','steps','updatedAt','issue'].includes(key))));return data;}
 export function extensionId(manifest){return [...digest(Buffer.from(manifest.key,'base64')).slice(0,32)].map(c=>String.fromCharCode(97+parseInt(c,16))).join('');}
 export function unpackedExtensionId(directory,platform=process.platform){const bytes=Buffer.from(platform==='win32'?directory.replace(/^[a-z](?=:)/,c=>c.toUpperCase()):directory,platform==='win32'?'utf16le':'utf8');return [...digest(bytes).slice(0,32)].map(c=>String.fromCharCode(97+parseInt(c,16))).join('');}
+export function verifyRestorableStorage(persistent,expectedHash){assert(/^[a-f0-9]{64}$/.test(expectedHash||'')&&digest(stable(persistent))===expectedHash,'UPDATE_RESTORE_HAS_NEW_DATA');}
 export function safeRelative(name){assert(typeof name==='string'&&name.length<240&&!name.includes('\\')&&!name.includes(':')&&!name.includes('\0')&&name.split('/').every(p=>p&&p!=='.'&&p!=='..')&&!name.startsWith('.runtime/')&&!name.includes('/node_modules/'),'UPDATE_UNSAFE_PATH');return name;}
 async function noLinks(root,file){let cursor=path.resolve(root);assert(equalPath(cursor,root),'UPDATE_ROOT_INVALID');const rel=path.relative(cursor,file);assert(rel&&!rel.startsWith('..')&&!path.isAbsolute(rel),'UPDATE_UNSAFE_PATH');for(const part of rel.split(path.sep)){cursor=path.join(cursor,part);if(await exists(cursor))assert(!(await fs.lstat(cursor)).isSymbolicLink(),'UPDATE_LINK_REFUSED');}}
 async function ordinary(root,file){await noLinks(root,file);const stat=await fs.lstat(file);assert(stat.isFile(),'UPDATE_FILE_REQUIRED');return fs.readFile(file);}
@@ -74,7 +75,7 @@ export async function extensionOwner(root,oldRoot){
  const storage=path.join(production,'Default/Local Extension Settings',id);await noLinks(root,storage);assert(await exists(storage),'UPDATE_EXTENSION_STORAGE_MISSING');await treeFiles(storage);
  return {id,storage,production,oldRoot:path.dirname(entry.path)};
 }
-export async function prepareExtension(root,txn,bundle,owner,state){
+export async function prepareExtension(root,txn,bundle,owner,state,{inspectHash}={}){
  if(!owner){assert(!state.tasks.some(t=>t.executionProfileId),'UPDATE_EXTENSION_STORAGE_MISSING');return null;}
  const extension=path.join(txn,'extension');for(const file of bundle.target.files.filter(f=>f.path.startsWith('autofill-extension/'))){const bytes=bundle.changes[file.path]?Buffer.from(bundle.changes[file.path],'base64'):await ordinary(root,path.join(root,file.path));await fs.mkdir(path.dirname(path.join(txn,file.path)),{recursive:true});await fs.writeFile(path.join(txn,file.path),bytes);}
  // The staged extension contains exactly the target blobs, at its pinned ID.
@@ -93,11 +94,19 @@ export async function prepareExtension(root,txn,bundle,owner,state){
   assert(original.localBridge?.profileId&&original.localBridge.key===(await fs.readFile(path.join(root,'.runtime/data/local-key'),'utf8')).trim(),'UPDATE_EXTENSION_IDENTITY');
   assert(state.tasks.every(t=>!t.executionProfileId||t.executionProfileId===original.localBridge.profileId),'UPDATE_EXTENSION_IDENTITY');
   const {migrateStorage,persistentStorage,canonical}=await import(pathToFileURL(path.join(extension,'shared/migration.js')).href);
+  if(inspectHash){verifyRestorableStorage(persistentStorage(original),inspectHash);return {inspected:true};}
   const data=migrateStorage(original,{id:path.basename(txn),fromExtensionId:owner.id,toExtensionId:id,at:new Date().toISOString()});
   await worker.evaluate(async data=>{await chrome.storage.local.set({localMigrationHold:true});await chrome.storage.local.clear();await chrome.storage.local.set(data);},data);
   const actual=await worker.evaluate(()=>chrome.storage.local.get(null));assert(canonical(persistentStorage(actual))===canonical(persistentStorage(data)),'UPDATE_STORAGE_LOGICAL_HASH');
   return {extensionId:id,profileId:original.localBridge.profileId,storageHash:digest(canonical(persistentStorage(data))),stageStorage:target,destination,sourceId:owner.id,pending:true};
  }finally{await context?.close();}
+}
+async function inspectExtensionForRestore(root,txn,bundle,migration,state){
+ const manifest=JSON.parse(Buffer.from(bundle.changes['autofill-extension/manifest.json'],'base64'));
+ assert(migration.extensionId===extensionId(manifest),'UPDATE_RECOVERY_MISMATCH');
+ const production=path.join(root,'.runtime/browser/production'),storage=path.join(production,'Default/Local Extension Settings',migration.extensionId);await noLinks(root,storage);assert(await exists(storage),'UPDATE_EXTENSION_STORAGE_MISSING');
+ const probe=path.join(txn,'restore-probe-'+crypto.randomUUID());await fs.mkdir(probe);
+ await prepareExtension(root,probe,bundle,{id:migration.extensionId,production,storage},state,{inspectHash:migration.storageHash});
 }
 async function rollback(root,txn,bundle,{preserveState=false}={}){
  const file=path.join(txn,'journal.json'),journal=await json(file);assert(journal.source===bundle.target.source&&equalPath(journal.root,root),'UPDATE_RECOVERY_MISMATCH');
@@ -109,12 +118,12 @@ async function rollback(root,txn,bundle,{preserveState=false}={}){
  if(recovery){const destination=path.join(root,'.runtime/browser/production');await noLinks(root,destination);const replaced=path.join(txn,'profile-before-recovery');if(await exists(replaced)){if(await exists(destination))assert(JSON.stringify(await treeFiles(destination))===JSON.stringify(journal.profileTree),'UPDATE_RECOVERY_CONFLICT');else await fs.rename(recovery,destination);}else{await fs.rename(destination,replaced);try{await fs.rename(recovery,destination);}catch(error){await fs.rename(replaced,destination);throw error;}}}
  journal.phase='rolled-back';await saveJSON(file,journal);
 }
-async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,extensionPrepare=prepareExtension,dependencies,failAfterWrite=false,restore=false,requireLaunchLock=()=>{}}={}){
+async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,extensionPrepare=prepareExtension,extensionInspect=inspectExtensionForRestore,dependencies,failAfterWrite=false,restore=false,requireLaunchLock=()=>{}}={}){
  validateBundle(bundle);root=path.resolve(root);assert(!(await fs.lstat(root)).isSymbolicLink(),'UPDATE_LINK_REFUSED');
  const updates=path.join(root,'.runtime/updates');await noLinks(root,updates);
  const restoring=restore?await json(path.join(root,'.runtime/installation.json')).catch(()=>null):null;
  if(restore)assert(restoring?.migration?.pending===true&&!restoring.migration.verifiedAt,'UPDATE_RESTORE_UNAVAILABLE');
- if(await exists(updates))for(const entry of await fs.readdir(updates,{withFileTypes:true})){if(!entry.isDirectory()||!/^txn-[a-f0-9-]+$/.test(entry.name))continue;const txn=path.join(updates,entry.name);if(!await exists(path.join(txn,'journal.json')))continue;const journal=await json(path.join(txn,'journal.json'));if(['prepared','writing'].includes(journal.phase)||restore&&journal.phase==='committed'&&restoring.backup===entry.name){if(restore){const current=await json(path.join(root,'.runtime/data/state.json')),original=JSON.parse(Buffer.from(journal.backup['.runtime/data/state.json'],'base64'));const normalized=await relocateState(root,original);assert(stable(savedFacts(current))===stable(savedFacts(normalized.state)),'UPDATE_RESTORE_HAS_NEW_DATA');}await checkStopped(root,[journal.oldRoot],{stop:false});await rollback(root,txn,bundle);if(restore)return {restored:true};}}
+ if(await exists(updates))for(const entry of await fs.readdir(updates,{withFileTypes:true})){if(!entry.isDirectory()||!/^txn-[a-f0-9-]+$/.test(entry.name))continue;const txn=path.join(updates,entry.name);if(!await exists(path.join(txn,'journal.json')))continue;const journal=await json(path.join(txn,'journal.json'));if(['prepared','writing'].includes(journal.phase)||restore&&journal.phase==='committed'&&restoring.backup===entry.name){if(restore){const current=await json(path.join(root,'.runtime/data/state.json')),original=JSON.parse(Buffer.from(journal.backup['.runtime/data/state.json'],'base64'));const normalized=await relocateState(root,original);assert(stable(savedFacts(current))===stable(savedFacts(normalized.state)),'UPDATE_RESTORE_HAS_NEW_DATA');}await checkStopped(root,[journal.oldRoot],{stop:false});if(restore)await extensionInspect(root,txn,bundle,restoring.migration,await json(path.join(root,'.runtime/data/state.json')));requireLaunchLock();await rollback(root,txn,bundle);if(restore)return {restored:true};}}
  if(restore)throw new Error('UPDATE_RESTORE_UNAVAILABLE');
  const baseline=await installedBaseline(root,bundle),stateFile=path.join(root,'.runtime/data/state.json');
  const prior=await json(stateFile),relocation=await relocateState(root,prior),installationFile=path.join(root,'.runtime/installation.json'),installation=await json(installationFile).catch(()=>null);
