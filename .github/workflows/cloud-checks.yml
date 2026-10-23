@@ -107,7 +107,12 @@ jobs:
       - name: Local application state, authentication, and actual fixture HTTP regressions
         run: |
           if [[ "${{ steps.scope.outputs.update }}" == true ]]; then
-            node --test local-app/tests/update-install.test.mjs local-app/tests/package-candidate.test.mjs
+            if node --test local-app/tests/update-install.test.mjs local-app/tests/package-candidate.test.mjs > .runtime/update-unit.log 2>&1; then
+              cat .runtime/update-unit.log
+            else
+              python3 -c 'from pathlib import Path; message=Path(".runtime/update-unit.log").read_text()[-3500:]; print("::error title=Updater targeted checks::"+message.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+              exit 1
+            fi
           elif [[ "${{ steps.scope.outputs.profile }}" == true ]]; then
             node --test local-app/tests/pdf-import.test.mjs local-app/tests/profile-answers.test.mjs local-app/tests/upgrade.test.mjs local-app/tests/package-candidate.test.mjs local-app/tests/dashboard.test.mjs
             node --test --test-name-pattern='batch conflict evidence' local-app/tests/greenhouse-adapter.test.mjs
