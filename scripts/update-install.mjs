@@ -105,7 +105,9 @@ async function inspectExtensionForRestore(root,txn,bundle,migration,state){
  const manifest=JSON.parse(Buffer.from(bundle.changes['autofill-extension/manifest.json'],'base64'));
  assert(migration.extensionId===extensionId(manifest),'UPDATE_RECOVERY_MISMATCH');
  const production=path.join(root,'.runtime/browser/production'),storage=path.join(production,'Default/Local Extension Settings',migration.extensionId);await noLinks(root,storage);assert(await exists(storage),'UPDATE_EXTENSION_STORAGE_MISSING');
- const probe=path.join(txn,'restore-probe-'+crypto.randomUUID());await fs.mkdir(probe);
+ // Keep Chromium/LevelDB below Windows path limits even when the transaction
+ // already lives under a long installation path.
+ const probe=await fs.mkdtemp(path.join(root,'.runtime/updates/check-'));
  await prepareExtension(root,probe,bundle,{id:migration.extensionId,production,storage},state,{inspectHash:migration.storageHash});
 }
 async function rollback(root,txn,bundle,{preserveState=false}={}){
