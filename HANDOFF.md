@@ -2,7 +2,9 @@
 
 更新时间：**2026-10-23（北京时间）**。这是唯一交接入口，面向完全没有聊天上下文的新会话。用户结束旧 Manager 会话，准备稍后继续；新会话第一句只需：**先读HANDOFF.md**。
 
-**Engineer最新交付（2026-10-23，待Manager验收）**：[PDF交付001](docs/PROFILE_IMPORT_DELIVERY_001.md)。candidate.6来源`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`，[CI](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833)的43项必要检查、6场景实际后台UI和构建全部通过；[下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833/artifacts/12442547605)北京时间10月30日00:50:02到期。本机PDF提取/一次核对、集中补答、稳定事实保存与后续复用已实现；按[原目录升级步骤](UPGRADE_001.md)保留资料、答案、任务、附件路径、登录和已有浏览器，只补必要PDF组件。原Engineer已完成本轮交付，新Manager定点验收即可；不要再要求用户手填整份资料、重装环境或另起并行实现。未使用本人资料、未向企业提交，旧109/MV3/Windows/录屏未重跑；PR #5仍draft。
+**Engineer最新交付（2026-10-23，Manager已验收）**：[PDF交付001](docs/PROFILE_IMPORT_DELIVERY_001.md)。candidate.6来源`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`，[CI](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833)的43项必要检查、6场景实际后台UI和构建全部通过；[下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833/artifacts/12442547605)北京时间10月30日00:50:02到期。本机PDF提取/一次核对、集中补答、稳定事实保存与后续复用已实现；按[原目录升级步骤](UPGRADE_001.md)保留资料、答案、任务、附件路径、登录和已有浏览器，只补必要PDF组件。原Engineer已完成本轮交付且通过Manager验收，现进入保留数据升级与本人使用；不要再要求用户手填整份资料、重装环境或另起并行实现。未使用本人资料、未向企业提交，旧109/MV3/Windows/录屏未重跑；PR #5仍draft。
+
+**Manager最新验收（2026-10-23）**：[candidate.6验收通过](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6359418773)，运行源码`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`。PDF本机提取/一次核对、集中补答/稳定事实复用、保留数据升级已接收，本轮无阻塞返工项。已核对实际代码、CI状态和包校验，沿用43项/6场景证据，未重复旧验证。下一步按[UPGRADE_001.md](UPGRADE_001.md)指导用户在原目录升级、核对既有数据并在本机导入PDF；原Engineer只处理实际使用阻塞。解析是保守文字/标签提取；选择新PDF会先保存为当前附件，解析失败保留所选文件和旧资料，不恢复上一份活动附件。用户转贴的预填文件记录不证明已写入其本机。真实企业完整申请仍未验证/授权，PR #5保持draft。
 
 ## 1. 接手摘要与立即下一步
 
@@ -11,9 +13,9 @@
 - **真实企业完整投递尚未跑通、尚未验收。** 现有受控测试和实际扩展验证不能算真实企业申请成功。当前真实适配仅限 **Mattermost的Greenhouse页面**，不能泛称支持所有Greenhouse公司或其他网站；Mattermost是技术样本，不代表用户想申请。
 - **candidate.5的附件精确对象绑定修复已验收通过，P1关闭。** candidate.4继续停用；不要重开旧返工或重跑已通过旧测试。
 - 用户已在 **Windows 10/11** 下载依赖并成功打开candidate.5。截图显示后台和执行端已连接，当时为本地演示模式、自动执行暂停、队列为空。不要重新带用户从头安装。未确认其已保存真实简历/资料，未选定真实岗位，未授权首次真实提交。
-- **当前唯一新开发任务**：本机PDF自动提取 → 按申请匹配已有资料 → 缺项集中问题清单 → 回答保存 → 同任务恢复 → 下次复用适用信息，并交付保留数据的升级方式。[完整Manager任务](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6345390095)。
-- 用户已明确说 **“这个我已经发了”**，即已将上述任务转给原Engineer。原Engineer已交付candidate.6及上述定点证据，待新Manager验收；不要另启第二位Engineer重复实现。
-- 用户本次只要求交接，实际使用稍后继续。不要现在要求其手填整份资料、重新安装或进行真实提交。
+- **当前已验收任务**：本机PDF自动提取 → 按申请匹配已有资料 → 缺项集中问题清单 → 回答保存 → 同任务恢复 → 下次复用适用信息，并交付保留数据的升级方式。[完整Manager任务](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6345390095)。
+- 用户已明确说 **“这个我已经发了”**，即已将上述任务转给原Engineer。原Engineer已交付candidate.6及上述定点证据，Manager已验收通过，本轮无阻塞返工项；不要另启第二位Engineer重复实现。
+- 用户此前已暂停实际操作；candidate.6现可按其节奏指导保留数据升级与使用。不要要求重装整套环境、手填整份资料或未经确认真实提交。
 
 ## 2. 有效仓库、分支与职责
 
@@ -23,8 +25,8 @@
 | 开发分支 | `dev/pm9-demo-windows-readiness`；不要从旧`main`重做 |
 | 远端统一入口 | [HANDOFF.md](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/HANDOFF.md) |
 | 当前PR | [PR #5](https://github.com/Tianyao1234567/job-application-assistant/pull/5)，OPEN / draft，基于未合并的`dev/local-workflow-foundation` / [PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4) |
-| PDF新交付（待验收） | `38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac` / candidate.6；43项＋6场景，见顶部 |
-| 已验收运行代码 | `3856a49a78852c4729a6be4d64f01f19acdcd1c3` / `0.2.0-candidate.5` |
+| 当前已验收运行代码 | `38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac` / candidate.6；43项＋6场景，见顶部 |
+| 附件P1已验收历史基线 | `3856a49a78852c4729a6be4d64f01f19acdcd1c3` / `0.2.0-candidate.5` |
 | 本次交接前远端HEAD | `d1df049f84bbaa71ff1f3bffa1dade91f6b9ee7c`；此次HANDOFF更新会产生新文档提交，不能当运行测试SHA |
 | 共享任务与进展 | [Issue #1](https://github.com/Tianyao1234567/job-application-assistant/issues/1)，先读最新相关评论，不遍历全部历史 |
 | 原首站标准 | [docs/MANAGER_TASK_001.md](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/MANAGER_TASK_001.md) |
@@ -60,7 +62,7 @@ Manager已审查本轮差异、负例和GitHub Checks证据，没有重跑30项/
 3. 用户回答后，适合复用的信息保存进本机“资料与简历”或答案库，继续同一任务。
 4. 下一次申请优先复用适用信息，只问新的缺项；资料持续维护，可查看、修改、撤销。
 
-**任务发布时的缺口（现已由顶部candidate.6交付实现，待验收）：**
+**任务发布时的历史缺口（现已由candidate.6实现并验收，下列描述仅解释原需求）：**
 
 - `local-app/model.mjs`的`setResume`仅保存附件字节、SHA和版本，没有PDF解析。
 - `local-app/public/app.js`已有JSON导入资料草稿、schema校验、编辑和确认保存，可直接复用，不另造资料库。
@@ -78,7 +80,7 @@ Manager已审查本轮差异、负例和GitHub Checks证据，没有重跑30项/
 - 必要验证：虚构PDF“选择→提取→核对保存”；解析失败/资料冲突不丢数据、原附件字节不变；连贯两任务场景（A匹配资料→集中补缺→保存→恢复，B复用适用答案不重复问、专属答案不误用、新缺项仍问）。只验新增/受影响内容，不重跑109项、旧MV3或无关录屏。
 - 交付代码SHA、必要证据、可用更新包和保留数据的升级说明，标记“待Manager验收”。既有Greenhouse通过部分不重新开工。
 
-原Engineer现已提交实际源码`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`、candidate.6下载及43项/6场景通过证据，详见顶部。新Manager应对本轮交付定点验收，再指导用户在原目录升级；未声称Manager已验收。
+原Engineer已交付源码`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`、candidate.6下载及43项/6场景证据；[Manager验收通过](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6359418773)，本轮无阻塞返工项。后续指导原目录升级和本人核对，不重复这次验收。六场景为实际后台/HTTP/本机worker加受控执行端回报，不扩大为新MV3或真实企业成功。
 
 ## 5. 用户已安装、启动踩坑与升级要求
 
@@ -97,7 +99,7 @@ Manager已审查本轮差异、负例和GitHub Checks证据，没有重跑30项/
 - 保留`.runtime`中的简历、资料、答案、任务/提交历史及登录配置，复用已下载浏览器和兼容依赖；若PDF解析需要新依赖，只补必要部分并说明。
 - 用虚构已有资料验证升级后仍可读取/续用。交付前不让用户随意覆盖、搬移或清空旧目录，不承诺未验证的升级命令。
 
-### candidate.5已验证入口（不是新需求交付）
+### candidate.5历史基线入口（用户已安装；升级使用顶部candidate.6链接）
 
 - [candidate.5下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427069267)：需GitHub登录，**2026-10-29 21:00:40北京时间到期**；解压外层artifact后再解压内层源码ZIP。用户已装，不要求重下。
 - 来源`3856a49a78852c4729a6be4d64f01f19acdcd1c3`；内层62个源码文件、560519字节，SHA-256：`7b9fff5a071f3cd2c2e80f65729f189635db9a7b5d68dd125396755ca95cbafb`。
@@ -106,7 +108,7 @@ Manager已审查本轮差异、负例和GitHub Checks证据，没有重跑30项/
 
 ## 6. 新Manager下一步顺序
 
-1. 读本文件，查有效分支最新HEAD、Issue #1最新相关评论和PR #5，核实原Engineer任务状态。不要再全面调查或让用户重述背景，不据远端暂时没动就判定其已停工。
+1. 读本文件，查有效分支最新HEAD、Issue #1最新相关评论和PR #5有无后续变更。candidate.6已验收，直接进入保留数据升级/本人使用，不重复验收或派发同一开发任务；有新交付再按新增范围核对。
 2. 正在开发就跟进同一任务；已经交付就审报告、实际差异和必要证据，对照第4/5节验收。通过直接接收；返工只列具体未满足项，沿用可信旧测试。
 3. 新功能/升级方式通过后，给实际更新入口，指导用户保留数据升级，再按界面教学“PDF导入→核对→添加岗位→缺项补答→保存/恢复”。用户说稍后再操作，不催其现在继续。
 4. 由用户选择真正想申请的岗位。目前没有目标链接、本人资料/附件确认或首次提交授权。仅Mattermost范围已接入；如目标在别处，只为目标补必要适配，不为赶进度引导用户随便申请技术样本。
@@ -115,7 +117,7 @@ Manager已审查本轮差异、负例和GitHub Checks证据，没有重跑30项/
 ## 7. 绝对不要再踩的坑与共同规则
 
 1. **测试成功冒充真实投递成功。** 真实生产S3、本人CAPTCHA和企业完整申请未验证；网络受理不等于回读了企业服务端附件字节。
-2. **上传附件冒充已解析，逼用户手填整表。** 当前新任务就是补此缺口，用户要按需问答、保存复用。
+2. **把保守提取冒充任意PDF完整理解，或逼用户手填整表。** candidate.6已支持文字/标签提取和一次核对；未识别项按当前申请集中补充，答案适用才复用。
 3. **同名附件冒充精确对象。** P1已修，PDF解析不能破坏原文件/绑定；无证明暂停，不能生成成功记录。
 4. **重复分配或覆盖Engineer。** 用户已转发新任务；先核对状态，不把评论当唤醒，不沿用旧一轮停止确认夺取今天的执行权。
 5. **丢失资料、暂停状态或提交历史。** 不上传/清空`.runtime`；保存本机任务不代表网站保存草稿。恢复先重查页面与提交状态，unknown只核实不盲目重发，资料/附件修改按版本和确认机制处理。
