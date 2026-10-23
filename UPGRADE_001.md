@@ -1,6 +1,6 @@
 # 保留现有资料升级到 candidate.6
 
-没有自动更新。此次下载新版程序文件，不需要重新安装整个环境或重新下载已有浏览器。等待Manager验收此版本后，按以下步骤升级。
+没有自动更新。此次下载新版程序文件，不需要重新安装整个环境或重新下载已有浏览器。[Manager已验收candidate.6](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6359418773)，可按以下步骤保留数据升级；首次真实提交仍需本人确认。
 
 [candidate.6下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833/artifacts/12442547605)（需GitHub登录，北京时间2026-10-30 00:50:02到期）。来源`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`；内层ZIP SHA-256 `60a07da02aa8ade344ebb528707a9482f1c5d291ca0af67c032064e75eee8109`。包内步骤为打包时快照，最终来源及验收状态以此仓库文档和[交付001](docs/PROFILE_IMPORT_DELIVERY_001.md)为准。
 
