@@ -33,16 +33,16 @@ try {
   $hash=[Security.Cryptography.SHA256]::Create()
   $actual=([BitConverter]::ToString($hash.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()
   if($actual -ne $expected -or $bytes.Length -gt 2097152){throw 'UPDATE_PACKAGE_HASH'}
-  $input=[IO.MemoryStream]::new($bytes)
-  $gzip=[IO.Compression.GZipStream]::new($input,[IO.Compression.CompressionMode]::Decompress)
-  $output=[IO.MemoryStream]::new();$gzip.CopyTo($output);$gzip.Dispose()
-  if($output.Length -gt 4194304){throw 'UPDATE_PACKAGE_BUDGET'}
+  $jobCompressedStream=[IO.MemoryStream]::new($bytes)
+  $jobGzipStream=[IO.Compression.GZipStream]::new($jobCompressedStream,[IO.Compression.CompressionMode]::Decompress)
+  $jobExpandedStream=[IO.MemoryStream]::new();$jobGzipStream.CopyTo($jobExpandedStream);$jobGzipStream.Dispose()
+  if($jobExpandedStream.Length -gt 4194304){throw 'UPDATE_PACKAGE_BUDGET'}
   $node=Get-Command node.exe -ErrorAction Stop
   $version=& $node.Source --version
   if($version -notmatch '^v(2[4-9]|[3-9][0-9])\\.'){throw 'UPDATE_NODE_REQUIRED'}
   $env:JOB_UPDATE_ROOT=[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($env:JOB_UPDATE_FILE))
   $OutputEncoding=[Text.UTF8Encoding]::new($false)
-  [Text.Encoding]::UTF8.GetString($output.ToArray()) | & $node.Source --input-type=module -
+  [Text.Encoding]::UTF8.GetString($jobExpandedStream.ToArray()) | & $node.Source --input-type=module -
   exit $LASTEXITCODE
 } catch {Write-Host 'UPDATE_FAILED: Package, Node.js or target verification failed. Keep the existing folder; no automatic launch.';exit 1}
 `;
