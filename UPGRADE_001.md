@@ -1,6 +1,6 @@
 # 单文件更新与目录搬迁
 
-使用本轮 Engineer 交付的单个 **更新.cmd**。下载、来源、摘要和验收状态见仓库中的 [更新交付001](docs/UPDATE_DELIVERY_001.md)。此入口兼容已知 candidate.5/6；不需要先覆盖安装更新器，也不需要重新安装整套环境。
+使用本轮 Engineer 交付的单个 **更新.cmd**。下载、来源、摘要和验收状态见仓库中的 [更新交付001](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/UPDATE_DELIVERY_001.md)。此入口兼容已知 candidate.5/6；不需要先覆盖安装更新器，也不需要重新安装整套环境。
 
 1. 在原位置双击原来的“停止.cmd”，等待后台与专用执行浏览器正常关闭。
 2. 如要换短路径，**整体移动含“启动.cmd”的最内项目文件夹**，保留隐藏的`.runtime`、`runtime-deps`及所有原文件。未计划搬迁则保留原目录。不要只移动程序文件或单独搬`.runtime`。

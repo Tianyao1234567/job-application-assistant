@@ -39,12 +39,14 @@ test('candidate5 first update and candidate6 compatibility preserve data/unknown
 test('wrong directory, modified baseline, unsafe/corrupt payload fail before program or state changes',async t=>{
  const env=await installation(t),before=await fs.readFile(env.stateFile);const corrupt=structuredClone(bundle);corrupt.changes['local-app/model.mjs']=Buffer.from('changed').toString('base64');assert.throws(()=>validateBundle(corrupt),/HASH/);
  const unsafe=structuredClone(bundle);unsafe.changes['../escape']='YQ==';assert.throws(()=>validateBundle(unsafe),/UNSAFE/);
+ const sourceFile=path.join(env.root,'SOURCE.json'),sourceBytes=await fs.readFile(sourceFile),unsupported=JSON.parse(sourceBytes);unsupported.source={commit:'0'.repeat(40)};await fs.writeFile(sourceFile,JSON.stringify(unsupported));await assert.rejects(()=>runUpdate(bundle,env.root,fakeOptions),/BASELINE_UNSUPPORTED/);await fs.writeFile(sourceFile,sourceBytes);
  await fs.appendFile(path.join(env.root,'local-app/model.mjs'),'\n// local change');await assert.rejects(()=>runUpdate(bundle,env.root,fakeOptions),/BASELINE_CHANGED/);assert.deepEqual(await fs.readFile(env.stateFile),before);assert.equal(await fs.stat(path.join(env.root,'.runtime/updates')).then(()=>true,()=>false),false);
  await assert.rejects(()=>runUpdate(bundle,path.dirname(env.root),fakeOptions));
 });
 test('missing, wrong-size/hash, mixed and external attachment references reject the entire relocation',async t=>{
  const env=await installation(t),state=JSON.parse(await fs.readFile(env.stateFile,'utf8')),before=structuredClone(state);
  for(const mutate of [s=>s.resume.size++,s=>s.resume.file='/external/other.bin',s=>s.tasks[0].resumeSnapshot.file=s.tasks[0].resumeSnapshot.file.replace('/deep/','/other/')]){const invalid=structuredClone(state);mutate(invalid);await assert.rejects(()=>relocateState(env.root,invalid));assert.deepEqual(state,before);}
+ const attachmentFile=path.join(env.root,'.runtime/data/resumes',state.resume.sha256+'.bin'),wrongBytes=await fs.readFile(attachmentFile);wrongBytes[0]^=1;await fs.writeFile(attachmentFile,wrongBytes);await assert.rejects(()=>relocateState(env.root,state),/ATTACHMENT_HASH/);assert.deepEqual(state,before);
  await fs.rm(path.join(env.root,'.runtime/data/resumes',state.resume.sha256+'.bin'));await assert.rejects(()=>relocateState(env.root,state));assert.deepEqual(state,before);
 });
 test('mid-update/dependency failures restore original files/state and retain the backup and submission boundary',async t=>{
