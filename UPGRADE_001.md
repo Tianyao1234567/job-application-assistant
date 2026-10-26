@@ -1,5 +1,7 @@
 # 单文件更新与目录搬迁
 
+> **2026-10-26 Manager：当前candidate.7的update.cmd暂缓使用。** 自动中断恢复存在覆盖后续新资料的缺口，见[验收与返工记录](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6409613028)。先保留原安装，等待修复文件和验收结论；以下是修复交付后需重新确认适用的操作流程。
+
 使用本轮 Engineer 交付的单个 **更新脚本 update.cmd**（GitHub下载名，直接运行，不必改名；下文“更新.cmd”指该脚本）。下载、来源、摘要和验收状态见仓库中的 [更新交付001](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/UPDATE_DELIVERY_001.md)。此入口兼容已知 candidate.5/6；不需要先覆盖安装更新器，也不需要重新安装整套环境。
 
 1. 在原位置双击原来的“停止.cmd”，等待后台与专用执行浏览器正常关闭。
