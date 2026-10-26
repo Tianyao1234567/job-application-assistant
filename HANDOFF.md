@@ -1,14 +1,16 @@
 # HANDOFF — 新 Manager 从这里接手
 
-更新时间：**2026-10-23（北京时间）**。这是唯一交接入口，面向完全没有聊天上下文的新会话。用户结束旧 Manager 会话，准备稍后继续；新会话第一句只需：**先读HANDOFF.md**。
+更新时间：**2026-10-26（北京时间）**。这是唯一交接入口，面向完全没有聊天上下文的新会话。用户结束旧 Manager 会话，准备稍后继续；新会话第一句只需：**先读HANDOFF.md**。
 
-**Engineer最新待验收交付（2026-10-23）**：[单文件更新交付001](docs/UPDATE_DELIVERY_001.md)，candidate.7来源`ffc18124fb12405d395c6a5e28460d11a83ad80d`。[直接下载单个更新脚本update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.7-update/update.cmd)，240077字节，摘要见交付文档。[最终CI](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39934626712)：14项必要检查、candidate.5/6两条实际Windows完整搬迁/真实扩展/再次启动场景，以及新扩展资料拒绝恢复负例。先在原位置正常停止，按需整体移动含隐藏.runtime的最内项目，再将一个更新文件放到启动.cmd同级运行；完成后由用户正常启动。保留原资料/附件/答案/任务/提交账本及浏览器，首次新心跳核验前保持暂停，unknown不重投。Engineer交付待Manager验收，不代表用户本机已更新；PR #5仍draft，真实申请未授权。
+**Manager最新结论（2026-10-26）：candidate.7分项通过，当前单文件暂不放行。** [验收与P1唯一返工](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6409613028)。实际下载文件240077字节，SHA与CI/发布服务一致，嵌入引擎与25项差异均核对到ffc18124；14项及candidate.5/6两条Windows证据沿用。新增一个定点虚构复现发现：prepared中断后旧版保存profile v2，再次更新自动rollback回v1（newFactsPreserved=false）。自动恢复prepared/writing未像显式--restore一样核对新增后台/扩展数据，可能覆盖新资料。原Engineer只修此路径并补必要负例，无法证明安全则拒绝覆盖保留现场；其他通过部分不重做。当前release update.cmd已标记暂缓使用，用户先保留原安装，不运行此文件或开始搬迁验收。修复交付/验收后再教学；candidate.5/6验收保持有效，真实申请仍未验证，PR #5保持draft。
+
+**Engineer候选交付（2026-10-23；当前有P1返工，见上）**：[单文件更新交付001](docs/UPDATE_DELIVERY_001.md)，candidate.7来源`ffc18124fb12405d395c6a5e28460d11a83ad80d`。[直接下载单个更新脚本update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.7-update/update.cmd)，240077字节，摘要见交付文档。[最终CI](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39934626712)：14项必要检查、candidate.5/6两条实际Windows完整搬迁/真实扩展/再次启动场景，以及新扩展资料拒绝恢复负例。先在原位置正常停止，按需整体移动含隐藏.runtime的最内项目，再将一个更新文件放到启动.cmd同级运行；完成后由用户正常启动。保留原资料/附件/答案/任务/提交账本及浏览器，首次新心跳核验前保持暂停，unknown不重投。Manager已分项审核但未放行当前更新文件，不代表用户本机已更新；PR #5仍draft，真实申请未授权。
 
 **Engineer最新交付（2026-10-23，Manager已验收）**：[PDF交付001](docs/PROFILE_IMPORT_DELIVERY_001.md)。candidate.6来源`38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac`，[CI](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833)的43项必要检查、6场景实际后台UI和构建全部通过；[下载](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39817261833/artifacts/12442547605)北京时间10月30日00:50:02到期。本机PDF提取/一次核对、集中补答、稳定事实保存与后续复用已实现；按[原目录升级步骤](UPGRADE_001.md)保留资料、答案、任务、附件路径、登录和已有浏览器，只补必要PDF组件。原Engineer已完成本轮交付且通过Manager验收，现进入保留数据升级与本人使用；不要再要求用户手填整份资料、重装环境或另起并行实现。未使用本人资料、未向企业提交，旧109/MV3/Windows/录屏未重跑；PR #5仍draft。
 
-**当前唯一开发任务（2026-10-23，用户明确恢复并修改方案）**：[单文件更新＋搬迁路径修复](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6360792701)。用户要求只下载一个更新.cmd，放到实际启动.cmd同级并双击，更新完成后再正常启动；还计划完整移出最内项目文件夹，使用固定短路径。此任务替代此前完整包更新方案并解除暂停，仍由原Engineer接续，不另启并行实现；发布不代表已接单。candidate.6验收保持有效，用户尚未确认本机升级/搬迁完成。验收必须覆盖Windows旧安装移动后实际附件可读、真实扩展身份/心跳与提交账本、原数据/暂停/unknown保留、再次启动；不能只以网页打开为成功，不能承诺百分百永不出错。单文件候选入口已由上述交付001提供，待Manager核对新增范围；不让用户手改state.json。
+**原单文件任务（主体已分项通过，当前仅修顶部P1）**：[单文件更新＋搬迁路径修复](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6360792701)。用户要求只下载一个更新.cmd，放到实际启动.cmd同级并双击，更新完成后再正常启动；还计划完整移出最内项目文件夹，使用固定短路径。此任务替代此前完整包更新方案并解除暂停，仍由原Engineer接续，不另启并行实现；发布不代表已接单。candidate.6验收保持有效，用户尚未确认本机升级/搬迁完成。验收必须覆盖Windows旧安装移动后实际附件可读、真实扩展身份/心跳与提交账本、原数据/暂停/unknown保留、再次启动；不能只以网页打开为成功，不能承诺百分百永不出错。单文件候选入口已交付但Manager发现自动恢复P1，修复后才可组织用户执行；不让用户手改state.json。
 
-Engineer本轮实现与必要验证已完成，14项新增/受影响检查和上述两条托管Windows场景见交付001。更新/搬迁、扩展归属与身份、原账本及附件保护、失败/中断恢复已有实际代码；恢复旧版也核对扩展中新增的资料，避免只比较后台状态。下一负责人为Manager，核对交付新增范围后记录验收，再按用户节奏教学；Engineer只接续实际返工，不重跑已接收旧测试。全部测试使用虚构数据。
+Engineer本轮实现与必要验证已完成，14项新增/受影响检查和上述两条托管Windows场景见交付001。更新/搬迁、扩展归属与身份、原账本及附件保护、失败/中断恢复已有实际代码；恢复旧版也核对扩展中新增的资料，避免只比较后台状态。下一负责人为原Engineer，完成顶部自动中断恢复保护的定点返工，再交Manager复核新差异与新文件；不重跑已接收旧测试。全部测试使用虚构数据。
 
 **此前完整包更新方案（已被上述单文件任务替代，保留历史）**：[Windows双击更新、免手工覆盖](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6359636510)。candidate.6已验收，用户进一步反馈手工合并文件太麻烦；下一项交原Engineer提供独立更新助手，操作缩为“下载→解压一次→双击更新.cmd→选择旧安装目录”，自动校验/停止/更新/补必要依赖/启动，保留数据、浏览器、暂停和unknown状态，并有失败恢复。必须支持candidate.5/6首次升级，无需先手动覆盖安装更新器。当前入口尚未实现/交付，任务已发布不代表已接单；不另启并行写入者、不建设在线更新平台或迁云。验收新入口后再带用户升级及继续首个真实申请，不能把规划说成现有功能。
 
@@ -35,7 +37,7 @@ Engineer本轮实现与必要验证已完成，14项新增/受影响检查和上
 | 当前PR | [PR #5](https://github.com/Tianyao1234567/job-application-assistant/pull/5)，OPEN / draft，基于未合并的`dev/local-workflow-foundation` / [PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4) |
 | 当前已验收运行代码 | `38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac` / candidate.6；43项＋6场景，见顶部 |
 | 附件P1已验收历史基线 | `3856a49a78852c4729a6be4d64f01f19acdcd1c3` / `0.2.0-candidate.5` |
-| 最新待验收运行/更新来源 | `ffc18124fb12405d395c6a5e28460d11a83ad80d` / candidate.7；本次交付文档提交不改变下载文件来源 |
+| 当前暂缓使用的更新来源 | `ffc18124fb12405d395c6a5e28460d11a83ad80d` / candidate.7；本次交付文档提交不改变下载文件来源 |
 | 共享任务与进展 | [Issue #1](https://github.com/Tianyao1234567/job-application-assistant/issues/1)，先读最新相关评论，不遍历全部历史 |
 | 原首站标准 | [docs/MANAGER_TASK_001.md](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/MANAGER_TASK_001.md) |
 
@@ -117,6 +119,8 @@ Manager已审查本轮差异、负例和GitHub Checks证据，没有重跑30项/
 - [新增扩展验证证据](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39783058559/artifacts/12427468232)，2026-10-29 21:01:19北京时间到期。过期后按已验收源码补包或提供新入口，不重做全部演示。
 
 ## 6. 新Manager下一步顺序
+
+**当前实际优先项（覆盖下方较早计划）**：只跟进candidate.7自动中断恢复P1。修复前不指导用户运行当前update.cmd；修复后核对对应源码/单文件摘要与新增负例，再进入用户更新与搬迁。无需重新审查已通过正常迁移或旧PDF/投递功能。
 
 **当前优先项**：跟进顶部已恢复的单文件更新＋目录搬迁修复任务，交付后只验新增路径和保护行为，沿用candidate.6既有证据。用户将自行使用普通GPT教学提示词；先有已验收的实际更新入口，再指导更新/搬迁核对及本人PDF导入。真实企业完整申请仍待用户选择岗位并明确确认。
 
