@@ -43,6 +43,6 @@ Engineer于2026-10-27交付，**待Manager复核**。针对[自动恢复P1](http
 - 3项受影响回归：写入/依赖失败恢复、profile还原中断后继续、损坏备份拒绝。未跑旧14项全套。
 - 两条GitHub-hosted Windows 2025实际新增分支，candidate.5/6各一条：旧实际配对作为虚构fixture准备；设置上述诊断状态、删除正常停止标记、无事务、完整移至新根且旧根不存在；运行真实单文件→核对原资料/答案/附件字节与摘要/版本/原state备份→正常启动新实际扩展、原profileId/账本及fresh heartbeat。两条各自通过旧路径脚本已删除但Node仍活、无关程序占端口、真实Chrome配置锁三项拒绝，辅助进程未被终止，数据无变化。
 - 更新器不造server.stopped，journal实际记录verified-offline；安全暂停保留，unknown的恢复请求实际HTTP400，旧outbox/上传/回执证据保留在归档。原浏览器二进制SHA不变，申请POST为0。公开证据仅虚构数据、布尔结果和包摘要。
-- Windows输出文件摘要与交付工作区重建结果一致。CI artifact `update-repair-evidence`含新单文件、UPDATE.json及windows-update-repair.json，Checks注释含无私人路径的场景结果。
+- Windows输出文件摘要与交付工作区重建结果一致。[托管发布40467023410](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/40467023410)从同一已测SHA重建并校验固定大小和摘要后上传；GitHub资产服务端digest与上述SHA-256一致。CI artifact `update-repair-evidence`含新单文件、UPDATE.json及windows-update-repair.json，Checks注释含无私人路径的场景结果。
 
 沿用candidate.7已接收正常搬迁/再次启动、candidate.6的43项/6场景及Greenhouse历史证据，未重跑旧两条完整流程、旧全套、MV3或录屏。没有使用本人资料或向企业提交申请。用户本机未由本会话操作；实际删除范围尚未知，已被删除而无备份的个人资料不能由更新器重建。PR #5继续draft，不合并。
