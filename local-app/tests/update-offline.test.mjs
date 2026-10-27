@@ -45,6 +45,13 @@ async function fixture(t){
  return {root,stateFile,production,oldId,newId,attachment,stopFile,bytes};
 }
 
+async function moveFixture(t,env){
+ const root=env.root+'-moved';await fs.rename(env.root,root);t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ // Move the complete installation while retaining the old absolute references
+ // and Chromium path-derived identity, as in the affected real installation.
+ return {...env,root,stateFile:path.join(root,'.runtime/data/state.json'),production:path.join(root,'.runtime/browser/production'),attachment:path.join(root,path.relative(env.root,env.attachment)),stopFile:path.join(root,'.runtime/server.stopped')};
+}
+
 function lockGate(profileHeld=true){
  let held=profileHeld,released=false;
  return {get profileHeld(){return held;},requireHeld(){assert.equal(released,false,'the launch lock must remain held');},async releaseProfile(){held=false;},async acquireProfile(){held=true;},async release(){released=true;held=false;}};
@@ -114,6 +121,36 @@ for(const fail of ['extension','dependency'])test('offline '+fail+' failure keep
  const state=await readJSON(env.stateFile);preservedUserData(state,before);assert.equal(state.tasks[1].status,'queued');assert.equal(state.tasks[1].phase,'inspect');
  const actual=await activeBytes(env);delete actual['.runtime/data/state.json'];delete original['.runtime/data/state.json'];assert.deepEqual(actual,original);
  const history=await journals(env);assert.equal(history.length,1);assert.equal(history[0].phase,'rolled-back');assert.equal(history[0].quiescence.kind,'verified-offline');await absent(env.stopFile);
+});
+
+for(const fail of ['extension','dependency'])test('moved offline '+fail+' failure keeps the old ownership references paused and permits a safe update retry',async t=>{
+ const env=await moveFixture(t,await fixture(t)),before=await readJSON(env.stateFile),original=await activeBytes(env);
+ assert.notEqual(before.resume.file,env.attachment);
+ await assert.rejects(()=>runUpdate(bundle,env.root,options({fail})),new RegExp('FICTIONAL_OFFLINE_'+fail.toUpperCase()+'_FAILURE'));
+ const held=await readJSON(env.stateFile);preservedUserData(held,before);assert.equal(held.resume.file,before.resume.file);assert.equal(held.tasks[0].resumeSnapshot.file,before.tasks[0].resumeSnapshot.file);
+ assert.equal(held.tasks[1].status,'queued');assert.equal(held.tasks[1].phase,'inspect');
+ const actual=await activeBytes(env);delete actual['.runtime/data/state.json'];delete original['.runtime/data/state.json'];assert.deepEqual(actual,original);await absent(env.stopFile);
+ assert.equal((await runUpdate(bundle,env.root,options())).updated,true);
+ const retried=await readJSON(env.stateFile),expected=structuredClone(before);expected.resume.file=env.attachment;for(const task of expected.tasks)task.resumeSnapshot.file=env.attachment;
+ preservedUserData(retried,expected);assert.equal(retried.tasks[1].status,'queued');assert.equal(retried.tasks[1].phase,'inspect');assert.deepEqual(await fs.readFile(retried.resume.file),env.bytes);await absent(env.stopFile);
+ const storage=await readJSON(path.join(env.production,'Default/Local Extension Settings',env.newId,'fictional-storage.json'));assert.deepEqual(storage.localSubmissionAttempts,originalStorage.localSubmissionAttempts);assert.deepEqual(storage.localBridge,originalStorage.localBridge);
+ const history=await journals(env);assert.equal(history.length,2);assert.deepEqual(history.map(journal=>journal.phase).sort(),['committed','rolled-back']);
+});
+
+test('verified offline update can explicitly restore unchanged data while retaining its safe hold',async t=>{
+ const env=await moveFixture(t,await fixture(t)),before=await readJSON(env.stateFile),original=await activeBytes(env);
+ assert.equal((await runUpdate(bundle,env.root,options())).updated,true);
+ let inspections=0;
+ const config={...options(),restore:true,extensionInspect:async(_root,_txn,_bundle,migration)=>{
+  inspections++;assert.equal(migration.profileId,profileId);assert.equal(migration.extensionId,env.newId);
+  const storage=await readJSON(path.join(env.production,'Default/Local Extension Settings',env.newId,'fictional-storage.json'));
+  assert.equal(hash(canonical(persistentStorage(storage))),migration.storageHash,'restore must inspect the unchanged current persistent storage');
+ }};
+ assert.equal((await runUpdate(bundle,env.root,config)).restored,true);assert.equal(inspections,1);
+ const held=await readJSON(env.stateFile);preservedUserData(held,before);assert.equal(held.tasks[1].status,'queued');assert.equal(held.tasks[1].phase,'inspect');
+ const actual=await activeBytes(env);delete actual['.runtime/data/state.json'];delete original['.runtime/data/state.json'];assert.deepEqual(actual,original);
+ await absent(env.stopFile);await absent(path.join(env.root,'.runtime/installation.json'));
+ const history=await journals(env);assert.equal(history.length,1);assert.equal(history[0].phase,'rolled-back');assert.equal(history[0].quiescence.kind,'verified-offline');
 });
 
 test('incomplete process inventories refuse proof and alternate Node executables still identify project entries',()=>{

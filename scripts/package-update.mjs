@@ -44,6 +44,7 @@ try {
   $version=& $node.Source --version
   if($version -notmatch '^v(2[4-9]|[3-9][0-9])\\.'){throw 'UPDATE_NODE_REQUIRED'}
   $env:JOB_UPDATE_ROOT=[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($env:JOB_UPDATE_FILE))
+  [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
   $OutputEncoding=[Text.UTF8Encoding]::new($false)
   [Text.Encoding]::UTF8.GetString($jobExpandedStream.ToArray()) | & $node.Source --input-type=module -
   exit $LASTEXITCODE
