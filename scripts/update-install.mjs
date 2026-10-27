@@ -110,6 +110,31 @@ async function inspectExtensionForRestore(root,txn,bundle,migration,state){
  const probe=await fs.mkdtemp(path.join(root,'.runtime/updates/check-'));
  await prepareExtension(root,probe,bundle,{id:migration.extensionId,production,storage},state,{inspectHash:migration.storageHash});
 }
+// Recovery may run days after an interruption. A phase name cannot prove that
+// the old application has not since saved new facts or extension records.
+async function guardAutomaticRecovery(root,txn,journal,bundle){
+ assert(journal.source===bundle.target.source&&equalPath(journal.root,root),'UPDATE_RECOVERY_MISMATCH');
+ const encoded=journal.backup?.['.runtime/data/state.json'];assert(typeof encoded==='string','UPDATE_RECOVERY_MISMATCH');
+ const bytes=Buffer.from(encoded,'base64');assert(digest(bytes)===journal.backupHashes?.['.runtime/data/state.json'],'UPDATE_BACKUP_HASH');
+ const prior=JSON.parse(bytes),current=await json(path.join(root,'.runtime/data/state.json'));
+ const relocated=await relocateState(root,prior),expected=[prior,relocated.state];if(journal.expectedState)expected.push(journal.expectedState);
+ assert(expected.some(state=>stable(state)===stable(current)),'UPDATE_RECOVERY_HAS_NEW_DATA');
+ const production=path.join(root,'.runtime/browser/production');await noLinks(root,production);
+ const actual=await treeFiles(await exists(production)?production:path.join(txn,'profile-before-recovery'));
+ // This is an updater-held Chromium singleton lock, not user data.
+ const normalized=tree=>stable((tree||[]).filter(file=>file.path!=='lockfile'));
+ assert([journal.profileTree||[],journal.expectedProfileTree].filter(Boolean).some(tree=>normalized(tree)===normalized(actual)),'UPDATE_RECOVERY_HAS_NEW_DATA');
+ for(const [name,original]of Object.entries(journal.backup)){
+  if(name==='.runtime/data/state.json')continue;
+  safeRelative(name.startsWith('.runtime/')?'recovery-placeholder':name);await noLinks(root,path.join(root,name));
+  const currentHash=await exists(path.join(root,name))?digest(await fs.readFile(path.join(root,name))):null;
+  const hashes=[original===null?null:digest(Buffer.from(original,'base64'))];
+  const file=bundle.target.files.find(file=>file.path===name);if(file)hashes.push(file.sha256);
+  if(name==='SOURCE.json')hashes.push(digest(JSON.stringify(bundle.target.manifest||bundle.target,null,2)+'\n'));
+  if(name==='.runtime/installation.json'&&journal.expectedInstallation)hashes.push(digest(JSON.stringify(journal.expectedInstallation,null,2)+'\n'));
+  assert(hashes.includes(currentHash),'UPDATE_RECOVERY_HAS_NEW_DATA');
+ }
+}
 async function rollback(root,txn,bundle,{preserveState=false}={}){
  const file=path.join(txn,'journal.json'),journal=await json(file);assert(journal.source===bundle.target.source&&equalPath(journal.root,root),'UPDATE_RECOVERY_MISMATCH');
  const allowed=new Set([...bundle.target.files.map(f=>f.path),'SOURCE.json','.runtime/data/state.json','.runtime/installation.json']);
@@ -125,7 +150,7 @@ async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,ext
  const updates=path.join(root,'.runtime/updates');await noLinks(root,updates);
  const restoring=restore?await json(path.join(root,'.runtime/installation.json')).catch(()=>null):null;
  if(restore)assert(restoring?.migration?.pending===true&&!restoring.migration.verifiedAt,'UPDATE_RESTORE_UNAVAILABLE');
- if(await exists(updates))for(const entry of await fs.readdir(updates,{withFileTypes:true})){if(!entry.isDirectory()||!/^txn-[a-f0-9-]+$/.test(entry.name))continue;const txn=path.join(updates,entry.name);if(!await exists(path.join(txn,'journal.json')))continue;const journal=await json(path.join(txn,'journal.json'));if(['prepared','writing'].includes(journal.phase)||restore&&journal.phase==='committed'&&restoring.backup===entry.name){if(restore){const current=await json(path.join(root,'.runtime/data/state.json')),original=JSON.parse(Buffer.from(journal.backup['.runtime/data/state.json'],'base64'));const normalized=await relocateState(root,original);assert(stable(savedFacts(current))===stable(savedFacts(normalized.state)),'UPDATE_RESTORE_HAS_NEW_DATA');}await checkStopped(root,[journal.oldRoot],{stop:false});if(restore)await extensionInspect(root,txn,bundle,restoring.migration,await json(path.join(root,'.runtime/data/state.json')));requireLaunchLock();await rollback(root,txn,bundle);if(restore)return {restored:true};}}
+ if(await exists(updates))for(const entry of await fs.readdir(updates,{withFileTypes:true})){if(!entry.isDirectory()||!/^txn-[a-f0-9-]+$/.test(entry.name))continue;const txn=path.join(updates,entry.name);if(!await exists(path.join(txn,'journal.json')))continue;const journal=await json(path.join(txn,'journal.json'));if(['prepared','writing'].includes(journal.phase)||restore&&journal.phase==='committed'&&restoring.backup===entry.name){if(restore){const current=await json(path.join(root,'.runtime/data/state.json')),original=JSON.parse(Buffer.from(journal.backup['.runtime/data/state.json'],'base64'));const normalized=await relocateState(root,original);assert(stable(savedFacts(current))===stable(savedFacts(normalized.state)),'UPDATE_RESTORE_HAS_NEW_DATA');}else await guardAutomaticRecovery(root,txn,journal,bundle);await checkStopped(root,[journal.oldRoot],{stop:false});if(restore)await extensionInspect(root,txn,bundle,restoring.migration,await json(path.join(root,'.runtime/data/state.json')));requireLaunchLock();await rollback(root,txn,bundle);if(restore)return {restored:true};}}
  if(restore)throw new Error('UPDATE_RESTORE_UNAVAILABLE');
  const baseline=await installedBaseline(root,bundle),stateFile=path.join(root,'.runtime/data/state.json');
  const prior=await json(stateFile),relocation=await relocateState(root,prior),installationFile=path.join(root,'.runtime/installation.json'),installation=await json(installationFile).catch(()=>null);
@@ -140,15 +165,17 @@ async function runUpdateTransaction(bundle,root,{checkStopped=requireStopped,ext
  if(owner){await fs.cp(owner.production,path.join(txn,'browser-profile'),{recursive:true});journal.profileTree=await treeFiles(owner.production);assert(JSON.stringify(journal.profileTree)===JSON.stringify(await treeFiles(path.join(txn,'browser-profile'))),'UPDATE_BACKUP_HASH');journal.profileBackup='browser-profile';}
  await saveJSON(path.join(txn,'journal.json'),journal);
  try{
-  const migration=await extensionPrepare(root,txn,bundle,owner,relocated.state);requireLaunchLock();journal.phase='writing';await saveJSON(path.join(txn,'journal.json'),journal);
+  const migration=await extensionPrepare(root,txn,bundle,owner,relocated.state);requireLaunchLock();journal.expectedState=relocated.state;
+  if(migration){const prefix=path.relative(owner.production,migration.destination).split(path.sep).join('/')+'/';journal.expectedProfileTree=[...(journal.profileTree||[]).filter(file=>!file.path.startsWith(prefix)),...(await treeFiles(migration.stageStorage)).map(file=>({...file,path:prefix+file.path}))].sort((a,b)=>a.path.localeCompare(b.path));}
+  journal.phase='writing';await saveJSON(path.join(txn,'journal.json'),journal);
   for(const [name,value]of Object.entries(bundle.changes))await atomic(path.join(root,name),Buffer.from(value,'base64'));
   if(failAfterWrite)throw new Error('UPDATE_SIMULATED_FAILURE');
   await saveJSON(path.join(root,'SOURCE.json'),bundle.target.manifest||bundle.target);await saveJSON(stateFile,relocated.state);
   if(migration){await fs.rm(migration.destination,{recursive:true,force:true});await fs.mkdir(path.dirname(migration.destination),{recursive:true});await fs.cp(migration.stageStorage,migration.destination,{recursive:true});assert(JSON.stringify(await treeFiles(migration.stageStorage))===JSON.stringify(await treeFiles(migration.destination)),'UPDATE_STORAGE_COPY_HASH');delete migration.stageStorage;delete migration.destination;}
   if(dependencies)await dependencies(root);else{const {prepareDependencies}=await import(pathToFileURL(path.join(root,'scripts/prepare-deps.mjs')).href+'?update='+path.basename(txn));prepareDependencies({projectRoot:root});}
-  await saveJSON(installationFile,{format:1,id:installation?.id||crypto.randomUUID(),root,source:bundle.target.source,migration,backup:path.basename(txn),updatedAt:new Date().toISOString()});
+  journal.expectedInstallation={format:1,id:installation?.id||crypto.randomUUID(),root,source:bundle.target.source,migration,backup:path.basename(txn),updatedAt:new Date().toISOString()};await saveJSON(path.join(txn,'journal.json'),journal);await saveJSON(installationFile,journal.expectedInstallation);
   journal.phase='committed';await saveJSON(path.join(txn,'journal.json'),journal);return {updated:true,attachmentsRelocated:relocated.changed,pending:!!migration};
- }catch(error){await rollback(root,txn,bundle);throw error;}
+ }catch(error){await guardAutomaticRecovery(root,txn,await json(path.join(txn,'journal.json')),bundle);await rollback(root,txn,bundle);throw error;}
 }
 async function launchLocks(root){
  if(process.platform!=='win32')return {release:async()=>{},requireHeld:()=>{}};
