@@ -30,6 +30,7 @@ on:
           - candidate
           - windows-browser
           - windows-update
+          - windows-update-repair
           - publish-update
           - public-site-browser
           - real-site-browser
@@ -83,12 +84,12 @@ jobs:
           update_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','.github/workflows/cloud-checks.yml','scripts/package-candidate.mjs','scripts/package-update.mjs','scripts/update-install.mjs','scripts/test-windows-update.mjs','scripts/start.ps1','scripts/open-browser.ps1','scripts/browser.mjs','autofill-extension/manifest.json','autofill-extension/background.js','autofill-extension/runner/runner.js','autofill-extension/shared/migration.js','local-app/model.mjs','local-app/server.mjs','local-app/tests/update-install.test.mjs','local-app/tests/update-recovery.test.mjs','local-app/tests/update-offline.test.mjs','scripts/test-windows-update-repair.mjs'}
           update_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',update_baseline,'HEAD'],text=True).splitlines() if update_known else []
           update=update_known and 'scripts/update-install.mjs' in update_files and all(p in update_allowed or p.startswith('docs/UPDATE_DELIVERY_') or p.startswith('docs/PROFILE_IMPORT_DELIVERY_') for p in update_files)
-          if os.environ.get('SELECTED_CHECK')=='windows-update' and not update: raise RuntimeError('Updater-only check includes changes outside approved scope')
+          if os.environ.get('SELECTED_CHECK') in ['windows-update','windows-update-repair'] and not update: raise RuntimeError('Updater-only check includes changes outside approved scope')
           if os.environ.get('SELECTED_CHECK')=='greenhouse-reference' and not focused: raise RuntimeError('Reference-only check includes changes outside its accepted scope')
           if os.environ.get('SELECTED_CHECK')=='profile-import' and not profile: raise RuntimeError('PDF-only check includes changes outside its approved scope')
           repair=update and 'local-app/tests/update-recovery.test.mjs' in update_files
           with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\nprofile='+str(profile).lower()+'\nupdate='+str(update).lower()+'\nrepair='+str(repair).lower()+'\n')
-          print('PDF/batch/preserved-data upgrade only; reuse accepted Greenhouse evidence' if profile else 'Exact upload object rework only' if focused else 'General changed scope')
+          print('Updater automatic recovery and verified offline hold; reuse prior acceptance' if repair else 'PDF/batch/preserved-data upgrade only; reuse accepted Greenhouse evidence' if profile else 'Exact upload object rework only' if focused else 'General changed scope')
           PY
       - uses: actions/setup-node@v6
         with:
@@ -443,6 +444,38 @@ jobs:
             .runtime/delivery/update-*/更新.cmd
             .runtime/delivery/update-*/UPDATE.json
             .runtime/tests/evidence/windows-update.json
+          if-no-files-found: error
+          retention-days: 7
+
+
+  windows-update-repair:
+    needs: source-and-unit
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser == 'windows-update-repair' }}
+    runs-on: windows-2025
+    timeout-minutes: 12
+    env:
+      JOB_ASSISTANT_NONINTERACTIVE: '1'
+      JOB_ASSISTANT_BROWSER_TEST: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify only the diagnosed offline update path
+        run: node scripts/test-windows-update-repair.mjs
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: update-repair-evidence
+          path: |
+            .runtime/delivery/update-*/更新.cmd
+            .runtime/delivery/update-*/UPDATE.json
+            .runtime/tests/evidence/windows-update-repair.json
           if-no-files-found: error
           retention-days: 7
 
