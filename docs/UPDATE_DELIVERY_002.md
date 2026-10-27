@@ -1,6 +1,6 @@
 # 更新交付002：中断数据保护与已搬迁安装修复
 
-Engineer于2026-10-27交付，**待Manager复核**。针对[自动恢复P1](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6409613028)及[用户Windows诊断](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6435687994)，沿用原分支、PR #5和已接收功能，不重新建设更新平台。
+Engineer于2026-10-27交付，**已通过[Manager验收](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6436876477)，本轮无新增返工**。针对[自动恢复P1](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6409613028)及[用户Windows诊断](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6435687994)，沿用原分支、PR #5和已接收功能，不重新建设更新平台。
 
 ## 新下载
 
