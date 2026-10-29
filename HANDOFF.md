@@ -1,19 +1,21 @@
 # HANDOFF — 新 Manager 从这里接手
 
-更新时间：**2026-10-29（北京时间）**。这是唯一交接入口，面向完全没有聊天上下文的新会话。新会话第一句只需：**先读HANDOFF.md**。Manager继续协调，原Engineer已开始现有导入流程检查，尚未报告功能代码改动。
+更新时间：**2026-10-29（北京时间）**。这是唯一交接入口，面向完全没有聊天上下文的新会话。新会话第一句只需：**先读HANDOFF.md**。Manager继续协调，原Engineer已完成顶部候选9交付，等待Manager新增范围验收。
 
 
-**当前唯一开发优先项（2026-10-29）：旧插件配置迁移＋固定格式资料增量导入。** [完整Engineer任务/协议/验收](docs/ENGINEER_TASK_PROFILE_UPDATE_001.md)是本轮唯一任务入口，已包含所有协议正文；同时提供[完整虚构v3结构](docs/examples/PROFILE_LEGACY_V3_FICTIONAL.json)、[完整增量示例](docs/examples/PROFILE_UPDATE_FICTIONAL.json)、[空模板](docs/examples/PROFILE_UPDATE_EMPTY.json)及[给其他AI的提示词](docs/PROFILE_UPDATE_AI_PROMPT.md)。工程师无需访问Manager聊天的/workspace目录，也无需用户重复传技术文档或手抄资料。此次只更新交接文档，不改产品功能；候选9或新增量入口均未交付。
+**Engineer交付（2026-10-29，待Manager验收）**：[资料文件导入交付001](docs/PROFILE_FILE_IMPORT_DELIVERY_001.md)。已读取`97c6d9e`完整技术材料并完成候选9；[下载一个update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.9-update/update.cmd)，280379字节，SHA-256 `2a2054135ed3687f1242550e2959fdc2d6c1e6fd27801efc3d64da280745387f`，来源`812a92d1adc947d6c3152dd926718ff7dd3d652a`。[最终CI及发布](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/40818637375)42项必要检查及5个实际后台文件选择场景全部通过。支持已安装candidate.8，保留现有资料/附件/答案/任务与浏览器；升级一次后可选择本机v3或固定增量JSON，预览匹配/冲突后一次核对保存，普通资料变化不再更新程序。实际UI保存虚构2教育/1实习/3项目，未支持和在读预计内容明确保留待处理；无外部请求或企业申请授权。真实用户文件未进入开发或GitHub，用户本机未由本会话导入，PR #5仍draft。材料及实现无阻塞；下一步Manager只验新增范围，再指导本人更新、选择文件和核对。
+
+**当前唯一开发优先项（2026-10-29）：旧插件配置迁移＋固定格式资料增量导入。** [完整Engineer任务/协议/验收](docs/ENGINEER_TASK_PROFILE_UPDATE_001.md)是本轮唯一任务入口，已包含所有协议正文；同时提供[完整虚构v3结构](docs/examples/PROFILE_LEGACY_V3_FICTIONAL.json)、[完整增量示例](docs/examples/PROFILE_UPDATE_FICTIONAL.json)、[空模板](docs/examples/PROFILE_UPDATE_EMPTY.json)及[给其他AI的提示词](docs/PROFILE_UPDATE_AI_PROMPT.md)。工程师无需访问Manager聊天的/workspace目录，也无需用户重复传技术文档或手抄资料。上述原任务现已实现为候选9，交付与待验收状态见顶部；不代表Manager已验收或用户本机已导入。
 
 **最新实际进度：** 用户于10月28日报告candidate.8更新成功；随后上传本人PDF并保存资料，但教育/实习/项目仍显示为空，完整表单同时有未保存编辑。复制文字不含全部输入框值，不能认定持久资料全空。源码确认PDF解析主要识别固定标签，普通经历段落/日期/描述覆盖不足，0项接受也会显示saved。此缺口保留；用户现已提供更完整的旧插件v3配置作为首份基准，并要求以后“已有信息复用→必要缺项补答→任意AI输出固定格式→本机核对保存”。优先完成配置导入，不同时扩大PDF解析改造。Manager已制作兼容profile草稿并校验，但未写入用户电脑，不代表私有文件已送达Engineer。
 
-**执行权与交接：** 原Engineer报告已检查现有导入流程、未修改功能代码；当前阻塞为没收到完整格式和v3结构，本轮仓库文档解除这项材料缺口。Manager不接管功能实现、不启动第二位写代码的Engineer。请原Engineer从本任务接续，并以“发给 Manager”回复已读提交SHA、接收情况、实际状态与阻塞；Manager每次提供“发给 Engineer”消息。评论或Git提交不会自动唤醒另一聊天，不把发布说成已接单。
+**执行权与交接：** 原Engineer已读取完整提交与样例，材料缺口已解除；已交付本机文件导入功能和必要证据，见顶部。Manager不接管功能实现、不启动第二位写代码的Engineer。请原Engineer从本任务接续，并以“发给 Manager”回复已读提交SHA、接收情况、实际状态与阻塞；Manager每次提供“发给 Engineer”消息。评论或Git提交不会自动唤醒另一聊天，不把发布说成已接单。
 
 **文件分工：** 用户已授权双方读取其主动提供的资料。GitHub统一保存技术任务、协议、样例与验收；应用在用户电脑读取其现有配置和以后生成的更新文件。真实原始配置、转换资料及简历保留在仓库外，开发可以用相同结构的虚构样例完成，无需等待真实个人值。新入口只写本机数据；首次实现后普通资料变化不再打程序更新包。当前candidate.8仅支持完整profile JSON草稿导入，不能把增量文件粘到旧入口。
 
 **通信状态更正：** GitHub API请求仍返回Forbidden，但Git仓库通道已确认可读，本轮改用Git发布交接；此前“整个GitHub不可访问”的说法不准确。用户倾向Engineer直接读GitHub，此后优先使用仓库相对链接，避免仅交付另一个会话无法访问的本地文件路径。
 
-下一步：原Engineer按任务提供本机文件选择、变更预览/冲突处理和一次核对保存，交付兼容已安装candidate.8的单文件更新及必要定点证据。Manager验收后指导本人导入、核对执行端并选择真实岗位。真实企业完整投递仍未验证/授权，PR #5保持draft；既有candidate.8更新器、Greenhouse与PDF局部验证继续有效，不重复跑旧全套。
+下一步：Manager验收顶部原Engineer交付的本机文件选择、变更预览/冲突处理和一次核对保存功能；兼容已安装candidate.8的单文件及定点证据已提供。Manager验收后指导本人导入、核对执行端并选择真实岗位。真实企业完整投递仍未验证/授权，PR #5保持draft；既有candidate.8更新器、Greenhouse与PDF局部验证继续有效，不重复跑旧全套。
 
 **Manager最新验收（2026-10-27）：candidate.8通过，可进行保留目录的单文件更新。** [验收结论](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6436876477)。自动中断恢复覆盖新资料P1和已搬迁缺退出记录的更新阻塞均已修复，本轮无新增返工。实际下载247007字节、SHA-256 `d32f5f22069649ca97b36cc398d457e57f4aa6406c6a9eb31b467f462ffcf13e`；嵌入引擎、25项差异与71文件目标清单匹配已测源码`bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b`。已核对26项定点检查和两条Windows新增分支/6项拒绝证据，未重跑旧验证。旧candidate.7继续停用。用户只需将[新版update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.8-update/update.cmd)替换到当前启动.cmd同级，双击并看到UPDATE_COMPLETE后正常启动；无需重装、回旧目录或启动旧版补标记。随后核对已有资料/简历/答案/任务及执行端；用户已报告升级成功；数据完整性及执行端仍待实际核对。下一项为完成本人使用核对，再选真实岗位、补答并取得首次提交确认；原Engineer仅接续具体使用阻塞，不另开优化。真实企业申请仍未验证/授权，PR #5保持draft。
 
@@ -56,7 +58,7 @@ Engineer本轮实现与必要验证已完成，14项新增/受影响检查和上
 | 当前PR | [PR #5](https://github.com/Tianyao1234567/job-application-assistant/pull/5)，OPEN / draft，基于未合并的`dev/local-workflow-foundation` / [PR #4](https://github.com/Tianyao1234567/job-application-assistant/pull/4) |
 | 当前已验收运行代码 | `bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b` / candidate.8；26项定点＋两条Windows新增分支，继承candidate.6等已验收能力，见顶部 |
 | 附件P1已验收历史基线 | `3856a49a78852c4729a6be4d64f01f19acdcd1c3` / `0.2.0-candidate.5` |
-| 最新待复核更新来源 | `bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b` / candidate.8；仅新增范围见交付002 |
+| 最新待验收来源 | `812a92d1adc947d6c3152dd926718ff7dd3d652a` / candidate.9；42项＋5个实际UI场景，见顶部资料文件交付 |
 | 当前暂缓使用的更新来源 | `ffc18124fb12405d395c6a5e28460d11a83ad80d` / candidate.7；本次交付文档提交不改变下载文件来源 |
 | 共享任务与进展 | [Issue #1](https://github.com/Tianyao1234567/job-application-assistant/issues/1)，先读最新相关评论，不遍历全部历史 |
 | 原首站标准 | [docs/MANAGER_TASK_001.md](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/MANAGER_TASK_001.md) |
