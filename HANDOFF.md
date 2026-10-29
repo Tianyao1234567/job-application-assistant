@@ -1,10 +1,23 @@
 # HANDOFF — 新 Manager 从这里接手
 
-更新时间：**2026-10-27（北京时间）**。这是唯一交接入口，面向完全没有聊天上下文的新会话。用户结束旧 Manager 会话，准备稍后继续；新会话第一句只需：**先读HANDOFF.md**。
+更新时间：**2026-10-29（北京时间）**。这是唯一交接入口，面向完全没有聊天上下文的新会话。新会话第一句只需：**先读HANDOFF.md**。Manager继续协调，原Engineer已开始现有导入流程检查，尚未报告功能代码改动。
 
-**Manager最新验收（2026-10-27）：candidate.8通过，可进行保留目录的单文件更新。** [验收结论](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6436876477)。自动中断恢复覆盖新资料P1和已搬迁缺退出记录的更新阻塞均已修复，本轮无新增返工。实际下载247007字节、SHA-256 `d32f5f22069649ca97b36cc398d457e57f4aa6406c6a9eb31b467f462ffcf13e`；嵌入引擎、25项差异与71文件目标清单匹配已测源码`bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b`。已核对26项定点检查和两条Windows新增分支/6项拒绝证据，未重跑旧验证。旧candidate.7继续停用。用户只需将[新版update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.8-update/update.cmd)替换到当前启动.cmd同级，双击并看到UPDATE_COMPLETE后正常启动；无需重装、回旧目录或启动旧版补标记。随后核对已有资料/简历/答案/任务及执行端；本机未确认升级成功，删除范围仍未知，失败只反馈错误码并保留现场。下一项为完成本人使用核对，再选真实岗位、补答并取得首次提交确认；原Engineer仅接续具体使用阻塞，不另开优化。真实企业申请仍未验证/授权，PR #5保持draft。
 
-**Engineer本轮修复交付（2026-10-27，已通过顶部Manager验收）**：[交付002](docs/UPDATE_DELIVERY_002.md)，candidate.8来源`bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b`。[下载新版update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.8-update/update.cmd)，247007字节，SHA-256 `d32f5f22069649ca97b36cc398d457e57f4aa6406c6a9eb31b467f462ffcf13e`。[最终CI](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/40466396284)通过23项新增＋3项受影响回归，以及candidate.5/6两条实际Windows诊断分支、共6项进程/端口/配置锁拒绝。自动中断恢复先核对新资料，离线核验静止后备份并安全暂停，无须启动旧版补退出标记；失败后保持暂停与原归属，可重试。旧candidate.7继续停用，候选8取代其更新文件；Manager已验收，尚未确认在用户电脑执行成功；下一步按顶部指导保留当前目录更新，无需重装。
+**当前唯一开发优先项（2026-10-29）：旧插件配置迁移＋固定格式资料增量导入。** [完整Engineer任务/协议/验收](docs/ENGINEER_TASK_PROFILE_UPDATE_001.md)是本轮唯一任务入口，已包含所有协议正文；同时提供[完整虚构v3结构](docs/examples/PROFILE_LEGACY_V3_FICTIONAL.json)、[完整增量示例](docs/examples/PROFILE_UPDATE_FICTIONAL.json)、[空模板](docs/examples/PROFILE_UPDATE_EMPTY.json)及[给其他AI的提示词](docs/PROFILE_UPDATE_AI_PROMPT.md)。工程师无需访问Manager聊天的/workspace目录，也无需用户重复传技术文档或手抄资料。此次只更新交接文档，不改产品功能；候选9或新增量入口均未交付。
+
+**最新实际进度：** 用户于10月28日报告candidate.8更新成功；随后上传本人PDF并保存资料，但教育/实习/项目仍显示为空，完整表单同时有未保存编辑。复制文字不含全部输入框值，不能认定持久资料全空。源码确认PDF解析主要识别固定标签，普通经历段落/日期/描述覆盖不足，0项接受也会显示saved。此缺口保留；用户现已提供更完整的旧插件v3配置作为首份基准，并要求以后“已有信息复用→必要缺项补答→任意AI输出固定格式→本机核对保存”。优先完成配置导入，不同时扩大PDF解析改造。Manager已制作兼容profile草稿并校验，但未写入用户电脑，不代表私有文件已送达Engineer。
+
+**执行权与交接：** 原Engineer报告已检查现有导入流程、未修改功能代码；当前阻塞为没收到完整格式和v3结构，本轮仓库文档解除这项材料缺口。Manager不接管功能实现、不启动第二位写代码的Engineer。请原Engineer从本任务接续，并以“发给 Manager”回复已读提交SHA、接收情况、实际状态与阻塞；Manager每次提供“发给 Engineer”消息。评论或Git提交不会自动唤醒另一聊天，不把发布说成已接单。
+
+**文件分工：** 用户已授权双方读取其主动提供的资料。GitHub统一保存技术任务、协议、样例与验收；应用在用户电脑读取其现有配置和以后生成的更新文件。真实原始配置、转换资料及简历保留在仓库外，开发可以用相同结构的虚构样例完成，无需等待真实个人值。新入口只写本机数据；首次实现后普通资料变化不再打程序更新包。当前candidate.8仅支持完整profile JSON草稿导入，不能把增量文件粘到旧入口。
+
+**通信状态更正：** GitHub API请求仍返回Forbidden，但Git仓库通道已确认可读，本轮改用Git发布交接；此前“整个GitHub不可访问”的说法不准确。用户倾向Engineer直接读GitHub，此后优先使用仓库相对链接，避免仅交付另一个会话无法访问的本地文件路径。
+
+下一步：原Engineer按任务提供本机文件选择、变更预览/冲突处理和一次核对保存，交付兼容已安装candidate.8的单文件更新及必要定点证据。Manager验收后指导本人导入、核对执行端并选择真实岗位。真实企业完整投递仍未验证/授权，PR #5保持draft；既有candidate.8更新器、Greenhouse与PDF局部验证继续有效，不重复跑旧全套。
+
+**Manager最新验收（2026-10-27）：candidate.8通过，可进行保留目录的单文件更新。** [验收结论](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6436876477)。自动中断恢复覆盖新资料P1和已搬迁缺退出记录的更新阻塞均已修复，本轮无新增返工。实际下载247007字节、SHA-256 `d32f5f22069649ca97b36cc398d457e57f4aa6406c6a9eb31b467f462ffcf13e`；嵌入引擎、25项差异与71文件目标清单匹配已测源码`bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b`。已核对26项定点检查和两条Windows新增分支/6项拒绝证据，未重跑旧验证。旧candidate.7继续停用。用户只需将[新版update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.8-update/update.cmd)替换到当前启动.cmd同级，双击并看到UPDATE_COMPLETE后正常启动；无需重装、回旧目录或启动旧版补标记。随后核对已有资料/简历/答案/任务及执行端；用户已报告升级成功；数据完整性及执行端仍待实际核对。下一项为完成本人使用核对，再选真实岗位、补答并取得首次提交确认；原Engineer仅接续具体使用阻塞，不另开优化。真实企业申请仍未验证/授权，PR #5保持draft。
+
+**Engineer本轮修复交付（2026-10-27，已通过顶部Manager验收）**：[交付002](docs/UPDATE_DELIVERY_002.md)，candidate.8来源`bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b`。[下载新版update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.8-update/update.cmd)，247007字节，SHA-256 `d32f5f22069649ca97b36cc398d457e57f4aa6406c6a9eb31b467f462ffcf13e`。[最终CI](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/40466396284)通过23项新增＋3项受影响回归，以及candidate.5/6两条实际Windows诊断分支、共6项进程/端口/配置锁拒绝。自动中断恢复先核对新资料，离线核验静止后备份并安全暂停，无须启动旧版补退出标记；失败后保持暂停与原归属，可重试。旧candidate.7继续停用，候选8取代其更新文件；Manager已验收，用户已报告本机更新成功；当前下一步见顶部配置导入任务，无需重复更新。
 
 **用户本机新阻塞（2026-10-27）**：用户更正为未停止就搬出最内目录、删除部分旧文件后，才在新位置停止并更新；仍报 `UPDATE_NORMAL_STOP_REQUIRED`。删除范围/运行数据完整性尚不明确，旧“先停止后搬”回答不再作为事实。停止脚本可能未识别旧位置进程却显示完成；此错误只表示暂停/运行状态或正常退出标记不满足，不能断言旧进程仍在，也不能认定已触发上述P1。已收到只读诊断：state可解析，manualPaused=false、paused=true、running=false，server.stopped不存在，事务日志枚举为0。已定位缺手动暂停及正常退出标记；未检出事务，但不能据此证明旧进程已退出或资料完整。[诊断与原Engineer返工](https://github.com/Tianyao1234567/job-application-assistant/issues/1#issuecomment-6435687994)。不要重复收集这组结果，保留现有目录；不让用户重装、反复更新、启动后再停止、伪造标记、手改state或盲目restore。原Engineer在同一任务中修既有P1并给出该搬迁状态的保留数据恢复步骤；现已由上述candidate.8修复并通过Manager验收；不代表用户本机已更新。公开同步不包含用户路径或个人资料。
 
