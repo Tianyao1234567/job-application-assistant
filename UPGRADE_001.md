@@ -1,5 +1,7 @@
 # 单文件更新与已搬迁安装修复
 
+本轮资料导入版本为candidate.9，支持已安装candidate.8；下载和验收见[资料文件导入交付](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/PROFILE_FILE_IMPORT_DELIVERY_001.md)。正常停止后，将新版update.cmd放到启动.cmd同级运行，UPDATE_COMPLETE后再启动。只需这一次程序更新；以后在“资料与简历→选择资料文件”导入旧v3、完整profile草稿或固定格式增量JSON，预览并核对保存，无须每次下载程序。原资料、PDF附件、答案、任务、浏览器配置继续保留。下文为已验收candidate.8迁移/恢复机制的适用说明。
+
 candidate.7的旧更新文件已暂停使用，勿继续重试。本轮修复版为candidate.8；实际下载、摘要和验收状态见[交付002](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/UPDATE_DELIVERY_002.md)。兼容已知candidate.5/6，下载一个`update.cmd`，不用重新安装环境、手动覆盖程序或重新填写资料。
 
 ## 已经搬到新目录，停止后仍无法更新

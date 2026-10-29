@@ -1,4 +1,5 @@
 import {definitions, emptyProfile, validateProfile} from '/schema.js';
+import {createProfileFileImport} from '/profile-file-import.js';
 
 // The dashboard renders server observations. It never advances application state on a timer.
 const $ = selector => document.querySelector(selector);
@@ -265,6 +266,12 @@ function draftInput(id, attributes = {}, initial = '', onChange = null, tag = 'i
 }
 function field(label, input, hint = '') {return el('label', {class:'field'}, el('span', {text:label}), input, hint ? el('small', {text:hint}) : null);}
 function checkLine(label, input) {return el('label', {class:'checkbox-line'}, input, el('span', {text:label}));}
+const profileFileImport=createProfileFileImport({el,button,p,banner,field,checkLine,definitions,api,
+  getState:()=>state,isDirty:()=>profileDirty,render,refresh,toast,
+  openEditor(){drafts.set('profile-editor-open',true);render(true);},
+  discardDirty(){profileDirty=false;profileDraft=null;drafts.delete('profile-json');drafts.delete('profile-confirmed');},
+  onSaved(){if(!profileDirty)profileDraft=null;}
+});
 function modeStrip() {
   return el('div', {class:'mode-strip'}, el('div', {}, el('strong', {text:modeLabel(state.settings.mode)}), ' · ', state.settings.mode === 'demo' ? '仅使用虚构资料，仅向 127.0.0.1 本地测试站提交。' : '当前 Greenhouse 仅限已观察的 Mattermost 范围；该技术样本不代表岗位推荐或投递授权。每岗须本人确认，结果未知不会重投。'), badge(state.settings.mode === 'demo' ? '演示与真实记录分开' : '真实投递待本人确认', state.settings.mode === 'demo' ? 'good' : 'warning'));
 }
@@ -298,7 +305,7 @@ function render(force = false) {
   // Counters and connection status above still reflect the latest server state.
   const editing = content.contains(document.activeElement) && document.activeElement?.matches('input,textarea,select,[contenteditable="true"]');
   if (renderedView === view && (composing || (!force && editing))) return;
-  const signature = JSON.stringify([view, state.running,state.paused,state.manualPaused,state.settings,state.sites,state.tasks,state.issues,state.answers,state.profile,state.resume,state.resumeImport,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
+  const signature = JSON.stringify([view, state.running,state.paused,state.manualPaused,state.settings,state.sites,state.tasks,state.issues,state.answers,state.profile,state.profileImport,state.profileImportHistory,state.resume,state.resumeImport,state.nextRun,state.lastSchedule,state.readiness,state.stats,state.connection.connected,state.connection.profileId,extensionReady]);
   if (!force && signature === lastSignature && renderedView === view) return;
   const focus = focusSnapshot(content);
   const renderer = {overview:renderOverview,queue:renderQueue,issues:renderIssues,sites:renderSites,profile:renderProfile,settings:renderSettings}[view];
@@ -474,9 +481,10 @@ function answerForm(issue,task) {
   const batch=task.answerBatch,form=el('form',{'aria-label':`集中补充答案：${task.title}`}),rows=[];
   form.append(p(`当前已收集 ${batch.questions.length} 项必要缺项。已有适用资料不再提问；一次核对后保存。`,'details-note'));
   for(const q of batch.questions){
-    const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.currentValue||'');
+    const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.importedDraft?.value??q.currentValue??'');
     input.node.setAttribute('aria-label',q.text+'：答案');
     const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null);
+    if(q.importedDraft)group.append(banner('来自已匹配资料文件的待核对答案','仅为此任务原问题预填草稿；请连同其余缺项核对后保存，不会自动执行申请。'),q.importedDraft.source_text?p('原始依据：'+q.importedDraft.source_text,'subtle'):null);
     if(input.blocked){group.append(input.node);form.append(group);continue;}
     const stable=q.profileKey,existing=q.existingFact?.zh||q.existingFact?.en||'';
     const purpose=el('select',{'aria-label':q.text+'：保存用途'},stable?el('option',{value:'profile',text:'保存到个人资料，后续适用岗位复用'}):null,el('option',{value:'scope',text:'保存到本站当前岗位原题的答案库'}),el('option',{value:'task',text:'仅用于这次任务'}));
@@ -650,7 +658,7 @@ function renderProfile() {
     }catch(error){errorBox(uploadForm,error);}
   });
   const resume=state.resume;
-  return el('div',{},modeStrip(),el('div',{class:'two-column'},card('申请资料',el('div',{},importPreview(),Object.values(state.profileArchives||{}).map(archive=>button('载入保留的'+modeLabel(archive.mode)+'资料到编辑草稿',()=>{profileDraft=clone(archive.data);profileDirty=true;drafts.set('profile-mode',archive.mode);drafts.set('profile-editor-open',true);render(true);},'text')),el('details',{open:drafts.get('profile-editor-open')===true},el('summary',{text:'查看或修改完整资料（可选）'}),profileDirty?button('放弃未保存编辑，保留已保存资料',()=>{profileDirty=false;profileDraft=null;render(true);},'text'):null,form,advanced)),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
+  return el('div',{},modeStrip(),card('资料文件导入与更新',profileFileImport.render()),el('div',{class:'two-column'},card('申请资料',el('div',{},importPreview(),Object.values(state.profileArchives||{}).map(archive=>button('载入保留的'+modeLabel(archive.mode)+'资料到编辑草稿',()=>{profileDraft=clone(archive.data);profileDirty=true;drafts.set('profile-mode',archive.mode);drafts.set('profile-editor-open',true);render(true);},'text')),el('details',{open:drafts.get('profile-editor-open')===true},el('summary',{text:'查看或修改完整资料（可选）'}),profileDirty?button('放弃未保存编辑，保留已保存资料',()=>{profileDirty=false;profileDraft=null;render(true);},'text'):null,form,advanced)),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
 }
 
 function renderSettingsSite(site,index) {

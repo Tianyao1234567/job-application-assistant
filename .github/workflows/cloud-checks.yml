@@ -3,6 +3,7 @@ name: Cloud checks
 on:
   push:
     branches: [main]
+    tags: [v0.2.0-candidate.9-update]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -19,6 +20,7 @@ on:
           - greenhouse
           - greenhouse-reference
           - profile-import
+          - profile-file-import
           - public-protocol
           - acceptance-a
           - acceptance-b
@@ -84,12 +86,18 @@ jobs:
           update_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','.github/workflows/cloud-checks.yml','scripts/package-candidate.mjs','scripts/package-update.mjs','scripts/update-install.mjs','scripts/test-windows-update.mjs','scripts/start.ps1','scripts/open-browser.ps1','scripts/browser.mjs','autofill-extension/manifest.json','autofill-extension/background.js','autofill-extension/runner/runner.js','autofill-extension/shared/migration.js','local-app/model.mjs','local-app/server.mjs','local-app/tests/update-install.test.mjs','local-app/tests/update-recovery.test.mjs','local-app/tests/update-offline.test.mjs','scripts/test-windows-update-repair.mjs'}
           update_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',update_baseline,'HEAD'],text=True).splitlines() if update_known else []
           update=update_known and 'scripts/update-install.mjs' in update_files and all(p in update_allowed or p.startswith('docs/UPDATE_DELIVERY_') or p.startswith('docs/PROFILE_IMPORT_DELIVERY_') for p in update_files)
+          profile_file_baseline='97c6d9efa55ee1ece8ced79e1875019353069eee'
+          profile_file_known=subprocess.run(['git','merge-base','--is-ancestor',profile_file_baseline,'HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+          profile_file_allowed={'HANDOFF.md','CANDIDATE_PACKAGE.md','UPGRADE_001.md','.github/workflows/cloud-checks.yml','scripts/cloud-check.mjs','scripts/package-candidate.mjs','scripts/package-update.mjs','scripts/update-install.mjs','local-app/profile-update.mjs','local-app/model.mjs','local-app/server.mjs','local-app/public/app.js','local-app/public/profile-file-import.js','local-app/public/index.html','local-app/public/style.css','local-app/tests/profile-update.test.mjs','local-app/tests/profile-file-import.test.mjs','local-app/tests/profile-file-import-browser.mjs','local-app/tests/profile-update-package.test.mjs','local-app/tests/dashboard.test.mjs'}
+          profile_file_files=subprocess.check_output(['git','-c','core.quotepath=false','diff','--name-only',profile_file_baseline,'HEAD'],text=True).splitlines() if profile_file_known else []
+          profile_file=profile_file_known and any(p in profile_file_files for p in ['local-app/profile-update.mjs','local-app/public/profile-file-import.js']) and all(p in profile_file_allowed or p.startswith('docs/PROFILE_FILE_IMPORT') for p in profile_file_files)
           if os.environ.get('SELECTED_CHECK') in ['windows-update','windows-update-repair'] and not update: raise RuntimeError('Updater-only check includes changes outside approved scope')
           if os.environ.get('SELECTED_CHECK')=='greenhouse-reference' and not focused: raise RuntimeError('Reference-only check includes changes outside its accepted scope')
           if os.environ.get('SELECTED_CHECK')=='profile-import' and not profile: raise RuntimeError('PDF-only check includes changes outside its approved scope')
+          if os.environ.get('SELECTED_CHECK')=='profile-file-import' and not profile_file: raise RuntimeError('Profile-file-only check includes changes outside its approved scope')
           repair=update and 'local-app/tests/update-recovery.test.mjs' in update_files
-          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\nprofile='+str(profile).lower()+'\nupdate='+str(update).lower()+'\nrepair='+str(repair).lower()+'\n')
-          print('Updater automatic recovery and verified offline hold; reuse prior acceptance' if repair else 'PDF/batch/preserved-data upgrade only; reuse accepted Greenhouse evidence' if profile else 'Exact upload object rework only' if focused else 'General changed scope')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('focused='+str(focused).lower()+'\nprofile='+str(profile).lower()+'\nupdate='+str(update).lower()+'\nrepair='+str(repair).lower()+'\nprofile_file='+str(profile_file).lower()+'\n')
+          print('Legacy v3 and incremental profile-file import only; reuse accepted PDF, updater and Greenhouse evidence' if profile_file else 'Updater automatic recovery and verified offline hold; reuse prior acceptance' if repair else 'PDF/batch/preserved-data upgrade only; reuse accepted Greenhouse evidence' if profile else 'Exact upload object rework only' if focused else 'General changed scope')
           PY
       - uses: actions/setup-node@v6
         with:
@@ -100,7 +108,7 @@ jobs:
       - name: Check source syntax and JSON
         run: node scripts/cloud-check.mjs
       - name: Necessary schema and protection unit regressions
-        if: ${{ steps.scope.outputs.focused != 'true' && steps.scope.outputs.profile != 'true' && steps.scope.outputs.update != 'true' }}
+        if: ${{ steps.scope.outputs.profile_file != 'true' && steps.scope.outputs.focused != 'true' && steps.scope.outputs.profile != 'true' && steps.scope.outputs.update != 'true' }}
         working-directory: autofill-extension
         run: npm test
       - name: Install locked local PDF runtime for the changed flow
@@ -109,7 +117,15 @@ jobs:
         run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
       - name: Local application state, authentication, and actual fixture HTTP regressions
         run: |
-          if [[ "${{ steps.scope.outputs.repair }}" == true ]]; then
+          if [[ "${{ steps.scope.outputs.profile_file }}" == true ]]; then
+            if node --test --test-reporter=tap local-app/tests/profile-update.test.mjs local-app/tests/profile-file-import.test.mjs local-app/tests/profile-update-package.test.mjs local-app/tests/dashboard.test.mjs > .runtime/profile-file-unit.log 2>&1; then
+              cat .runtime/profile-file-unit.log
+              python3 -c 'import json,os,re,pathlib; log=pathlib.Path(".runtime/profile-file-unit.log").read_text(); total=int(re.search(r"^# tests (\d+)$",log,re.M)[1]); pathlib.Path(".runtime/tests/evidence/profile-file-unit.json").write_text(json.dumps({"source":os.environ["GITHUB_SHA"],"passed":total,"failed":0}))'
+            else
+              python3 -c 'from pathlib import Path; message=Path(".runtime/profile-file-unit.log").read_text()[-3500:]; print("::error title=Profile-file checks::"+message.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+              exit 1
+            fi
+          elif [[ "${{ steps.scope.outputs.repair }}" == true ]]; then
             repair_tests=(local-app/tests/update-recovery.test.mjs)
             if [[ -f local-app/tests/update-offline.test.mjs ]]; then repair_tests+=(local-app/tests/update-offline.test.mjs); fi
             node --test "${repair_tests[@]}"
@@ -132,9 +148,18 @@ jobs:
           else
             node --test local-app/tests/*.test.mjs
           fi
+      - name: Preserve only new profile-file unit evidence
+        if: ${{ always() && steps.scope.outputs.profile_file == 'true' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: profile-file-unit-evidence
+          path: .runtime/tests/evidence/profile-file-unit.json
+          if-no-files-found: warn
+          retention-days: 7
+
   browser:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","greenhouse","greenhouse-reference","profile-import","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/tags/v0.2.0-candidate.9-update') || github.event_name == 'workflow_dispatch' && contains(fromJSON('["generic","ui-mocked","extension","workflow","greenhouse","greenhouse-reference","profile-import","profile-file-import","acceptance-a","acceptance-b","acceptance-c","demo","candidate","public-site-browser","real-site-browser","video"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Official Playwright 1.58.2 Noble amd64 image; digest checked against MCR.
@@ -158,7 +183,7 @@ jobs:
       PLAYWRIGHT_BROWSERS_PATH: /workspace/.runtime/browsers
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
-      CLOUD_BROWSER_CHECK: ${{ inputs.browser }}
+      CLOUD_BROWSER_CHECK: ${{ github.ref == 'refs/tags/v0.2.0-candidate.9-update' && 'profile-file-import' || inputs.browser }}
       GREENHOUSE_REFERENCE_MODE: ${{ inputs.browser == 'greenhouse-reference' && 'extension' || '' }}
       GREENHOUSE_BROWSER_MODE: ${{ inputs.browser == 'greenhouse' && 'extension' || '' }}
       # Screenshots are opt-in only for this reviewed fictional demonstration.
@@ -205,6 +230,14 @@ jobs:
           name: fictional-workflow-evidence
           path: /workspace/.runtime/tests/evidence/*browser*.json
           if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve the fictional profile-file import evidence, including failures
+        if: ${{ always() && (inputs.browser == 'profile-file-import' || github.ref == 'refs/tags/v0.2.0-candidate.9-update') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-profile-file-import-evidence
+          path: /workspace/.runtime/tests/evidence/profile-file-import-browser.json
+          if-no-files-found: error
           retention-days: 7
       - name: Preserve only reviewed fictional demonstration media
         if: ${{ success() && (inputs.browser == 'demo' || inputs.browser == 'candidate') }}
@@ -259,7 +292,7 @@ jobs:
 
   candidate-package:
     needs: source-and-unit
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser","greenhouse","greenhouse-reference","profile-import"]'), inputs.browser) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["source-package","windows-candidate","candidate","windows-browser","greenhouse","greenhouse-reference","profile-import","profile-file-import"]'), inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -522,3 +555,64 @@ jobs:
             exit 1
           fi
           gh api repos/Tianyao1234567/job-application-assistant/releases/tags/v0.2.0-candidate.8-update --jq '{html_url,target_commitish,assets:[.assets[]|{name,size,digest,browser_download_url}]}'
+
+
+  publish-profile-file-update:
+    needs: [source-and-unit, browser]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/tags/v0.2.0-candidate.9-update' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@v6
+        with:
+          name: profile-file-unit-evidence
+          path: .runtime/verified-import/unit
+      - uses: actions/download-artifact@v6
+        with:
+          name: fictional-profile-file-import-evidence
+          path: .runtime/verified-import/browser
+      - name: Build only the tested tagged source and verify its evidence
+        run: |
+          node scripts/package-update.mjs
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          source=os.environ['GITHUB_SHA']
+          directory=pathlib.Path('.runtime/delivery/update-'+source[:12])
+          report=json.loads((directory/'UPDATE.json').read_text())
+          data=(directory/'更新.cmd').read_bytes()
+          assert report['source']==source and report['version']=='0.2.0-candidate.9'
+          assert len(data)==report['bytes'] and hashlib.sha256(data).hexdigest()==report['sha256']
+          assert any(b['source']=='bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b' for b in report['baselines'])
+          unit=json.loads(pathlib.Path('.runtime/verified-import/unit/profile-file-unit.json').read_text())
+          browser=json.loads(pathlib.Path('.runtime/verified-import/browser/profile-file-import-browser.json').read_text())
+          assert unit['source']==browser['source']==source and unit['failed']==0
+          assert browser['ok'] and browser['noExternalRequests'] and not browser['applicationAuthorizationGenerated']
+          assert len(browser['results'])==5 and all(r['passed'] for r in browser['results'])
+          report.pop('directory',None)
+          (directory/'UPDATE.json').write_text(json.dumps(report,indent=2)+'\n')
+          (directory/'update.cmd').write_bytes(data)
+          proof={'source':source,'run_id':os.environ['GITHUB_RUN_ID'],'unit':unit,'browser':browser,'update':report}
+          (directory/'VERIFICATION.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n')
+          pathlib.Path('.runtime/profile-file-release-notes.md').write_text('candidate.9，Engineer交付待Manager验收。选择旧插件v3或固定增量JSON→本机预览匹配与冲突→一次核对保存。后续普通资料变化只换JSON文件，不必每次更新程序。\n\n只下载一个update.cmd放到实际启动.cmd旁，正常停止后运行，看到UPDATE_COMPLETE再启动。保留candidate.8原资料、附件、答案、任务、浏览器与扩展身份。限定岗位答案核对实际任务原题后保存，不自动执行申请。\n\n来源：'+source+'\n\n文件：'+str(report['bytes'])+'字节；SHA-256：'+report['sha256']+'\n\n验证：'+str(unit['passed'])+'项必要检查及5个实际后台文件选择场景通过。云端仅虚构资料，未向企业申请。VERIFICATION.json包含本次源码/证据/摘要。\n\n[交付与限制](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/PROFILE_FILE_IMPORT_DELIVERY_001.md)')
+          PY
+      - name: Publish the exact tested update without creating a new tag
+        run: |
+          directory=".runtime/delivery/update-${GITHUB_SHA:0:12}"
+          if gh release create v0.2.0-candidate.9-update "$directory/update.cmd" "$directory/UPDATE.json" "$directory/VERIFICATION.json" --verify-tag --prerelease --title 'candidate.9 资料文件迁移与增量导入（待Manager验收）' --notes-file .runtime/profile-file-release-notes.md > .runtime/profile-file-publish.log 2>&1; then
+            cat .runtime/profile-file-publish.log
+          else
+            python3 -c 'from pathlib import Path; message=Path(".runtime/profile-file-publish.log").read_text()[-2500:]; print("::error title=Profile-file release::"+message.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi

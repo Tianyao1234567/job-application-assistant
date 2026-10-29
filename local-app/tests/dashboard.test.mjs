@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const source=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 const startup='setInterval(() => refresh(), 1000);\nawait refresh(true);';
 assert.ok(source.includes(startup),'dashboard startup boundary changed; update the VM loader');
-const executable=source.replace(/^import .*from '\/schema\.js';\n/,'').replace(startup,`globalThis.dashboard={api,refresh,runHealthCheck,taskActions,render,connect,
+const executable=source.replace(/^import .*from '\/(?:schema|profile-file-import)\.js';\n/gm,'').replace(startup,`globalThis.dashboard={api,refresh,runHealthCheck,taskActions,render,connect,
   quietRender(){render=()=>{};},quietHeader(){header=()=>{};},
   get fetching(){return fetching;},get state(){return state;},get drafts(){return drafts;},
   get healthBusy(){return healthBusy;},get healthResult(){return healthResult;},
@@ -45,6 +45,7 @@ function harness(fetcher,{search=''}={}){
   const document={activeElement:null,querySelector:get,querySelectorAll(selector){const attribute=selector.match(/^\[data-([\w-]+)\]$/)?.[1];return attribute?nodes.filter(node=>Object.hasOwn(node.dataset,attribute.replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase()))):[];},createElement:tag=>new Element(tag),createTextNode:text=>{const node=new Element('#text');node.textContent=text;return node;}};
   const window={addEventListener(type,handler){if(!events.has(type))events.set(type,[]);events.get(type).push(handler);},postMessage(data,origin){posts.push({data,origin});}};
   const context=vm.createContext({document,Node:Element,window,location:{origin:'http://127.0.0.1:17321',hash:'',search},URLSearchParams,AbortController,structuredClone,Intl,Date,console,
+    definitions:{},createProfileFileImport:()=>({render:()=>new Element('section')}),
     fetch:fetcher,setTimeout(fn,delay){const id=nextTimer++;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval(){throw new Error('VM tests must not start browser polling');}});
   vm.runInContext(executable,context,{filename:'dashboard-app.js'});
   return {app:context.dashboard,get,timers,Element,posts,message(data){for(const handler of events.get('message')||[])handler({source:window,origin:'http://127.0.0.1:17321',data});},async deadline(delay){const found=[...timers].find(([,timer])=>timer.delay===delay);assert.ok(found,`missing ${delay}ms request deadline`);timers.delete(found[0]);found[1].fn();await flush();}};

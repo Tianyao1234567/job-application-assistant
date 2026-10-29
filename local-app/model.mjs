@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {ROOT, insideRoot} from './paths.mjs';
 import {importedCandidates,applyProfileDraft,profileValue,setProfileValue} from './profile-draft.mjs';
+import {parseProfileImport,previewProfileImport,applyProfileImport} from './profile-update.mjs';
 import {stableProfileKey,profileFactAnswer} from '../autofill-extension/shared/profile-facts.js';
 import {emptyProfile, validateProfile, flattenProfile} from '../autofill-extension/shared/schema.js';
 import {isGreenhouse,greenhouseReplay,greenhouseJob,validateGreenhouseSite,greenhouseQuestion,greenhouseAnswer,validNetworkReceipt} from './greenhouse.mjs';
@@ -128,7 +129,7 @@ export class Store {
   }
   answerBatch(t){
     const site=this.site(t.siteId),questions=isGreenhouse(site)?(t.questions||[]).filter(q=>this.applicableAnswer(t,q)===null):t.question&&!t.answer?[t.question]:[];
-    return {version:hash(Buffer.from(JSON.stringify({questions,layout:t.layout,revision:t.revision,profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version}))),questions:questions.map(q=>({...clone(q),profileKey:stableProfileKey(q),existingFact:stableProfileKey(q)?clone(profileValue(this.state.profile.data,stableProfileKey(q))||null):null}))};
+    return {version:hash(Buffer.from(JSON.stringify({questions,layout:t.layout,revision:t.revision,profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version}))),questions:questions.map(q=>{const draft=t.importedAnswerDrafts?.[q.scope];return {...clone(q),profileKey:stableProfileKey(q),existingFact:stableProfileKey(q)?clone(profileValue(this.state.profile.data,stableProfileKey(q))||null):null,...(draft&&draft.version===q.version&&draft.text===q.text&&draft.source===q.source&&this.validQuestion(t,q)?{importedDraft:{value:draft.value,source_text:draft.source_text,confirmed:false}}:{})};})};
   }
   selectGreenhouseQuestion(t){
     t.question=t.questions?.[0]||null;delete t.answer;
@@ -207,7 +208,7 @@ export class Store {
     let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
     const stats={demo:{submitted:0,today:0},real:{submitted:0,today:0}};
     for(const t of s.tasks){if(t.status==='submitted'){stats[t.mode].submitted++;if(this.day(t.submittedAt)===decision.day)stats[t.mode].today++;}}
-    return {...s,now:this.now(),connection:{connected,lastSeen:this.lastSeen?new Date(this.lastSeen).toISOString():null,profileId:this.connection?.profileId||null,extensionId:this.connection?.extensionId||null},nextRun,readiness:this.readiness(),stats};
+    return {...s,profileImport:this.profileFileDraft?clone(this.profileFileDraft):null,now:this.now(),connection:{connected,lastSeen:this.lastSeen?new Date(this.lastSeen).toISOString():null,profileId:this.connection?.profileId||null,extensionId:this.connection?.extensionId||null},nextRun,readiness:this.readiness(),stats};
   }
   day(at=this.now()){return scheduleDecision({scheduleEnabled:false},null,new Date(at).getTime()).day;}
   setSettings({settings,sites}){
@@ -227,6 +228,89 @@ export class Store {
     if(confirmed!==true||!['demo','real'].includes(mode))throw new Error('请先确认资料及用途');
     const validated=validateProfile(data);if(mode==='real'&&Object.values(validated.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
     this.state.profile={version:this.state.profile.version+1,data:validated,mode,updatedAt:this.now()};this.invalidateGreenhouseVersions();this.save();
+  }
+  matchProfileFileAnswers(answers,mode){
+    const equivalent=(a,b)=>{try{return new URL(a).href===new URL(b).href;}catch{return false;}};
+    return answers.map((entry,index)=>{
+      const row={...clone(entry),id:'answer-'+index,matched:false,matchReason:'岗位或原问题尚未可靠匹配，保留待处理'};
+      if(!entry.task_id&&!entry.job_url)return row;
+      const matches=[];
+      for(const task of this.state.tasks){
+        if(task.status!=='waiting_answer'||this.hasSubmissionBoundary(task)||task.mode!==mode)continue;
+        const site=this.site(task.siteId);
+        if(entry.task_id&&entry.task_id!==task.id||entry.job_url&&!equivalent(entry.job_url,task.url)||entry.company&&entry.company!==(task.company||site.company||site.name))continue;
+        if(entry.site_url){try{const u=new URL(entry.site_url);if(u.origin!==site.origin||u.pathname!=='/'&&![site.listUrl,site.loginUrl].some(url=>equivalent(entry.site_url,url)))continue;}catch{continue;}}
+        const batch=this.answerBatch(task);
+        for(const question of batch.questions)if(question.text===entry.question&&this.validQuestion(task,question)){
+          try{const value=isGreenhouse(site)?greenhouseAnswer(question,entry.answer):short(entry.answer,5000);if(value)matches.push({task,question,batch,value});}catch{}
+        }
+      }
+      if(matches.length!==1)return row;
+      const {task,question,batch,value}=matches[0];
+      return {...row,matched:true,taskId:task.id,taskTitle:task.title,scope:question.scope,questionVersion:question.version,batchVersion:batch.version,value,matchReason:batch.questions.length===1?'已核对本机岗位、原题和当前选项；保存后仍须本人继续任务':'已核对原题；先预填至该任务，其余缺项仍须补答'};
+    });
+  }
+  previewProfileFile({document,mode,profileVersion}){
+    if(!['demo','real'].includes(mode)||profileVersion!==this.state.profile.version)throw new Error('当前资料版本已变化，请重新预览');
+    if(this.state.profile.version&&mode!==this.state.profile.mode)throw new Error('请先在完整资料表单明确确认资料用途，再导入同用途的更新');
+    const parsed=parseProfileImport(document),preview=previewProfileImport(parsed,this.state.profile.data,this.state.profile.version,{recordMappings:this.state.profileImportMappings||{}});
+    this.profileFileParsed=parsed;
+    this.profileFileDraft={...preview,id:uid(),profileVersion,mode,status:'ready',createdAt:this.now(),jobAnswers:this.matchProfileFileAnswers(parsed.jobAnswers||[],mode)};
+    return clone(this.profileFileDraft);
+  }
+  confirmProfileFile(body){
+    const draft=this.profileFileDraft;
+    if(!draft||draft.status!=='ready'||body.id!==draft.id||body.confirmed!==true||body.profileVersion!==draft.profileVersion||body.profileVersion!==this.state.profile.version||body.mode!==draft.mode||this.state.profile.version&&body.mode!==this.state.profile.mode)throw new Error('资料文件预览或当前版本已变化，请重新核对后保存');
+    if(!Array.isArray(body.answerSelections)||new Set(body.answerSelections.map(item=>item.id)).size!==body.answerSelections.length||body.answerSelections.some(item=>!draft.jobAnswers.some(answer=>answer.id===item.id)||!['apply','keep'].includes(item.action)))throw new Error('岗位答案核对选择无效');
+    const applied=applyProfileImport(this.state.profile.data,draft,body.decisions,{recordMappings:body.recordMappings||{},createRecords:body.createRecords||[]});
+    if(body.mode==='real'&&Object.values(applied.data.personal).some(value=>/虚构|测试|example\.invalid/.test((value.zh||'')+' '+value.source)))throw new Error('测试资料不能保存为真实投递资料');
+    const latest=this.matchProfileFileAnswers(this.profileFileParsed.jobAnswers||[],body.mode),selected=new Set(body.answerSelections.filter(item=>item.action==='apply').map(item=>item.id));
+    const groups=new Map();
+    for(const row of draft.jobAnswers)if(selected.has(row.id)&&row.matched){
+      const now=latest.find(item=>item.id===row.id);
+      if(!now?.matched||['taskId','scope','questionVersion','batchVersion','value'].some(key=>now[key]!==row[key]))throw new Error('岗位原题、选项或版本已变化，整批尚未保存，请重新预览');
+      if(!groups.has(row.taskId))groups.set(row.taskId,[]);groups.get(row.taskId).push(row);
+    }
+    const original={state:this.state,queue:this.queue,command:this.command};
+    this.state=clone(this.state);this.queue=clone(this.queue);this.command=clone(this.command);
+    try{
+      let answerCount=0;const statuses=new Map();
+      for(const [taskId,rows]of groups){
+        const task=this.task(taskId),batch=this.answerBatch(task);
+        if(new Set(rows.map(row=>row.scope)).size!==rows.length)throw new Error('同一岗位原题有重复答案，尚未保存');
+        if(rows.length===batch.questions.length&&batch.questions.every(question=>rows.some(row=>row.scope===question.scope))){
+          this.saveAnswerBatch(task,{batchVersion:batch.version,answers:rows.map(row=>({scope:row.scope,version:row.questionVersion,answer:row.value,save:'task'}))});
+          // Importing a file does not start or authorize an application.
+          task.status='waiting_user';this.issue(task,'answer','资料文件答案已保存，等待本人继续','答案仅用于已核对的原岗位原题；请核对任务后继续。');
+          for(const row of rows)statuses.set(row.id,'applied');answerCount+=rows.length;
+        }else{
+          task.importedAnswerDrafts ||= {};
+          for(const row of rows){const q=batch.questions.find(question=>question.scope===row.scope);task.importedAnswerDrafts[row.scope]={version:q.version,text:q.text,source:q.source,value:row.value,source_text:row.source_text};statuses.set(row.id,'pending-batch');}
+        }
+      }
+      const profileChanged=applied.count>0;
+      if(profileChanged){
+        this.state.profile={...this.state.profile,data:applied.data,mode:body.mode,version:this.state.profile.version+1,updatedAt:this.now()};
+        for(const [taskId,rows]of groups)if(rows.every(row=>statuses.get(row.id)==='applied')){
+          const task=this.task(taskId),scopes=Object.values(task.answers||{}).filter(answer=>answer.confirmed===true&&this.validQuestion(task,answer)&&(!stableProfileKey(answer)||profileValue(applied.data,stableProfileKey(answer))?.zh===answer.value)).map(answer=>answer.scope);
+          task.answerSupplement={profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version,scopes};
+        }
+        this.invalidateGreenhouseVersions();
+      }
+      const jobAnswers=draft.jobAnswers.map(row=>({...clone(row),status:statuses.get(row.id)||'pending'}));
+      const pendingCount=applied.pendingChanges.length+jobAnswers.filter(row=>row.status!=='applied').length;
+      const meaningful=draft.changes.length||draft.notes.length||draft.jobAnswers.length||draft.questions.length;
+      if(meaningful){
+        this.state.profileImportMappings={...(this.state.profileImportMappings||{}),...(applied.recordMappings||{})};
+        this.state.profileImportHistory ||= [];
+        const previous=this.state.profileImportHistory.findIndex(item=>item.fingerprint===draft.fingerprint);
+        const history={id:draft.id,kind:draft.kind,fingerprint:draft.fingerprint,profileVersion:draft.profileVersion,savedProfileVersion:this.state.profile.version,count:applied.count,answerCount,createdAt:this.now(),notes:clone(draft.notes),questions:clone(draft.questions),pendingChanges:clone(applied.pendingChanges),jobAnswers,profileBefore:profileChanged?clone(original.state.profile):null};
+        if(previous<0){if(this.state.profileImportHistory.length>=100)throw new Error('已保存100份导入核对记录，尚未覆盖任何资料');this.state.profileImportHistory.push(history);}else{const old=this.state.profileImportHistory[previous];history.profileBefore=old.profileBefore||history.profileBefore;this.state.profileImportHistory[previous]=history;}
+        this.save();
+      }
+      this.profileFileDraft={...draft,status:'saved',savedProfileVersion:this.state.profile.version,count:applied.count,answerCount,pendingCount};
+      return {profileChanged,count:applied.count,answerCount,pendingCount};
+    }catch(error){this.state=original.state;this.queue=original.queue;this.command=original.command;throw error;}
   }
   setResume({name,mime,base64,mode}){
     name=short(name,150);if(!name||!['demo','real'].includes(mode)||typeof base64!=='string'||base64.length>11500000||!/^[\w+/=\s]+$/.test(base64))throw new Error('请选择8MB以内的有效简历文件');

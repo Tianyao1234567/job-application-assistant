@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 
-export const VERSION='0.2.0-candidate.8';
+export const VERSION='0.2.0-candidate.9';
 export const BASELINE='b6cfdee0bbded79010bb97866fd1ad538275270f';
 export const PREFIX='job-application-assistant/';
 export const SOURCE_PATHS=Object.freeze([
@@ -14,8 +14,8 @@ export const SOURCE_PATHS=Object.freeze([
   '启动.cmd','停止.cmd','打开投递浏览器.cmd','安装运行环境.cmd','补充运行依赖.cmd','UPGRADE_001.md',
   'scripts/prepare-deps.mjs','scripts/update-install.mjs','scripts/runtime.ps1','scripts/start.ps1','scripts/stop.ps1','scripts/open-browser.ps1','scripts/setup.ps1',
   'scripts/browser.mjs','scripts/windows-service.mjs','scripts/windows-browser-control.mjs','scripts/package-candidate.mjs','runtime-deps/package.json','runtime-deps/package-lock.json',
-  'local-app/CONTRACT.md','local-app/server.mjs','local-app/model.mjs','local-app/pdf-worker.mjs','local-app/resume-import.mjs','local-app/profile-draft.mjs','local-app/greenhouse.mjs','local-app/fixture.mjs','local-app/paths.mjs',
-  'local-app/public/index.html','local-app/public/app.js','local-app/public/style.css',
+  'local-app/CONTRACT.md','local-app/server.mjs','local-app/model.mjs','local-app/pdf-worker.mjs','local-app/resume-import.mjs','local-app/profile-draft.mjs','local-app/profile-update.mjs','local-app/greenhouse.mjs','local-app/fixture.mjs','local-app/paths.mjs',
+  'local-app/public/index.html','local-app/public/app.js','local-app/public/profile-file-import.js','local-app/public/style.css',
   'autofill-extension/package.json','autofill-extension/manifest.json','autofill-extension/profile.example.json',
   'autofill-extension/background.js','autofill-extension/greenhouse-receipts.js','autofill-extension/adapters/status.js','autofill-extension/bridge/dashboard.js',
   'autofill-extension/content/guard.js','autofill-extension/content/scan.js','autofill-extension/content/fill.js',

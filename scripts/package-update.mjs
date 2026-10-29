@@ -8,7 +8,7 @@ import {gzipSync} from 'node:zlib';
 import vm from 'node:vm';
 import {buildCandidate} from './package-candidate.mjs';
 import {validateBundle} from './update-install.mjs';
-export const UPDATE_BASELINES=['3856a49a78852c4729a6be4d64f01f19acdcd1c3','38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac'];
+export const UPDATE_BASELINES=['3856a49a78852c4729a6be4d64f01f19acdcd1c3','38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac','bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b'];
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url))),sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 // Gzip's OS byte differs between hosted Windows and the delivery workspace.
 // Normalize the non-content header so the delivered file has the tested hash.

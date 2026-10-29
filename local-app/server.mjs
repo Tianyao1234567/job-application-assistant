@@ -13,6 +13,7 @@ const extensionOrigin = /^chrome-extension:\/\/([a-p]{32})$/;
 const staticFiles = new Map([
   ['/', ['local-app/public/index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['local-app/public/app.js', 'text/javascript; charset=utf-8']],
+  ['/profile-file-import.js', ['local-app/public/profile-file-import.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['local-app/public/style.css', 'text/css; charset=utf-8']],
   ['/schema.js', ['autofill-extension/shared/schema.js', 'text/javascript; charset=utf-8']]
 ]);
@@ -221,6 +222,8 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
       }
       if (url.pathname === '/api/settings') store.setSettings(body);
       else if (url.pathname === '/api/profile') store.setProfile(body);
+      else if(url.pathname==='/api/profile/import/preview'){json(res,200,{ok:true,draft:store.previewProfileFile(body)});return;}
+      else if(url.pathname==='/api/profile/import/confirm'){json(res,200,{ok:true,...store.confirmProfileFile(body)});return;}
       else if (url.pathname === '/api/resume' || url.pathname === '/api/resume/extract') {
         if(url.pathname==='/api/resume')store.setResume(body);
         const resume=store.state.resume;
