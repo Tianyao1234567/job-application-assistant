@@ -1,11 +1,17 @@
 # 云端开发完整交接
 
-更新时间：2026-10-16。接续本项目已有实现，直接开发，不停在已读或方案阶段。用户已找到 Cloud 入口；**仅找到入口不证明环境已经发布或任务已执行**。当前实际状态以协作 Issue 的最新有效消息为准。
+2026-10-22 PM-0011阶段：仍沿`dev/pm9-demo-windows-readiness` / PR #5，禁止从main重做。连续虚构站视频已在`dbc495ede26ab65fa364ca1b4e1ea4a671962eb8`实际通过，run39635267114、artifact12361800263，约80秒、目标POST/接收/回执各1、实际WebM开始播放；到北京时间10/25 00:32。真实站样本Mattermost官方→Greenhouse5381946008的27控件已读取，增强原题/选项/必填/版本准备模块仍禁用执行，具体最新证据见DEV_REPORT_005及docs/REAL_ADAPTER_STAGE_001.md。下一阶段继续受控回放与完整适配，不能把只读观察标为真实申请已支持。无公开常驻后台、无需GPT API key、当前用户配合0项；此前Windows9+4和candidate.2仍按其实际a605来源报告。全部云端，不让用户电脑代跑。
+
+2026-10-21 PM-0010接续：当前分支`dev/pm9-demo-windows-readiness` / PR #5继续draft。PM已接收candidate.1完整性、Windows后台9项及公开入口准备；F1已在托管Windows实际9+4通过，最终候选来源`a605bb1be89250a48a027e94134bf82c49d6debc`；F2新7图演示来源`cd890f2eac6fc12576df7764a3b7dcd47dac6e15`，岗位资料与图05最终像素实际通过；F3完整URL已修复，第四范式只读逐项结果见`DEV_REPORT_005.md`及`docs/4PARADIGM_READONLY.md`。这是开发验证、待PM验收，不能替PM记录通过。众行机器人待确认、不追问、不阻塞；无需用户电脑安装或代跑。
+
+当前接续更新：2026-10-21（北京时间）。PM-0009已验收云端虚构站16项最低闭环，基线为`b6cfdee0bbded79010bb97866fd1ad538275270f`（PR #4仍draft、未合并）。下一阶段在独立`dev/pm9-demo-windows-readiness` / PR #5交付，实际演示、候选包、Windows后台9项验证和真实站只读准备见DEV_REPORT_004。接续当前分支及Issue最新有效消息，不从旧main重做，不重复已关闭缺口。
+
+下文保留2026-10-16迁移要求与需求历史；旧环境/旧基线描述不覆盖上面的实际接续状态。源码、托管运行、产品分层验收和GitHub合并仍分别报告。
 
 ## 1. 唯一项目与协作入口
 
 - 仓库：https://github.com/Tianyao1234567/job-application-assistant ，用户允许 Public。
-- 默认分支：main。迁移基线合并提交：e9048ab02c96cfaed9e475e7c510dd171aeb3cdf；初始源码导入：fc3134300a5617eb0d4185076e25a6e53bd1038e。启动时读取最新main，不把这里的旧SHA当作必须回退的版本。
+- 默认分支：main；这是迁移历史，不是本轮开发起点。迁移基线合并提交：e9048ab02c96cfaed9e475e7c510dd171aeb3cdf；初始源码导入：fc3134300a5617eb0d4185076e25a6e53bd1038e。实际接续上面已验收head派生的当前分支，不回退旧main或这些旧SHA。
 - 常驻协作 Issue：https://github.com/Tianyao1234567/job-application-assistant/issues/1 。
 - 迁移PR：https://github.com/Tianyao1234567/job-application-assistant/pull/2 ，已合入。
 - 产品经理负责需求、交付检查与验收；你是开发负责人。读取最新 PM/DEV 消息，按最高 DEV 编号的下一个编号回复，不冒充经理或宣称已验收。开工、阶段切换、结束前重读 Issue。

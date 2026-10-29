@@ -40,6 +40,41 @@ test('dashboard API preserves state across restart and never exposes resume stor
   assert.equal(state.paused, true); assert.equal(state.running, false);
 });
 
+test('explicit service stop creates a durable manual hold before a due schedule without clearing submission history', async t => {
+  let clock = Date.parse('2026-10-21T00:58:00Z'); // 08:58 in the documented schedule timezone.
+  const app = await setup(t, {now: () => clock});
+  app.store.demo();
+  const queued = app.store.manual('http://127.0.0.1:17322/site/alpha/jobs/cpp-001').task;
+  const boundary = app.store.manual('http://127.0.0.1:17322/site/alpha/jobs/cpp-002').task;
+  // Controlled state-machine input, not a claim that an HTTP submission occurred.
+  boundary.status = 'submitting'; boundary.submissionStarted = true;
+  app.store.state.settings.scheduleEnabled = true; app.store.state.settings.time = '09:00';
+  app.store.action({action: 'resume'});
+  assert.equal(app.store.state.manualPaused, false); assert.equal(app.store.state.running, true);
+  await app.close();
+  const saved = JSON.parse(await fs.readFile(path.join(app.dataDir, 'state.json'), 'utf8'));
+  assert.equal(saved.manualPaused, true); assert.equal(saved.paused, true); assert.equal(saved.running, false);
+  assert.equal(saved.tasks.find(task => task.id === boundary.id).submissionStarted, true);
+  clock = Date.parse('2026-10-22T01:30:00Z'); // Restart after the next day's scheduled time.
+  const restarted = await createApp({dataDir: app.dataDir, port: 0, startFixture: false, testMode: true, now: () => clock});
+  t.after(() => restarted.close());
+  restarted.store.tick();
+  const state = restarted.store.snapshot();
+  assert.equal(state.manualPaused, true); assert.equal(state.paused, true); assert.equal(state.running, false);
+  assert.equal(state.nextRun, null); assert.equal(state.lastSchedule, null, 'a stop must not consume a pending daily schedule');
+  assert.equal(state.tasks.find(task => task.id === queued.id).id, queued.id);
+  const unknown = state.tasks.find(task => task.id === boundary.id);
+  assert.equal(unknown.status, 'unknown'); assert.equal(unknown.submissionStarted, true);
+  assert.equal(unknown.canResume, false); assert.equal(unknown.canVerify, true);
+  assert.equal(restarted.store.poll({clientId: 'stopped-test-client', profileId: 'stopped-test-profile', extensionId: 'a'.repeat(32)}).command, null);
+  await restarted.close();
+  const held = await fs.readFile(path.join(app.dataDir, 'state.json'));
+  const heldRestart = await createApp({dataDir: app.dataDir, port: 0, startFixture: false, testMode: true, now: () => clock});
+  t.after(() => heldRestart.close());
+  await heldRestart.close();
+  assert.deepEqual(await fs.readFile(path.join(app.dataDir, 'state.json')), held, 'repeated stop while held preserves saved revisions and history');
+});
+
 test('management APIs reject missing key, hostile origin, mutation without origin and malformed bodies', async t => {
   const app = await setup(t);
   assert.equal((await fetch(app.url + '/api/state')).status, 401);
@@ -51,6 +86,47 @@ test('management APIs reject missing key, hostile origin, mutation without origi
   assert.equal(invalid.status, 400);
   assert.equal((await app.request('/api/state')).status, 200);
   assert.equal((await app.request('/api/action', {action: 'browser-open'})).status, 409);
+});
+
+test('dashboard browser open waits for managed readiness and app close owns the managed shutdown once', async t => {
+  let allowReady, opened = 0, stopped = 0;
+  const ready = new Promise(resolve => {allowReady = resolve;});
+  const app = await setup(t, {testMode: false,
+    browserOpen: async () => {opened++; await ready;}, browserClose: async () => {stopped++;}});
+  let complete = false;
+  const response = app.request('/api/action', {action: 'browser-open'}).then(value => {complete = true; return value;});
+  while (!opened) await new Promise(resolve => setTimeout(resolve, 5));
+  await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(complete, false, 'a launch request alone cannot report success');
+  allowReady();
+  assert.deepEqual(await (await response).json(), {ok: true, ready: true});
+  await Promise.all([app.close(), app.close()]);
+  assert.equal(stopped, 1);
+  assert.equal(app.store.state.paused, true);
+  assert.equal(app.store.state.running, false);
+});
+
+test('failed managed browser open never returns ready and test services still refuse production browser calls', async t => {
+  let opened = 0;
+  const app = await setup(t, {testMode: false, browserOpen: async () => {opened++; throw new Error('BROWSER_OPEN_FAILED');}});
+  const response = await app.request('/api/action', {action: 'browser-open'});
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).ready, undefined);
+  const isolated = await setup(t, {browserOpen: async () => {opened++;}});
+  assert.equal((await isolated.request('/api/action', {action: 'browser-open'})).status, 409);
+  assert.equal(opened, 1);
+});
+
+test('managed browser shutdown failure is reported after backend has saved and released its listener', async t => {
+  const dataDir = await fs.mkdtemp(path.join(ROOT, '.runtime/tests/server-close-'));
+  const app = await createApp({dataDir, port: 0, startFixture: false, testMode: false,
+    browserClose: async () => {throw new Error('BROWSER_CLOSE_FAILED');}});
+  t.after(() => fs.rm(dataDir, {recursive: true, force: true}));
+  await assert.rejects(app.close(), /BROWSER_CLOSE_FAILED/);
+  assert.equal(app.server.listening, false);
+  const state = JSON.parse(await fs.readFile(path.join(dataDir, 'state.json'), 'utf8'));
+  assert.equal(state.paused, true);
+  assert.equal(state.running, false);
 });
 
 test('Host validation blocks rebinding and static routes cannot traverse the checkout', async t => {

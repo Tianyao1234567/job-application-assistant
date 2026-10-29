@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const source=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 const startup='setInterval(() => refresh(), 1000);\nawait refresh(true);';
 assert.ok(source.includes(startup),'dashboard startup boundary changed; update the VM loader');
-const executable=source.replace(/^import .*from '\/schema\.js';\n/,'').replace(startup,`globalThis.dashboard={api,refresh,runHealthCheck,taskActions,render,connect,
+const executable=source.replace(/^import .*from '\/(?:schema|profile-file-import)\.js';\n/gm,'').replace(startup,`globalThis.dashboard={api,refresh,runHealthCheck,taskActions,render,connect,
   quietRender(){render=()=>{};},quietHeader(){header=()=>{};},
   get fetching(){return fetching;},get state(){return state;},get drafts(){return drafts;},
   get healthBusy(){return healthBusy;},get healthResult(){return healthResult;},
@@ -45,6 +45,7 @@ function harness(fetcher,{search=''}={}){
   const document={activeElement:null,querySelector:get,querySelectorAll(selector){const attribute=selector.match(/^\[data-([\w-]+)\]$/)?.[1];return attribute?nodes.filter(node=>Object.hasOwn(node.dataset,attribute.replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase()))):[];},createElement:tag=>new Element(tag),createTextNode:text=>{const node=new Element('#text');node.textContent=text;return node;}};
   const window={addEventListener(type,handler){if(!events.has(type))events.set(type,[]);events.get(type).push(handler);},postMessage(data,origin){posts.push({data,origin});}};
   const context=vm.createContext({document,Node:Element,window,location:{origin:'http://127.0.0.1:17321',hash:'',search},URLSearchParams,AbortController,structuredClone,Intl,Date,console,
+    definitions:{},createProfileFileImport:()=>({render:()=>new Element('section')}),
     fetch:fetcher,setTimeout(fn,delay){const id=nextTimer++;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval(){throw new Error('VM tests must not start browser polling');}});
   vm.runInContext(executable,context,{filename:'dashboard-app.js'});
   return {app:context.dashboard,get,timers,Element,posts,message(data){for(const handler of events.get('message')||[])handler({source:window,origin:'http://127.0.0.1:17321',data});},async deadline(delay){const found=[...timers].find(([,timer])=>timer.delay===delay);assert.ok(found,`missing ${delay}ms request deadline`);timers.delete(found[0]);found[1].fn();await flush();}};
@@ -74,6 +75,14 @@ test('POST timeout sends once and preserves unsaved answers, profile, settings a
   const calls=[];const h=harness((path,options)=>{calls.push({path,options});return options.method==='POST'?new Promise(()=>{}):Promise.resolve(response(snapshot('2026-10-17T03:00:00Z')));});h.app.quietRender();h.app.seedDrafts();const draft=h.app.draftSnapshot();
   const save=h.app.api('/api/profile',{fictional:true});const rejected=assert.rejects(save,/结果尚未确认/);await h.deadline(20000);await rejected;
   await h.app.refresh();assert.equal(calls.filter(call=>call.options.method==='POST').length,1);assert.deepEqual(calls.map(call=>call.path),['/api/profile','/api/state']);assert.equal(h.app.draftSnapshot(),draft);
+});
+
+test('explicit browser opening waits for cold startup with one bounded mutation and no automatic replay',async()=>{
+  const calls=[];const h=harness((path,options)=>{calls.push({path,options});return new Promise(()=>{});});
+  const opening=h.app.api('/api/action',{action:'browser-open'});const rejected=assert.rejects(opening,/结果尚未确认/);
+  assert.equal([...h.timers.values()].some(timer=>timer.delay===20000),false);
+  await h.deadline(45000);await rejected;
+  assert.equal(calls.length,1);assert.equal(calls[0].options.signal.aborted,true);assert.equal(h.timers.size,0);
 });
 
 test('read-only self-check prevents duplicate clicks, shows observed Chinese results and can run again',async()=>{

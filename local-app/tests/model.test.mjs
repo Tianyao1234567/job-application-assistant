@@ -17,10 +17,10 @@ function fresh(t){
   const paths={data};const store=new Store(paths,{now:()=>now});store.demo();
   return {store,paths,advance:ms=>now+=ms,clock:()=>now};
 }
-function setup(t){
+function setup(t,entry='jobs'){
   const env=fresh(t),{store}=env;
   store.heartbeat(client);store.loginResult(store.site('local-beta'),login());
-  const task=store.manual(`${FIXTURE}/site/beta/jobs/web-001`).task;
+  const task=store.manual(`${FIXTURE}/site/beta/${entry}/web-001`).task;
   store.run(false);
   const send=(command,result)=>store.result({clientId:client.clientId,commandId:command.id,result});
   const take=()=>store.poll(client).command;
@@ -46,6 +46,44 @@ test('手动详情、申请页和带参链接按稳定岗位去重',t=>{
   assert.equal(store.state.tasks.length,1);
   assert.throws(()=>store.manual(`${FIXTURE}/site/beta/jobs/../login`));
   assert.throws(()=>store.manual('https://outside.example/jobs/web-001'));
+});
+
+const jobMetadata=(extra={})=>({tenant:'beta',jobId:'web-001',url:`${FIXTURE}/site/beta/jobs/web-001`,title:'Web 前端工程师',company:'虚构乙公司',location:'上海',...extra});
+test('手动申请页读取真实岗位资料，仅白名单字段进入同一任务并跨重启保留',t=>{
+  const env=setup(t,'apply'),original=env.task.id,command=env.take();
+  env.send(command,{ok:true,layout:'fixture-layout',login:login(),jobMetadata:jobMetadata({id:'page-task',status:'submitted',phase:'done',dedupeKey:'page-key',submissionStarted:true,submitDay:'2026-10-16'})});
+  assert.equal(env.task.id,original);assert.equal(env.task.status,'running');assert.equal(env.task.phase,'fill');assert.equal(env.task.submissionStarted,undefined);assert.equal(env.task.submitDay,undefined);
+  assert.equal(env.task.title,'Web 前端工程师');assert.equal(env.task.company,'虚构乙公司');assert.equal(env.task.location,'上海');assert.equal(env.task.jobMetadata.source,'detail');
+  assert.equal(env.task.jobMetadata.status,undefined);assert.equal(env.task.jobMetadata.id,undefined);assert.notEqual(env.task.dedupeKey,'page-key');
+  assert.equal(env.store.manual(`${FIXTURE}/site/beta/apply/web-001`).task.id,original);assert.equal(env.task.title,'Web 前端工程师');
+  env.store.action({action:'pause'});const restored=new Store(env.paths,{now:env.clock}),task=restored.task(original);
+  assert.equal(task.title,'Web 前端工程师');assert.equal(task.company,'虚构乙公司');assert.equal(task.location,'上海');assert.equal(task.jobMetadata.url,`${FIXTURE}/site/beta/jobs/web-001`);
+});
+for(const [label,extra] of [['tenant',{tenant:'alpha'}],['job',{jobId:'design-001'}],['source',{url:`${FIXTURE}/site/alpha/jobs/web-001`}],['credentials',{url:'http://user:secret@127.0.0.1:17322/site/beta/jobs/web-001'}]])test(`未核实的${label}详情资料不能污染任务或推进填写`,t=>{
+  const env=setup(t),command=env.take(),identity=env.task.id;
+  env.send(command,{ok:true,layout:'fixture-layout',login:login(),jobMetadata:jobMetadata(extra)});
+  assert.equal(env.task.id,identity);assert.equal(env.task.title,'待读取岗位');assert.equal(env.task.location,'');assert.equal(env.task.status,'waiting_user');assert.equal(env.task.phase,'inspect');assert.equal(env.task.issue.kind,'structure');assert.equal(env.task.jobMetadata,undefined);
+});
+test('没有来源城市时不借用申请资料城市，后续补答和结果保留岗位资料',t=>{
+  const env=setup(t),command=env.take();env.send(command,{ok:true,layout:'fixture-layout',question:question(env.task),login:login(),jobMetadata:jobMetadata({location:''})});
+  assert.equal(env.task.location,'');assert.equal(env.task.company,'虚构乙公司');
+  const fill=env.take();env.send(fill,{ok:true,layout:'fixture-layout',filled:2});uploaded(env,env.take());
+  assert.equal(env.task.status,'waiting_answer');env.store.action({action:'answer',taskId:env.task.id,answer:'仅用于当前虚构岗位的普通回答'});
+  uploaded(env,reachUpload(env,question(env.task)));
+  const answer=env.take();assert.equal(answer.op,'answer');env.send(answer,{ok:true,layout:'fixture-layout'});
+  const preflight=env.take();env.send(preflight,{ok:true});const submit=env.take();env.send(submit,{ok:true,receipt:receipt(env.task)});
+  assert.equal(env.task.status,'submitted');assert.equal(env.task.location,'');assert.equal(env.task.title,'Web 前端工程师');assert.equal(env.task.company,'虚构乙公司');
+  const restored=new Store(env.paths,{now:env.clock});assert.equal(restored.task(env.task.id).title,'Web 前端工程师');assert.equal(restored.task(env.task.id).location,'');
+});
+for(const outcome of ['submitted','unknown'])test(`discover为${outcome}的同一手动任务补资料但不清除提交边界或重排投递`,t=>{
+  const env=setup(t),submit=reachSubmit(env);env.send(submit,outcome==='submitted'?{ok:true,receipt:receipt(env.task)}:{ok:false,kind:'unknown'});
+  const before={id:env.task.id,dedupeKey:env.task.dedupeKey,status:env.task.status,phase:env.task.phase,submitDay:env.task.submitDay,result:structuredClone(env.task.result)},steps=env.task.steps.length;
+  env.store.enqueueControl('discover',env.store.site('local-beta'));const discover=env.take();assert.equal(discover.op,'discover');
+  env.send(discover,{ok:true,login:login(),jobs:[jobMetadata({status:'queued',id:'page-task',submissionStarted:false}),jobMetadata({title:'',company:'',location:''}),jobMetadata({tenant:'alpha',title:'跨租户污染'})]});
+  assert.equal(env.store.state.tasks.length,1);for(const [key,value] of Object.entries(before))assert.deepEqual(env.task[key],value,key);
+  assert.equal(env.task.submissionStarted,true);assert.equal(env.task.title,'Web 前端工程师');assert.equal(env.task.company,'虚构乙公司');assert.equal(env.task.location,'上海');assert.equal(env.task.jobMetadata.source,'list');assert.ok(env.task.steps.length>steps);
+  assert.equal(env.take(),null);assert.match(env.store.site('local-beta').lastDiscoveryError,/结构/);assert.equal(env.store.manual(`${FIXTURE}/site/beta/apply/web-001`).task.id,before.id);
+  const restored=new Store(env.paths,{now:env.clock});assert.equal(restored.task(before.id).submissionStarted,true);assert.equal(restored.task(before.id).title,'Web 前端工程师');assert.equal(restored.task(before.id).status,outcome);
 });
 
 test('已有任务或活动命令时演示初始化不能重置用户配置',t=>{

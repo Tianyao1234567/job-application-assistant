@@ -1,0 +1,54 @@
+{
+  "format": "job-application-assistant.profile-update",
+  "format_version": 1,
+  "base_profile_version": null,
+  "profile_changes": [
+    {
+      "field": "personal.desiredCity",
+      "target_hint": "期望城市",
+      "previous_value": null,
+      "value": {
+        "zh": "示例城市丙",
+        "en": null
+      },
+      "source_text": "虚构本人回答：希望申请示例城市丙的岗位。",
+      "qualifier": null,
+      "confirmed": false
+    },
+    {
+      "field": null,
+      "target_hint": "在读硕士的预计结束日期，记录ID尚未提供",
+      "previous_value": null,
+      "value": {
+        "zh": "2028-06-30",
+        "en": null
+      },
+      "source_text": "虚构本人回答：硕士在读，预计2028年6月结束。",
+      "qualifier": "expected",
+      "confirmed": false
+    }
+  ],
+  "job_answers": [
+    {
+      "task_id": null,
+      "site_url": "https://jobs.example.invalid",
+      "company": "虚构技术公司",
+      "job_url": "https://jobs.example.invalid/jobs/fictional-101",
+      "question": "你为什么申请此岗位？",
+      "answer": "希望结合已有示例项目经验参与该岗位工作。",
+      "source_text": "基于虚构本人提供的项目事实整理，待本人核对。",
+      "confirmed": false
+    }
+  ],
+  "unmapped_notes": [
+    {
+      "label": "自我描述",
+      "text": "虚构待核对描述，当前字段尚未匹配。",
+      "source_text": "虚构本人原回答。",
+      "confirmed": false
+    }
+  ],
+  "questions": [
+    "请在本机匹配这段在读教育经历及对应岗位任务。"
+  ]
+}
