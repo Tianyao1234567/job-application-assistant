@@ -110,6 +110,9 @@ export function parseProfileImport(document){
  if(out.changes.length+out.notes.length+out.jobAnswers.length+out.questions.length>300)throw new Error('导入清单最多300项');out.fingerprint=digest(out);return out;
 }
 function mappingFor(record,profile,mappings,{suggest=false}={}){const choice=mappings?.[record.key];if(choice==='new')return {id:record.proposedId,choice:profile[record.kind].some(e=>e.id===record.proposedId)?record.proposedId:'new'};if(typeof choice==='string'&&choice&&profile[record.kind].some(e=>e.id===choice))return {id:choice,choice};if(suggest&&profile[record.kind].length===0)return {id:record.proposedId,choice:'new'};return null;}
+// Delta rows have no source record ID. Scope remembered choices to this exact
+// import and row (including its position), never to a school/company/title.
+function deltaTargetKey(parsed,change){return 'delta-target:'+parsed.fingerprint+':'+change.id;}
 function rowState(change,target,profile,parsed,version){
  const existing=target?clone(profileValue(profile,target)||null):null,reasons=[];let conflict=false,blocked=false;
  if(!target)reasons.push('目标字段或记录尚未匹配');
@@ -126,7 +129,21 @@ function rowState(change,target,profile,parsed,version){
 export function previewProfileImport(parsed,profile,profileVersion,{recordMappings={}}={}){
  validateProfile(profile);object(recordMappings);const records=parsed.records.map(record=>({...clone(record),suggestedTarget:mappingFor(record,profile,recordMappings,{suggest:true})?.choice||''}));
  const extra=records.filter(r=>r.suggestedTarget==='new').map(r=>({kind:r.kind,id:r.proposedId}));
- const changes=parsed.changes.map(change=>{let target=change.field;if(change.recordKey){const record=parsed.records.find(r=>r.key===change.recordKey),mapped=mappingFor(record,profile,recordMappings,{suggest:true});target=mapped?record.kind+'.'+mapped.id+'.'+pathInfo(change.field).field:null;}else if(target&&!targetExists(profile,target))target=null;return rowState(change,target,profile,parsed,profileVersion);});
+ const changes=parsed.changes.map(change=>{
+  let target=change.field,targetMappingKey=null;
+  if(change.recordKey){const record=parsed.records.find(r=>r.key===change.recordKey),mapped=mappingFor(record,profile,recordMappings,{suggest:true});target=mapped?record.kind+'.'+mapped.id+'.'+pathInfo(change.field).field:null;}
+  else if(parsed.kind==='profile-update'){
+   const key=deltaTargetKey(parsed,change),remembered=own(recordMappings,key);
+   if(remembered||!target||!targetExists(profile,target)){
+    targetMappingKey=key;
+    // A deleted remembered record stays unmatched, even if the source field
+    // now points at a different existing record. Only the user may remap it.
+    target=remembered&&targetExists(profile,recordMappings[key])?recordMappings[key]:null;
+   }
+  }else if(target&&!targetExists(profile,target))target=null;
+  const row=rowState(change,target,profile,parsed,profileVersion);
+  return targetMappingKey?{...row,targetMappingKey}:row;
+ });
  return {...clone(parsed),profileVersion,profileFingerprint:digest(profile),records,targets:targets(profile,extra),changes};
 }
 export function applyProfileImport(profile,preview,decisions,{recordMappings={},createRecords=[]}={}){
@@ -140,7 +157,7 @@ export function applyProfileImport(profile,preview,decisions,{recordMappings={},
   if(decision.action==='keep'){pendingChanges.push({...clone(change),pendingReason:'本人保留或稍后处理'});continue;}
   let target=decision.target||null;
   if(change.recordKey){const record=preview.records.find(r=>r.key===change.recordKey),mapped=mappingFor(record,profile,recordMappings);if(!mapped){pendingChanges.push({...clone(change),pendingReason:'记录尚未明确匹配或创建'});continue;}target=record.kind+'.'+mapped.id+'.'+pathInfo(change.field).field;if(decision.target&&decision.target!==target)throw new Error('同一旧记录的字段必须通过记录匹配一起归属');if(mapped.choice==='new')creation.set(record.kind+'.'+mapped.id,{kind:record.kind,id:mapped.id});savedMappings[record.key]=mapped.id;
-  }else target ||= change.target||change.field;
+  }else target ||= change.target||(!change.targetMappingKey?change.field:null);
   if(!target){pendingChanges.push({...clone(change),target:null,pendingReason:change.qualifier?'预计/在读限定及记录归属尚未明确，保留待处理':'目标字段或记录尚未明确，保留待处理'});continue;}
   const info=pathInfo(target);if(!info)throw new Error('请选择有效资料字段，不能写入未知路径');
   if(!targetExists(profile,target)&&(!info.id||!creation.has(info.kind+'.'+info.id))){pendingChanges.push({...clone(change),target,pendingReason:'指定记录不存在，须明确匹配或创建'});continue;}
@@ -149,6 +166,7 @@ export function applyProfileImport(profile,preview,decisions,{recordMappings={},
   if(row.conflict&&decision.replace!==true)throw new Error('基准、旧值或已确认内容有冲突，请明确选择替换；整批未保存');
   const old=profileValue(next,target),value={zh:change.value.zh??old?.zh??null,en:change.value.en??old?.en??null};
   const assigned=written.get(target)||{};for(const lang of ['zh','en'])if(change.value[lang]!==null){if(assigned[lang]!==undefined&&assigned[lang]!==change.value[lang])throw new Error('同一字段出现不同变更值，请保留其中一项后重试');assigned[lang]=change.value[lang];}written.set(target,assigned);
+  if(change.targetMappingKey)savedMappings[change.targetMappingKey]=target;
   if(old?.confirmed===true&&old.zh===value.zh&&old.en===value.en)continue;
   setProfileValue(next,target,{...value,source:change.source_text.slice(0,200)||'本人核对的资料导入',confirmed:true});count++;
  }
