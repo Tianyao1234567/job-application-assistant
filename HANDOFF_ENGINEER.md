@@ -8,6 +8,8 @@
 
 已读取并接手Manager提交`75fa20b95942a817328e8ffbd2e2c917fc50e29c`的[验收文档](docs/PROFILE_FILE_IMPORT_ACCEPTANCE_001.md)。candidate.9其余范围已分项验收；本轮只修未知增量项经本人明确匹配/新建后未持久记住目标的问题，不重复已验收实现或旧42项/5场景。
 
+接续核对（2026-11-02）：已读Manager简版交接`df4ca9b62c9ac65335c6fbfda0dca6c7752dd8b0`，既定R1任务与分工不变。收到该通知后核对有效分支，已有修复`46a28d3`及交付文档`bd74c28`；本次回读CI成功状态和VERIFICATION.json，并重新下载candidate.10核对285351字节及下述SHA-256一致，未重复实现、重跑测试或重新发布。Engineer独立维护本文件，Manager交接及验收正文保持原样；下一步仍由Manager定点验收R1。
+
 修复已实现：按解析后文件指纹及条目标识保存完整目标路径，沿用同一state的`profileImportMappings`，重载和重复导入复用本人选定目标；不按名称猜记录，删除的目标保持待匹配。映射不跳过真实当前值、旧值/基准版本、过期预览及明确替换保护。重复相同确认保持零字段变更、不新增经历或提升资料版本。旧格式映射及更新器引擎保持原实现。
 
 修复/打包源码：`46a28d3ee7402dad992c0fa721e6e01f676cff1e`。[交付报告](docs/PROFILE_FILE_IMPORT_R1_DELIVERY_001.md)；[同源码CI41442677046](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/41442677046)全部通过：9项纯函数＋5项Store持久化＋2项受影响打包/精确candidate.8识别，共16项、0失败、0跳过；1条实际文件选择→新建确认→真实服务重启→重选同文件→原目标复用场景通过，项目数仍1、profile版本仍v1，原附件及无投递授权边界保持。托管Chromium145.0.7632.6，工作区Chromium154也通过；未重跑已验收42项/5场景、旧PDF/Windows/MV3或录屏。
@@ -60,9 +62,10 @@
 | 本会话工作区 | `/workspace/job-application-assistant`；新环境自行定位实际checkout，不假定路径共享 |
 | PR | [#5](https://github.com/Tianyao1234567/job-application-assistant/pull/5)，保持draft，继承尚未合并的PR #4 |
 | 共享任务记录 | [Issue #1](https://github.com/Tianyao1234567/job-application-assistant/issues/1)；GitHub为跨会话事实来源 |
-| 当前功能源码／candidate.9发布来源 | `812a92d1adc947d6c3152dd926718ff7dd3d652a` |
+| 当前R1功能源码／candidate.10发布来源 | `46a28d3ee7402dad992c0fa721e6e01f676cff1e` |
+| 历史candidate.9发布来源 | `812a92d1adc947d6c3152dd926718ff7dd3d652a`，其余范围已分项验收 |
 | 本交接来源 | Engineer原交接`c1063a2506273dc941e6c0693b05a304e7bd32ca`；交付文档`884f0f076cb1b449a511613d47969545e810845d` |
-| 已读取的最新Manager交接 | `16860b8bd82a6a8e3fd2b5103ab7727014d4c7ea`，仅整理文档，明确尚未验收candidate.9；本次分档不改变验收或运行版本 |
+| 已读取的最新Manager交接 | `df4ca9b62c9ac65335c6fbfda0dca6c7752dd8b0`，经理简版交接；既定R1任务不变，工程师独立维护本文件 |
 | 已接收完整技术材料的提交 | `97c6d9efa55ee1ece8ced79e1875019353069eee` |
 | 用户已报告安装的candidate.8 | `bdd06e8aa17aa0e6dd433691cbbe399bebe41d7b`，Manager已验收 |
 
