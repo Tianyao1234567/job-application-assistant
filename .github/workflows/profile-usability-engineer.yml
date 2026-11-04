@@ -57,7 +57,13 @@ jobs:
         run: |
           node scripts/cloud-check.mjs
           node autofill-extension/tests/unit.test.js
-          node --test --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs
+          if node --test --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs > .runtime/focused.log 2>&1; then
+            cat .runtime/focused.log
+          else
+            cat .runtime/focused.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/focused.log").read_text(); sections=s.split("not ok "); details="\n".join("not ok "+p[:1100] for p in sections[1:]); print("::error title=Focused regression failures::"+(details or s[-3000:])[:12000].replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Verify and copy bundled Chromium
         run: node scripts/cloud-check.mjs container-browser
       - name: Exercise dashboard and fictional Greenhouse answer workflow
