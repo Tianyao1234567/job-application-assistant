@@ -66,13 +66,25 @@ jobs:
           fi
       - name: Verify and copy bundled Chromium
         run: node scripts/cloud-check.mjs container-browser
-      - name: Exercise dashboard and fictional Greenhouse answer workflow
-        run: xvfb-run --auto-servernum node local-app/tests/greenhouse-answer-ui-browser.mjs
+      - name: Exercise fictional dashboard and answer workflows
+        run: |
+          set +e
+          xvfb-run --auto-servernum node local-app/tests/greenhouse-answer-ui-browser.mjs > .runtime/answer-browser.log 2>&1
+          answer_status=$?
+          xvfb-run --auto-servernum node local-app/tests/profile-usability-ui-browser.mjs > .runtime/profile-browser.log 2>&1
+          profile_status=$?
+          cat .runtime/answer-browser.log .runtime/profile-browser.log
+          if (( answer_status != 0 || profile_status != 0 )); then
+            python3 -c 'from pathlib import Path; a=Path(".runtime/answer-browser.log").read_text()[-4000:]; b=Path(".runtime/profile-browser.log").read_text()[-4000:]; print("::error title=Fictional browser failures::"+("Answer workflow:\n"+a+"\nProfile workflow:\n"+b).replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Preserve fictional answer workflow result
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: fictional-answer-workflow-result
-          path: /workspace/.runtime/tests/evidence/greenhouse-answer-ui-browser.json
+          path: |
+            /workspace/.runtime/tests/evidence/greenhouse-answer-ui-browser.json
+            /workspace/.runtime/tests/evidence/profile-usability-ui-browser.json
           if-no-files-found: warn
           retention-days: 7

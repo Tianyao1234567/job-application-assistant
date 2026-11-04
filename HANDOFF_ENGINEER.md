@@ -14,6 +14,7 @@
 - 本机曾运行 7 个新增局部测试并通过，但仓库要求 GitHub 托管 runner，此结果不代表托管验证。[首次托管运行](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/41786432564)在源码与定点检查步骤失败，浏览器步骤未运行；当时公开日志端点返回404，正在补充失败注释以定位。仍需真实资料页面、同站虚构表单、保存与重启、升级兼容和 update.cmd 验收，Manager 尚未验收。
 - [第二次托管运行](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/41786681670)失败：旧项目拼接断言、旧英文确认、导入HTTP断言不符，浏览器未执行；已根据新语义与数据保护修订，等待新运行验证。补答附件恢复及网页已填资料的实际值核验也有未验证改动。`/api/profile` 新要求 `baseVersion`，旧客户端若不带版本将收到409，升级兼容须核验。托管浏览器测试使用受控执行器，不能单独证明真实 MV3 提交账本。
 - [第三次托管运行](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/41787011205)有四项失败：一项网页原值泄露保护及三项旧英文保护测试初始化；浏览器未运行。已编写修复，待新一轮托管验证；不得把这些改动视作已交付。
+- [第四次托管运行](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/41808469190)源码及定点回归通过，虚构 Greenhouse 页面场景失败；公开日志不可读取，已准备通过失败注释输出原因。另已编写虚构资料页面测试，尚未执行。此阶段仍不满足交付。
 
 ## 身份和工作位置
 
