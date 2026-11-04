@@ -131,6 +131,18 @@ test('a populated optional non-profile answer cannot be transmitted without exac
   const inspected=await h.inspect();assert.ok(inspected.questions.some(q=>q.key==='question_optional'&&!q.required));
   assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,false);assert.equal(h.clicks,0);
 });
+test('blank optional field requires an explicit matching task-only leave-blank decision',async()=>{
+  const h=harness();await h.complete();const Element=h.field('first_name').constructor;
+  h.inputs.push(new Element('question_optional_blank','Optional fictional detail'));
+  const inspected=await h.inspect(),q=inspected.questions.find(item=>item.key==='question_optional_blank');
+  assert.ok(q);assert.equal(q.required,false);
+  assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,false);
+  h.confirmedAnswers.push({...q,confirmed:true,leaveBlank:true,value:''});
+  assert.equal((await h.inspect()).questions.some(item=>item.key===q.key),false);
+  assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,true);
+  h.field(q.key)._value='Human value';assert.ok((await h.inspect()).questions.some(item=>item.key===q.key));
+  assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,false);
+});
 test('exact original question and complete native choices are scoped and versioned',async()=>{
   const h=harness(),first=await h.inspect();
   const question=first.questions.find(question=>question.key==='question_1');

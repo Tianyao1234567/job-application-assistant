@@ -115,7 +115,7 @@
   }
   function controlValue(record) {return record.field.customControl?selectedChoice(record.node):record.node.value;}
   function collect(form) {
-    const nodes=[...form.querySelectorAll('input,textarea,select')].filter(node=>node.type!=='hidden'&&(!secret.test([node.id,node.name,node.type,labels(node)].join(' ')))&&(visible(node)||node.type==='file'));
+    const nodes=[...form.querySelectorAll('input,textarea,select')].filter(node=>node.type!=='hidden'&&!node.disabled&&!node.readOnly&&(!secret.test([node.id,node.name,node.type,labels(node)].join(' ')))&&(visible(node)||node.type==='file'));
     if(nodes.length>60)throw new Error('FIELD_BUDGET');
     const records=[],keys=new Set(),schema=publicQuestions();
     for(const node of nodes){
@@ -174,7 +174,9 @@
     return {...field,...(field.type!=='file'&&field.alreadyPopulated?{currentValue:String(current||'').slice(0,5000)}:{}),...(manualSelection?{manualSelection:true,options:[{text:selectedChoice(record.node),disabled:false}]}:{}),version,source:expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId,scope:`greenhouse-v1:${expected.tenant}:${expected.jobId}:${field.key}:${version}`,defaultRemember:false};
   }
   function ownedAnswer(expected,q,record) {
-    if(!q.alreadyPopulated||!Array.isArray(expected.confirmedAnswers))return false;
+    if(!Array.isArray(expected.confirmedAnswers))return false;
+    if(!q.required&&!q.alreadyPopulated&&expected.confirmedAnswers.some(answer=>answer?.confirmed===true&&answer.leaveBlank===true&&['key','scope','version','text','source','purpose'].every(key=>answer[key]===q[key])))return true;
+    if(!q.alreadyPopulated)return false;
     let value=controlValue(record);
     if(record.node.tagName==='SELECT'){
       const selected=[...record.node.options].filter(option=>option.value===record.node.value);
@@ -186,7 +188,7 @@
     const profile=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
     for(const record of current.records){
       const q=await question(expected,record);
-      if(q.type!=='file'&&(q.required||q.alreadyPopulated)&&!(profile.has(q.key)&&!q.customControl)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
+      if(q.type!=='file'&&!(profile.has(q.key)&&!q.customControl)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
     }
     return {ok:true};
   }
@@ -237,7 +239,7 @@
       const jobMetadata={tenant:expected.tenant,jobId:expected.jobId,url:current.source,title,company:expected.company,location:text(document.querySelector('.job__location,.job-location,[data-job-location]')).slice(0,200)};
       const fields=await Promise.all(result.records.map(record=>question(expected,record)));
       const fillable=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
-      const questions=fields.filter((field,index)=>(field.required||field.alreadyPopulated)&&field.type!=='file'&&!(fillable.has(field.key)&&!field.customControl)&&!ownedAnswer(expected,field,result.records[index]));
+      const questions=fields.filter((field,index)=>field.type!=='file'&&!(fillable.has(field.key)&&!field.customControl)&&!ownedAnswer(expected,field,result.records[index]));
       return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };

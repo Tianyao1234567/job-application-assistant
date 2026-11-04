@@ -1,0 +1,72 @@
+name: Profile usability engineer checks
+
+on:
+  push:
+    branches: [engineer/profile-import-usability]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: profile-usability-engineer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-checks:
+    if: github.ref == 'refs/heads/engineer/profile-import-usability'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+      options: --init --ipc=host
+      volumes:
+        - ${{ github.workspace }}:/workspace
+    defaults:
+      run:
+        shell: bash
+        working-directory: /workspace
+    env:
+      TEMP: /workspace/.runtime/tmp
+      TMP: /workspace/.runtime/tmp
+      TMPDIR: /workspace/.runtime/tmp
+      npm_config_cache: /workspace/.runtime/cache
+      PLAYWRIGHT_BROWSERS_PATH: /workspace/.runtime/browsers
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+      GREENHOUSE_BROWSER_MODE: page-driver
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Prepare isolated paths
+        run: |
+          test /workspace -ef "$GITHUB_WORKSPACE"
+          mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
+      - name: Install locked test dependencies
+        working-directory: /workspace/autofill-extension
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install locked runtime dependencies
+        working-directory: /workspace/runtime-deps
+        run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
+      - name: Check source and focused regressions
+        run: |
+          node scripts/cloud-check.mjs
+          node autofill-extension/tests/unit.test.js
+          node --test --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs
+      - name: Verify and copy bundled Chromium
+        run: node scripts/cloud-check.mjs container-browser
+      - name: Exercise dashboard and fictional Greenhouse answer workflow
+        run: xvfb-run --auto-servernum node local-app/tests/greenhouse-answer-ui-browser.mjs
+      - name: Preserve fictional answer workflow result
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-answer-workflow-result
+          path: /workspace/.runtime/tests/evidence/greenhouse-answer-ui-browser.json
+          if-no-files-found: warn
+          retention-days: 7

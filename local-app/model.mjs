@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {ROOT, insideRoot} from './paths.mjs';
 import {importedCandidates,applyProfileDraft,profileValue,setProfileValue} from './profile-draft.mjs';
-import {parseProfileImport,previewProfileImport,applyProfileImport} from './profile-update.mjs';
+import {parseProfileImport,parseProjectRepair,previewProfileImport,applyProfileImport} from './profile-update.mjs';
 import {stableProfileKey,profileFactAnswer} from '../autofill-extension/shared/profile-facts.js';
 import {emptyProfile, validateProfile, flattenProfile} from '../autofill-extension/shared/schema.js';
 import {isGreenhouse,greenhouseReplay,greenhouseJob,validateGreenhouseSite,greenhouseQuestion,greenhouseAnswer,validNetworkReceipt} from './greenhouse.mjs';
@@ -108,7 +108,7 @@ export class Store {
     this.invalidateTask(t);this.resolveTask(t);
     const versionsChanged=t.profileVersion!==profile.version||t.resumeVersion!==this.state.resume.version;
     t.executionProfileId=body.profileId;t.profileSnapshot=clone(profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=profile.version;t.resumeVersion=this.state.resume.version;
-    if(versionsChanged){const keep=t.answerSupplement?.profileVersion===profile.version&&t.answerSupplement?.resumeVersion===this.state.resume.version?new Set(t.answerSupplement.scopes):new Set();delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).filter(([scope])=>keep.has(scope)));t.questions=[];}delete t.answerSupplement;
+    if(versionsChanged){delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).filter(([,answer])=>{const key=stableProfileKey(answer);return !key||answer.leaveBlank===true||profileValue(profile.data,key)?.zh===answer.value;}));t.questions=[];}delete t.answerSupplement;
     t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,submitConfirmed:true,confirmedAt:this.now()};
     t.status='queued';t.phase='inspect';this.step(t,'本人已确认此次申请',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；填写前仍重新核对原值、结构和岗位。`);
   }
@@ -122,7 +122,7 @@ export class Store {
   applicableAnswer(t,q){
     if(!this.validQuestion(t,q))return null;
     const site=this.site(t.siteId),own=t.answers?.[q.scope],memory=this.state.answers.find(a=>a.siteId===site.id&&a.scope===q.scope&&a.confirmed===true);
-    for(const candidate of [own,memory])if(candidate&&['scope','version','text','source','purpose'].every(key=>candidate[key]===q[key])&&(!q.alreadyPopulated||q.currentValue===candidate.value||q.manualSelection&&q.options?.length===1&&q.options[0].text===candidate.value)){try{return greenhouseAnswer(q,candidate.value);}catch{}}
+    for(const candidate of [own,memory])if(candidate&&candidate.confirmed===true&&['scope','version','text','source','purpose'].every(key=>candidate[key]===q[key])&&(!q.alreadyPopulated||q.currentValue===candidate.value||q.manualSelection&&q.options?.length===1&&q.options[0].text===candidate.value)){if(candidate.leaveBlank===true&&!q.required&&!q.alreadyPopulated)return '';try{return greenhouseAnswer(q,candidate.value);}catch{}}
     const fact=profileFactAnswer(q,t.profileSnapshot?.data||this.state.profile.data);
     if(fact!==null){try{return greenhouseAnswer(q,fact);}catch{}}
     return null;
@@ -132,6 +132,7 @@ export class Store {
     return {version:hash(Buffer.from(JSON.stringify({questions,layout:t.layout,revision:t.revision,profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version}))),questions:questions.map(q=>{const draft=t.importedAnswerDrafts?.[q.scope];return {...clone(q),profileKey:stableProfileKey(q),existingFact:stableProfileKey(q)?clone(profileValue(this.state.profile.data,stableProfileKey(q))||null):null,...(draft&&draft.version===q.version&&draft.text===q.text&&draft.source===q.source&&this.validQuestion(t,q)?{importedDraft:{value:draft.value,source_text:draft.source_text,confirmed:false}}:{})};})};
   }
   selectGreenhouseQuestion(t){
+    while(t.questions?.length&&this.applicableAnswer(t,t.questions[0])==='')t.questions.shift();
     t.question=t.questions?.[0]||null;delete t.answer;
     if(!t.question){t.phase='preflight';return;}
     const q=t.question,value=this.applicableAnswer(t,q);
@@ -145,11 +146,13 @@ export class Store {
     const checked=body.answers.map(input=>{
       const q=batch.questions.find(q=>q.scope===input.scope);
       if(!q||input.version!==q.version||!this.validQuestion(t,q)||!['task','scope','profile'].includes(input.save))throw new Error('问题版本或保存用途不适用，尚未保存任何答案');
-      const value=isGreenhouse(site)?greenhouseAnswer(q,input.answer):short(input.answer,5000);
-      if(!value)throw new Error('当前申请缺项不能为空');
+      const leaveBlank=input.leaveBlank===true;
+      if(leaveBlank&&(q.required||q.alreadyPopulated||input.save!=='task'))throw new Error('只有尚未填写的选填问题可以选择本次留空');
+      const value=leaveBlank?'':isGreenhouse(site)?greenhouseAnswer(q,input.answer):short(input.answer,5000);
+      if(!value&&!leaveBlank)throw new Error('当前申请缺项不能为空');
       const profileKey=stableProfileKey(q);
       if(input.save==='profile'&&!profileKey)throw new Error('该问题不属于可跨岗位复用的稳定个人事实');
-      return {q,value,input,profileKey};
+      return {q,value,input,profileKey,leaveBlank};
     });
     const profile=clone(this.state.profile.data);let changed=false;
     for(const {q,value,input,profileKey}of checked)if(input.save==='profile'){
@@ -160,8 +163,8 @@ export class Store {
     validateProfile(profile);
     if(changed&&this.state.profile.mode==='real'&&Object.values(profile.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
     t.answers ||= {};
-    for(const {q,value,input}of checked){
-      const answer={...q,value,confirmed:true};delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
+    for(const {q,value,input,leaveBlank}of checked){
+      const answer={...q,value,confirmed:true,...(leaveBlank?{leaveBlank:true}:{})};delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
       if(!isGreenhouse(site))t.answer=answer;
       if(input.save==='scope'){this.state.answers=this.state.answers.filter(a=>!(a.scope===q.scope&&a.siteId===site.id));this.state.answers.push({...clone(answer),siteId:site.id,confirmedAt:this.now()});}
     }
@@ -224,8 +227,9 @@ export class Store {
     for(const t of this.state.tasks){const site=mapped.find(s=>s.id===t.siteId);if(['queued','running'].includes(t.status)&&(next.mode!==t.mode||!site?.enabled||site.skipped)){this.invalidateTask(t);t.status='queued';}}
     this.state.settings=next;this.state.sites=mapped;this.save();
   }
-  setProfile({data,mode,confirmed}){
+  setProfile({data,mode,confirmed,baseVersion}){
     if(confirmed!==true||!['demo','real'].includes(mode))throw new Error('请先确认资料及用途');
+    if(baseVersion!==undefined&&(!Number.isInteger(baseVersion)||baseVersion!==this.state.profile.version))throw new Error('资料已变化，请重新核对后再保存；原编辑内容仍保留');
     const validated=validateProfile(data);if(mode==='real'&&Object.values(validated.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
     this.state.profile={version:this.state.profile.version+1,data:validated,mode,updatedAt:this.now()};this.invalidateGreenhouseVersions();this.save();
   }
@@ -256,6 +260,15 @@ export class Store {
     const parsed=parseProfileImport(document),preview=previewProfileImport(parsed,this.state.profile.data,this.state.profile.version,{recordMappings:this.state.profileImportMappings||{}});
     this.profileFileParsed=parsed;
     this.profileFileDraft={...preview,id:uid(),profileVersion,mode,status:'ready',createdAt:this.now(),jobAnswers:this.matchProfileFileAnswers(parsed.jobAnswers||[],mode)};
+    return clone(this.profileFileDraft);
+  }
+  previewProjectRepair({mode,profileVersion}){
+    if(!['demo','real'].includes(mode)||profileVersion!==this.state.profile.version)throw new Error('当前资料版本已变化，请重新预览');
+    if(this.state.profile.version&&mode!==this.state.profile.mode)throw new Error('资料用途已变化，请重新核对');
+    const parsed=parseProjectRepair(this.state.profile.data);
+    const preview=previewProfileImport(parsed,this.state.profile.data,profileVersion,{recordMappings:this.state.profileImportMappings||{}});
+    this.profileFileParsed=parsed;
+    this.profileFileDraft={...preview,id:uid(),profileVersion,mode,status:'ready',createdAt:this.now(),jobAnswers:[]};
     return clone(this.profileFileDraft);
   }
   confirmProfileFile(body){
@@ -305,7 +318,7 @@ export class Store {
         this.state.profileImportHistory ||= [];
         const previous=this.state.profileImportHistory.findIndex(item=>item.fingerprint===draft.fingerprint);
         const history={id:draft.id,kind:draft.kind,fingerprint:draft.fingerprint,profileVersion:draft.profileVersion,savedProfileVersion:this.state.profile.version,count:applied.count,answerCount,createdAt:this.now(),notes:clone(draft.notes),questions:clone(draft.questions),pendingChanges:clone(applied.pendingChanges),jobAnswers,profileBefore:profileChanged?clone(original.state.profile):null};
-        if(previous<0){if(this.state.profileImportHistory.length>=100)throw new Error('已保存100份导入核对记录，尚未覆盖任何资料');this.state.profileImportHistory.push(history);}else{const old=this.state.profileImportHistory[previous];history.profileBefore=old.profileBefore||history.profileBefore;this.state.profileImportHistory[previous]=history;}
+        if(previous<0){if(this.state.profileImportHistory.length>=100)throw new Error('已保存100份导入核对记录，尚未覆盖任何资料');this.state.profileImportHistory.push(history);}else{const old=this.state.profileImportHistory[previous];history.profileBefore=old.profileBefore||history.profileBefore;history.pendingChanges=[...(old.pendingChanges||[]).filter(row=>row.id?.endsWith('-old-en')),...history.pendingChanges];this.state.profileImportHistory[previous]=history;}
         this.save();
       }
       this.profileFileDraft={...draft,status:'saved',savedProfileVersion:this.state.profile.version,count:applied.count,answerCount,pendingCount};
@@ -408,7 +421,11 @@ export class Store {
     else if(action==='resume')this.run(false);
     else if(action==='add')result=this.manual(body.url);
     else if(['memory-update','memory-revoke'].includes(action))this.editMemory(body);
-    else if(action==='answers')result=this.saveAnswerBatch(this.task(body.taskId),body);
+    else if(action==='answers'){
+      const before=clone(this.state);
+      try{result=this.saveAnswerBatch(this.task(body.taskId),body);this.save();return {ok:true,...result};}
+      catch(error){if(JSON.stringify(this.state)!==JSON.stringify(before))this.state=before;throw error;}
+    }
     else if(['task-pause','task-resume','task-skip','verify','answer','task-confirm'].includes(action)){
       const t=this.task(body.taskId);
       if(action==='task-confirm')this.confirmTask(t,body);
@@ -583,6 +600,7 @@ export class Store {
       }else if(!r.ok){
         if(c.op==='submit'||r.kind==='unknown'){t.status='unknown';t.phase='verify';this.issue(t,'unknown','提交结果待核实','可能已被网站接收；请核对记录，系统不会再次提交');this.step(t,'提交回执未确认',short(r.message)||'只允许核对，禁止自动重投');}
         else if(r.kind==='paused'||t.status==='paused'||this.state.paused){if(t.status!=='paused')t.status='queued';t.phase='inspect';this.step(t,'自动动作已停止','继续时重新检查当前页面');}
+        else if(isGreenhouse(site)&&c.op==='preflight'&&r.kind==='questions_changed'&&!this.hasSubmissionBoundary(t)){t.status='queued';t.phase='inspect';this.step(t,'申请表出现新问题','保留已确认答案，重新检查同一任务并记录新的缺项。');}
         else if(['login','account'].includes(r.kind)){
           // loginResult already classified verification/unknown/expiry and the
           // exact account-versus-tenant mismatch. Do not flatten that evidence.

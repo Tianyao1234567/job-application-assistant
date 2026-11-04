@@ -49,14 +49,34 @@ function parseDelta(doc){
  for(const row of doc.unmapped_notes){keys(row,['label','text','source_text','confirmed']);if(row.confirmed!==false)throw new Error('未映射信息必须未确认');const label=text(row.label,200),value=text(row.text),source=text(row.source_text);if(sensitive(label,value,source)){excluded(out);continue;}out.notes.push({label,text:value,source_text:source,confirmed:false});}
  for(const q of doc.questions){const value=text(q,1000);if(sensitive(value)){excluded(out);continue;}out.questions.push(value);}return out;
 }
-const legacyMaps={personalInfo:{姓名:'personal.name',手机号码:'personal.phone',邮箱:'personal.email',所在地:'personal.location',期望城市:'personal.desiredCity'},educationList:{学校名称:'school',学历:'degree',专业名称:'major',开始就读时间:'startDate',结束就读时间:'endDate'},workList:{公司名称:'company',所在部门:'department',职位名称:'role',工作开始时间:'startDate',工作结束时间:'endDate',工作职责:'description'},projectList:{项目名称:'title',项目开始时间:'startDate',项目结束时间:'endDate'}};
+const legacyMaps={personalInfo:{姓名:'personal.name',手机号码:'personal.phone',邮箱:'personal.email',所在地:'personal.location',期望城市:'personal.desiredCity'},educationList:{学校名称:'school',学历:'degree',专业名称:'major',开始就读时间:'startDate',结束就读时间:'endDate'},workList:{公司名称:'company',所在部门:'department',职位名称:'role',工作开始时间:'startDate',工作结束时间:'endDate',工作职责:'description'},projectList:{项目名称:'title',项目开始时间:'startDate',项目结束时间:'endDate',项目描述:'description',职责:'responsibility',项目中职责:'projectDuty',描述And职责:'descriptionAndDuty'}};
+// Classify only explicit categories or recognisable names. Keep each original
+// segment (including proficiency and punctuation) intact; mixed or unclear
+// segments stay together in the general field for the owner to review.
+function legacySkills(out,raw){
+ const source=text(raw),groups={programming:[],robotics:[],embedded:[],tools:[],hardware:[],description:[]};
+ const labels={programming:/^(?:编程(?:技能|语言)?|程序设计)\s*[:：]/i,robotics:/^(?:机器人(?:与视觉)?|视觉)\s*[:：]/i,embedded:/^嵌入式\s*[:：]/i,tools:/^(?:工具|开发工具)\s*[:：]/i,hardware:/^硬件\s*[:：]/i};
+ const terms={programming:/(?:\bpython\b|\bc\+\+|\bc#|\bjava(?:script)?\b|\btypescript\b|\brust\b|\bgolang\b)/i,robotics:/(?:\bros2?\b|\bopencv\b|\bpcl\b|\brobotics\b|机器人|计算机视觉)/i,embedded:/(?:\bstm32\b|\bfreertos\b|嵌入式|单片机)/i,tools:/(?:\bgit\b|\bdocker\b|\bcmake\b|\blinux\b|\bmatlab\b)/i,hardware:/(?:\bpcb\b|\bfpga\b|电路|硬件)/i};
+ const pieces=source.match(/[^；;\n]+[；;]?|\n/g)||[];let prefix='';
+ for(const piece of pieces){
+  if(piece==='\n'){prefix+='\n';continue;}
+  const part=prefix+piece;prefix='';const cleaned=piece.trim();
+  const explicit=Object.keys(labels).filter(k=>labels[k].test(cleaned));
+  const detected=explicit.length?explicit:Object.keys(terms).filter(k=>terms[k].test(cleaned));
+  const category=detected.length===1?detected[0]:'description';groups[category].push(part);
+  if(category==='description')note(out,'技能分类待确认',cleaned,'原技能条目，请本人核对分类');
+ }
+ if(prefix)groups.description.push(prefix);
+ for(const [category,parts]of Object.entries(groups))if(parts.length){const value=parts.join('');add(out,{field:'skills.'+category,target_hint:definitions.skills[category],value:{zh:value,en:null},source_text:'专业技能：'+value},['legacy','selfDescription','专业技能',category]);}
+}
 function parseLegacy(doc){
  keys(doc,['version','exportTime','config']);if(doc.version!=='3.0.0')throw new Error('仅支持旧插件3.0.0导出');text(doc.exportTime,100);const config=object(doc.config),out=result('legacy-v3');
  const highest=typeof config.personalInfo?.['最高学历']==='string'?config.personalInfo['最高学历']:'';
  const educationRows=Array.isArray(config.educationList)?config.educationList:[];
  const hasInProgress=/在读|进行中|in.progress|currently|ongoing/i.test(highest);
  const degreeMatches=hasInProgress?educationRows.filter(row=>typeof row?.['学历']==='string'&&row['学历'].trim().length>1&&highest.includes(row['学历'].trim().replace(/[（(].*$/,''))):[];
- const inProgressIDs=new Set((degreeMatches.length?degreeMatches:hasInProgress?educationRows:[]).map(row=>row?.id));
+ // A status belongs to an education record only when the degree identifies it uniquely.
+ const inProgressIDs=new Set((degreeMatches.length===1?degreeMatches:[]).map(row=>row?.id));
  const scalar=(group,values,map={})=>{object(values);for(const [key,raw]of Object.entries(values)){if(raw===null||raw==='')continue;if(sensitive(key,typeof raw==='string'?raw:'')){excluded(out);continue;}if(!own(map,key)){note(out,group+' / '+key,raw,typeof raw==='string'?raw:group+' / '+key);continue;}const value=text(raw),field=map[key];add(out,{field,target_hint:key,value:{zh:value,en:null},source_text:key+'：'+value},['legacy',group,key]);}};
  if(config.personalInfo)scalar('personalInfo',config.personalInfo,legacyMaps.personalInfo);
  for(const [list,kind]of [['educationList','education'],['workList','experience'],['projectList','projects']]){
@@ -66,21 +86,28 @@ function parseLegacy(doc){
    const hash=digest([kind,oldID]).slice(0,24),id='legacy-'+kind+'-'+hash,key='legacy:'+kind+':'+hash;
    const labelKey=kind==='education'?'学校名称':kind==='experience'?'公司名称':'项目名称';
    out.records.push({key,kind,proposedId:id,label:typeof row[labelKey]==='string'&&!sensitive('',row[labelKey])?row[labelKey].slice(0,200):kind});
-   const descriptions=[];
+   if(kind==='projects')add(out,{field:kind+'.'+id+'.role',target_hint:'本人角色',value:{zh:null,en:null},source_text:'本人填写的项目角色',recordKey:key,requiresUserValue:true},['legacy',key,'role']);
+   if(kind==='education'&&inProgressIDs.has(row.id))add(out,{field:kind+'.'+id+'.studyStatus',target_hint:'学习状态',value:{zh:'在读',en:null},source_text:'最高学历：'+highest,recordKey:key},['legacy',key,'studyStatus']);
    for(const [oldField,raw]of Object.entries(row)){
     if(oldField==='id'||raw===null||raw==='')continue;if(sensitive(oldField,typeof raw==='string'?raw:'')){excluded(out);continue;}
-    if(list==='projectList'&&['项目描述','职责','项目中职责','描述And职责'].includes(oldField)){descriptions.push(oldField+'：'+text(raw));continue;}
-    const field=legacyMaps[list][oldField];if(!field){note(out,list+' / '+oldField,raw,typeof raw==='string'?raw:list+' / '+oldField);continue;}
+    let field=legacyMaps[list][oldField];if(!field){note(out,list+' / '+oldField,raw,typeof raw==='string'?raw:list+' / '+oldField);continue;}
     const value=text(raw);let qualifier=null;
-    if(kind==='education'&&['degree','endDate'].includes(field)&&inProgressIDs.has(row.id))qualifier='in_progress';
+    if(kind==='education'&&field==='endDate'&&inProgressIDs.has(row.id)&&validDate(value))field='expectedEndDate';
+    else if(kind==='education'&&field==='endDate'&&hasInProgress&&degreeMatches.length!==1)qualifier='in_progress';
     else if(field==='endDate'&&(/在读|进行中|至今|预计|expected|present|ongoing|current/i.test(value)))qualifier=/预计|expected/i.test(value)?'expected':'in_progress';
     else if(kind==='education'&&field==='endDate'&&validDate(value)&&/^\d{4}-\d{2}-\d{2}/.test(doc.exportTime)&&value>doc.exportTime.slice(0,10))qualifier='expected';
     add(out,{field:kind+'.'+id+'.'+field,target_hint:labelKey+' / '+oldField,value:{zh:value,en:null},source_text:oldField+'：'+value+(qualifier==='in_progress'&&hasInProgress?'；最高学历：'+highest:''),qualifier,recordKey:key},['legacy',key,oldField]);
    }
-   if(descriptions.length){const combined=descriptions.join('\n\n');add(out,{field:'projects.'+id+'.description',target_hint:'项目描述与职责（保留全部原段）',value:{zh:combined,en:null},source_text:combined,recordKey:key},['legacy',key,'description']);if(combined.length>10000)note(out,'项目描述超出当前字段长度，全部原文待整理',combined,'旧插件项目描述及职责原文，未写入长度不足的资料字段');}
   }
  }
- if(config.selfDescription)scalar('selfDescription',config.selfDescription,{专业技能:'skills.description'});
+ if(config.selfDescription){
+  object(config.selfDescription);
+  for(const [key,value]of Object.entries(config.selfDescription)){
+   if(key==='专业技能'&&value!==null&&value!==''){
+    if(sensitive(key,typeof value==='string'?value:''))excluded(out);else legacySkills(out,value);
+   }else note(out,'selfDescription / '+key,value,typeof value==='string'?value:'selfDescription / '+key);
+  }
+ }
  for(const [key,value]of Object.entries(config))if(!['fieldOrder','fieldTypes','customModules','personalInfo','educationList','workList','projectList','selfDescription'].includes(key))note(out,key,value);
  return out;
 }
@@ -108,6 +135,22 @@ export function parseProfileImport(document){
  safe(document);if(Buffer.byteLength(JSON.stringify(document))>500000)throw new Error('资料导入超过500KB');object(document);
  let out;if(own(document,'format')){if(document.format!=='job-application-assistant.profile-update')throw new Error('未知资料更新格式');out=parseDelta(document);}else if(own(document,'version')||own(document,'config'))out=parseLegacy(document);else if(document.schemaVersion===1)out=parseFull(document);else throw new Error('无法识别资料格式或版本');
  if(out.changes.length+out.notes.length+out.jobAnswers.length+out.questions.length>300)throw new Error('导入清单最多300项');out.fingerprint=digest(out);return out;
+}
+// Old v3 imports concatenated labelled fragments into description. Only
+// propose a repair when provenance and boundaries can be checked; never mutate
+// saved data while producing a preview.
+export function parseProjectRepair(profile){
+ validateProfile(profile);const out=result('project-repair');
+ const names={'项目描述':'description','职责':'responsibility','项目中职责':'projectDuty','描述And职责':'descriptionAndDuty'};
+ for(const project of profile.projects){
+  const old=project.description,value=old?.zh;
+  if(typeof value!=='string'||!old.source||old.source!==value.slice(0,200)||sensitive('项目描述',value))continue;
+  const parts=value.split('\n\n'),rows=[];let ambiguous=false;
+  for(const part of parts){const m=/^(项目描述|职责|项目中职责|描述And职责)：([\s\S]+)$/.exec(part);if(!m||rows.some(r=>r.label===m[1])||/(?:项目描述|职责|项目中职责|描述And职责)：/.test(m[2])){ambiguous=true;break;}rows.push({label:m[1],value:m[2]});}
+  if(ambiguous||rows.length<2||rows.map(r=>r.label+'：'+r.value).join('\n\n')!==value)continue;
+  for(const row of rows)add(out,{field:'projects.'+project.id+'.'+names[row.label],target_hint:row.label,value:{zh:row.value,en:null},source_text:'本人核对的旧项目修复'},['repair',project.id,row.label,value]);
+ }
+ out.fingerprint=digest(out);return out;
 }
 function mappingFor(record,profile,mappings,{suggest=false}={}){const choice=mappings?.[record.key];if(choice==='new')return {id:record.proposedId,choice:profile[record.kind].some(e=>e.id===record.proposedId)?record.proposedId:'new'};if(typeof choice==='string'&&choice&&profile[record.kind].some(e=>e.id===choice))return {id:choice,choice};if(suggest&&profile[record.kind].length===0)return {id:record.proposedId,choice:'new'};return null;}
 // Delta rows have no source record ID. Scope remembered choices to this exact
@@ -153,8 +196,11 @@ export function applyProfileImport(profile,preview,decisions,{recordMappings={},
  const creation=new Map();for(const record of createRecords){keys(record,['kind','id']);if(!kinds.includes(record.kind)||!/^[a-zA-Z][\w-]{0,63}$/.test(record.id)||forbidden.has(record.id))throw new Error('新经历类别或稳定ID无效');creation.set(record.kind+'.'+record.id,record);}
  const next=clone(profile),pendingChanges=[],savedMappings={},written=new Map();let count=0;
  for(const decision of decisions){
-  keys(decision,['id','action','target','replace'],['id','action']);const change=preview.changes.find(c=>c.id===decision.id);if(!change||!['apply','keep'].includes(decision.action))throw new Error('变更选择已失效');
+  keys(decision,['id','action','target','replace','editedValue','retireEnglish'],['id','action']);const original=preview.changes.find(c=>c.id===decision.id);if(!original||!['apply','keep'].includes(decision.action)||own(decision,'retireEnglish')&&typeof decision.retireEnglish!=='boolean')throw new Error('变更选择已失效');
+  const change=clone(original);
+  if(own(decision,'editedValue')){const edited=text(decision.editedValue);if(sensitive(change.field||change.target_hint,edited))throw new Error('不能保存凭据或敏感信息');change.value.zh=edited;}
   if(decision.action==='keep'){pendingChanges.push({...clone(change),pendingReason:'本人保留或稍后处理'});continue;}
+  if(change.requiresUserValue&&!own(decision,'editedValue')){pendingChanges.push({...clone(change),pendingReason:'本人角色尚未填写'});continue;}
   let target=decision.target||null;
   if(change.recordKey){const record=preview.records.find(r=>r.key===change.recordKey),mapped=mappingFor(record,profile,recordMappings);if(!mapped){pendingChanges.push({...clone(change),pendingReason:'记录尚未明确匹配或创建'});continue;}target=record.kind+'.'+mapped.id+'.'+pathInfo(change.field).field;if(decision.target&&decision.target!==target)throw new Error('同一旧记录的字段必须通过记录匹配一起归属');if(mapped.choice==='new')creation.set(record.kind+'.'+mapped.id,{kind:record.kind,id:mapped.id});savedMappings[record.key]=mapped.id;
   }else target ||= change.target||(!change.targetMappingKey?change.field:null);
@@ -165,6 +211,11 @@ export function applyProfileImport(profile,preview,decisions,{recordMappings={},
   if(row.blocked){pendingChanges.push({...row,pendingReason:row.reasons.join('；')});continue;}
   if(row.conflict&&decision.replace!==true)throw new Error('基准、旧值或已确认内容有冲突，请明确选择替换；整批未保存');
   const old=profileValue(next,target),value={zh:change.value.zh??old?.zh??null,en:change.value.en??old?.en??null};
+  if(old?.en&&old.zh!==value.zh&&change.value.en===null){
+   if(decision.retireEnglish!==true)throw new Error('此字段仍有旧英文内容，请明确选择停用旧英文并保留备份');
+   pendingChanges.push({id:change.id+'-old-en',field:target,target,target_hint:'停用的旧英文备份',value:{zh:null,en:old.en},source_text:'本人确认停用的旧英文',qualifier:null,pendingReason:'旧英文已停用，保留备份供本人核对'});
+   value.en=null;
+  }
   const assigned=written.get(target)||{};for(const lang of ['zh','en'])if(change.value[lang]!==null){if(assigned[lang]!==undefined&&assigned[lang]!==change.value[lang])throw new Error('同一字段出现不同变更值，请保留其中一项后重试');assigned[lang]=change.value[lang];}written.set(target,assigned);
   if(change.targetMappingKey)savedMappings[change.targetMappingKey]=target;
   if(old?.confirmed===true&&old.zh===value.zh&&old.en===value.en)continue;

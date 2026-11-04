@@ -56,3 +56,34 @@ test('saved own/memory answers with a different current page value remain in the
  const store=demoStore(t),env=taskEnvironment(store),task=env.add('701'),original=env.q(task,'motivation','Why this fictional role?','company-motivation');begin(env,task,[original]);store.action(batchBody(store,task,['Saved answer']));
  const conflict={...original,alreadyPopulated:true,currentValue:'Manually changed answer'};env.prepare(task,[conflict]);assert.equal(task.status,'waiting_answer');assert.equal(store.answerBatch(task).questions.length,1);assert.equal(store.applicableAnswer(task,conflict),null);
 });
+test('optional blank is an explicit task-only decision retained across restart; required blanks fail',t=>{
+ const store=demoStore(t),env=taskEnvironment(store),task=env.add('801');
+ const required=env.q(task,'required_1','Required fictional answer'),optional=env.q(task,'optional_1','Optional fictional answer','site-specific-question',{required:false});
+ begin(env,task,[required,optional]);const body=batchBody(store,task,['Answer','']);
+ body.answers[1]={...body.answers[1],save:'task',leaveBlank:true};
+ const invalid=structuredClone(body);invalid.answers[0]={...invalid.answers[0],leaveBlank:true,save:'task'};
+ assert.throws(()=>store.action(invalid),/选填/);assert.equal(task.status,'waiting_answer');
+ store.action(body);const restored=new Store(store.paths),saved=restored.task(task.id);
+ assert.equal(saved.answers[optional.scope].leaveBlank,true);assert.equal(restored.applicableAnswer(saved,optional),'');
+ assert.equal(restored.applicableAnswer(saved,{...optional,required:true}),null);
+ assert.equal(restored.applicableAnswer(saved,{...optional,alreadyPopulated:true,currentValue:'Human value'}),null);
+ assert.equal(saved.id,task.id);assert.equal(saved.answers[required.scope].value,'Answer');
+});
+test('failed answer persistence restores in-memory pending state',t=>{
+ const store=demoStore(t),env=taskEnvironment(store),task=env.add('802'),q=env.q(task,'required_2','Required fictional answer');begin(env,task,[q]);
+ const body=batchBody(store,task,['Fictional answer']),before=structuredClone(store.state),save=store.save;
+ store.save=()=>{throw new Error('simulated disk failure');};
+ assert.throws(()=>store.action(body),/disk failure/);store.save=save;
+ assert.deepEqual(store.state,before);assert.equal(store.task(task.id).status,'waiting_answer');
+});
+test('new conditional question before submission reinspects the same task and preserves prior answers',t=>{
+ const store=demoStore(t),env=taskEnvironment(store),task=env.add('803'),firstQuestion=env.q(task,'question_first','First fictional question');
+ begin(env,task,[firstQuestion]);store.action(batchBody(store,task,['First answer']));
+ env.prepare(task,[firstQuestion]);const answer=env.take();assert.equal(answer.op,'answer');env.send(answer,{ok:true,layout:'fictional-profile-layout'});
+ const preflight=env.take();assert.equal(preflight.op,'preflight');assert.equal(preflight.task.confirmedAnswers[0].value,'First answer');
+ env.send(preflight,{ok:false,kind:'questions_changed',message:'Conditional question appeared'});
+ assert.equal(task.phase,'inspect');assert.equal(task.status,'queued');assert.equal(store.hasSubmissionBoundary(task),false);
+ const second=env.q(task,'question_conditional','Conditional fictional question');env.prepare(task,[second]);
+ assert.equal(task.status,'waiting_answer');assert.equal(task.answers[firstQuestion.scope].value,'First answer');
+ assert.equal(store.answerBatch(task).questions[0].scope,second.scope);
+});

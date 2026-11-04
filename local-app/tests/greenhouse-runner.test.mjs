@@ -18,7 +18,7 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
   const h={allowed:true,clicks:0,writes:0,authorizations:0,created:[],updated:[],removed:[],prepared:[],storage:{localTaskTabs:{task:7},localSubmissionAttempts:{}}};
   const tabs=new Map([[7,{id:7,status:'complete',url:origin+prefix+'/jobs/1234567'}]]);
   const page={JobGreenhouse:{
-    async read(op){return {ok:true,layout,receipt:op==='verify'&&receipt?{id:'fictional-receipt'}:null};},
+    async read(op,expected){h.observedExpected=expected;return {ok:true,layout,questions:h.questions||[],receipt:op==='verify'&&receipt?{id:'fictional-receipt'}:null};},
     async prepare(method,expected,args){h.prepared.push({method,expected,args});if(prepareGate){prepareGate.enter();await prepareGate.ready;}return {ok:true,token:method};},
     commit(expected,token){if(token==='submit')h.clicks++;else h.writes++;return {ok:token!=='submit',attempted:token==='submit',filled:1};}
   }};
@@ -104,4 +104,10 @@ test('missing or stale exact upload proof pauses before preflight and before the
   for(const op of ['preflight','submit']){const result=await h.run(op);assert.equal(result.ok,false);assert.equal(result.kind,'manual');}
   assert.equal(h.clicks,0);assert.equal(h.writes,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
  }
+});
+test('preflight forwards confirmed blank and routes newly observed questions back for inspection',async()=>{
+ const h=harness(),command=h.command('preflight');command.task.confirmedAnswers=[{key:'optional',confirmed:true,leaveBlank:true,value:''}];
+ h.questions=[{key:'conditional'}];const result=await h.runCommand(command);
+ assert.equal(result.kind,'questions_changed');assert.equal(h.observedExpected.confirmedAnswers[0].leaveBlank,true);
+ assert.equal(h.prepared.length,0);assert.equal(h.clicks,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
 });

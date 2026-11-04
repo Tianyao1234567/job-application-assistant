@@ -25,6 +25,7 @@ let composing = false;
 let fetching = false;
 let profileDraft = null;
 let profileDirty = false;
+const profileTranslationConflicts=new Set();
 let settingsDraft = null;
 let settingsDirty = false;
 let selectedResumeFile = null;
@@ -269,7 +270,7 @@ function checkLine(label, input) {return el('label', {class:'checkbox-line'}, in
 const profileFileImport=createProfileFileImport({el,button,p,banner,field,checkLine,definitions,api,
   getState:()=>state,isDirty:()=>profileDirty,render,refresh,toast,
   openEditor(){drafts.set('profile-editor-open',true);render(true);},
-  discardDirty(){profileDirty=false;profileDraft=null;drafts.delete('profile-json');drafts.delete('profile-confirmed');},
+  discardDirty(){profileDirty=false;profileDraft=null;profileTranslationConflicts.clear();drafts.delete('profile-json');drafts.delete('profile-confirmed');},
   onSaved(){if(!profileDirty)profileDraft=null;}
 });
 function modeStrip() {
@@ -479,7 +480,7 @@ function legacyAnswerForm(issue,task) {
 function answerForm(issue,task) {
   if(!task.answerBatch)return legacyAnswerForm(issue,task);
   const batch=task.answerBatch,form=el('form',{'aria-label':`集中补充答案：${task.title}`}),rows=[];
-  form.append(p(`当前已收集 ${batch.questions.length} 项必要缺项。已有适用资料不再提问；一次核对后保存。`,'details-note'));
+  form.append(p(`当前已收集 ${batch.questions.length} 项待处理问题。已有适用资料不再提问；一次核对后保存。`,'details-note'));
   for(const q of batch.questions){
     const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.importedDraft?.value??q.currentValue??'');
     input.node.setAttribute('aria-label',q.text+'：答案');
@@ -490,14 +491,16 @@ function answerForm(issue,task) {
     const purpose=el('select',{'aria-label':q.text+'：保存用途'},stable?el('option',{value:'profile',text:'保存到个人资料，后续适用岗位复用'}):null,el('option',{value:'scope',text:'保存到本站当前岗位原题的答案库'}),el('option',{value:'task',text:'仅用于这次任务'}));
     purpose.value=drafts.get(id+'-save')||(stable&&!existing?'profile':'task');purpose.addEventListener('change',()=>drafts.set(id+'-save',purpose.value));
     const replace=draftInput(id+'-replace',{type:'checkbox','aria-label':q.text+'：明确替换原资料'},false);
-    group.append(field('你的答案',input.node),existing?p('当前资料：'+existing,'subtle'):null,field('回答后如何保存',purpose),stable&&existing?checkLine('若答案与原资料不同，我明确选择替换这一项个人资料。',replace):null,stable?p('个人资料可在“资料与简历”修改或移除；仅相同含义的字段适用。','subtle'):p('限定当前网站、岗位和原问题，不会跨岗位套用。','subtle'));
-    rows.push({q,input,purpose,replace});form.append(group);
+    const leaveBlank=!q.required&&!q.alreadyPopulated?draftInput(id+'-blank',{type:'checkbox','aria-label':q.text+'：本次留空'},false):null;
+    if(leaveBlank){const sync=()=>{input.node.required=!leaveBlank.checked;};leaveBlank.addEventListener('change',sync);sync();}
+    group.append(field('你的答案',input.node),leaveBlank?checkLine('选填，本次留空',leaveBlank):null,existing?p('当前资料：'+existing,'subtle'):null,field('回答后如何保存',purpose),stable&&existing?checkLine('若答案与原资料不同，我明确选择替换这一项个人资料。',replace):null,stable?p('个人资料可在“资料与简历”修改或移除；仅相同含义的字段适用。','subtle'):p('限定当前网站、岗位和原问题，不会跨岗位套用。','subtle'));
+    rows.push({q,input,purpose,replace,leaveBlank});form.append(group);
   }
   form.append(el('div',{class:'form-actions'},submitButton('一次保存以上答案并继续原任务',`answers-${task.id}`)),p('保存个人事实会维护资料。若资料版本因此变化，仍须核对该岗位的新资料确认；本批答案会保留，不需要重填。','details-note'));
   form.addEventListener('submit',async event=>{event.preventDefault();try{
     const current=state.tasks.find(t=>t.id===task.id);if(current?.answerBatch?.version!==batch.version)throw new Error('当前缺项或原题已变化，请核对最新清单；已输入草稿仍保留。');
-    if(rows.length!==batch.questions.length||rows.some(row=>!row.input.valid()))throw new Error('请先在实际页面核对未知控件，并为所有当前缺项提供有效答案。');
-    await submitOnce(form,`answers-${task.id}`,()=>perform('answers',{taskId:task.id,batchVersion:batch.version,answers:rows.map(({q,input,purpose,replace})=>({scope:q.scope,version:q.version,answer:input.node.value,save:purpose.value,replace:replace.checked}))}));
+    if(rows.length!==batch.questions.length||rows.some(row=>!row.leaveBlank?.checked&&!row.input.valid()))throw new Error('请先在实际页面核对未知控件，并为所有当前缺项提供有效答案或选择本次留空。');
+    await submitOnce(form,`answers-${task.id}`,()=>perform('answers',{taskId:task.id,batchVersion:batch.version,answers:rows.map(({q,input,purpose,replace,leaveBlank})=>({scope:q.scope,version:q.version,answer:input.node.value,save:leaveBlank?.checked?'task':purpose.value,replace:replace.checked,leaveBlank:leaveBlank?.checked===true}))}));
     for(const id of [...drafts.keys()])if(id.startsWith(`batch-${task.id}-`))drafts.delete(id);
   }catch(error){errorBox(form,error);}});return form;
 }
@@ -550,22 +553,17 @@ function renderSites() {
 
 function profileField(kind,entry,keyName) {
   const data=entry[keyName]||{zh:null,en:null,source:'用户填写',confirmed:false};
-  const row=el('div',{class:'field'});
-  const label=definitions[kind]?.[keyName]||keyName;
+  const label=(definitions[kind]?.[keyName]||keyName).split(' / ')[0];
   const prefix=`profile-${kind}-${entry.id||'base'}-${keyName}`;
-  const update=(property,value)=>{
+  const multiline=/description|responsibilit/i.test(keyName);
+  const input=el(multiline?'textarea':'input',{'data-focus':`${prefix}-zh`,value:data.zh||'', 'aria-label':label,maxlength:10000,onInput:event=>{
     if(!entry[keyName])entry[keyName]={zh:null,en:null,source:'用户填写',confirmed:false};
-    entry[keyName][property]=property==='confirmed'?value:value.trim()?value:null;
-    if(property!=='confirmed'){entry[keyName].confirmed=false;entry[keyName].source='用户填写';const confirmation=row.querySelector('input[type=checkbox]');if(confirmation)confirmation.checked=false;}
-    profileDirty=true;
-  };
-  const multiline=['description'].includes(keyName);const tag=multiline?'textarea':'input';
-  const zh=el(tag,{'data-focus':`${prefix}-zh`,value:data.zh||'',placeholder:'中文值','aria-label':`${label} 中文`,maxlength:10000,onInput:event=>update('zh',event.target.value)});
-  const en=el(tag,{'data-focus':`${prefix}-en`,value:data.en||'',placeholder:'英文值（可选）','aria-label':`${label} 英文`,maxlength:10000,onInput:event=>update('en',event.target.value)});
-  const confirmed=el('input',{type:'checkbox','data-focus':`${prefix}-confirmed`,checked:data.confirmed,'aria-label':`已确认 ${label}`,onChange:event=>update('confirmed',event.target.checked)});
-  row.append(el('div',{class:'profile-field-label'},el('span',{text:label}),el('span',{class:'subtle',text:'中文 / 英文 / 确认'})),el('div',{class:'profile-value-row'},zh,en,confirmed));
-  if(/Date$/.test(keyName))row.append(el('small',{text:'日期格式：YYYY-MM 或 YYYY-MM-DD；未知可留空。'}));
-  return row;
+    const original=(Array.isArray(state.profile.data?.[kind])?state.profile.data[kind].find(item=>item.id===entry.id):state.profile.data?.[kind])?.[keyName];
+    if(original?.en && (event.target.value.trim()||null)!==(original.zh||null))profileTranslationConflicts.add(prefix);else profileTranslationConflicts.delete(prefix);
+    entry[keyName].zh=event.target.value.trim()?event.target.value:null;
+    entry[keyName].source='用户填写';entry[keyName].confirmed=false;profileDirty=true;
+  }});
+  return el('div',{class:'field'},el('label',{},el('span',{text:label}),input),/Date$/.test(keyName)?el('small',{text:'日期格式：YYYY-MM 或 YYYY-MM-DD；未知可留空。'}):null);
 }
 function profileSection(kind,title,multiple=false) {
   const section=el('section',{class:'profile-section'},el('div',{class:'section-heading'},el('h3',{text:title}),multiple?button('添加一段',()=>{
@@ -621,24 +619,32 @@ function renderProfile() {
   const mode=draftInput('profile-mode',{class:'form-input','aria-label':'资料用途'},state.profile.mode);
   const modeSelect=el('select',{'data-focus':'profile-mode-select','aria-label':'资料用途'},el('option',{value:'demo',text:'本地演示 · 仅虚构资料'}),el('option',{value:'real',text:'真实模式 · 需本人确认资料'}));
   modeSelect.value=mode.value;modeSelect.addEventListener('change',()=>{drafts.set('profile-mode',modeSelect.value);profileDirty=true;});
-  form.append(field('资料用途',modeSelect),p('按项核对右侧确认框；修改内容会取消该项确认。只填写已确认字段，未确认内容不会发送到申请页。','details-note'),profileSection('personal','个人信息'),profileSection('education','教育经历',true),profileSection('experience','工作与实习经历',true),profileSection('projects','项目经历',true),profileSection('skills','技能'),profileSection('links','链接'));
-  const allConfirmed=draftInput('profile-confirmed',{type:'checkbox',required:true},false);
-  form.append(checkLine('我已核对本次资料及用途；内容由我提供，未知内容未编造。',allConfirmed),el('div',{class:'form-actions'},submitButton('保存确认资料','profile'),el('span',{class:'form-caption',text:`当前版本 v${state.profile.version} · ${profileDirty?'有尚未保存的修改':'本地保存'}`})));
+  form.append(field('资料用途',modeSelect),p('请核对下方资料，修改后一次确认保存。未保存的修改不会用于申请。','details-note'),profileSection('personal','个人信息'),profileSection('education','教育经历',true),profileSection('experience','工作与实习经历',true),profileSection('projects','项目经历',true),profileSection('skills','技能'),profileSection('links','链接'));
+  form.append(el('div',{class:'form-actions'},submitButton('确认并保存资料','profile'),el('span',{class:'form-caption',text:`当前版本 v${state.profile.version} · ${profileDirty?'有尚未保存的修改':'本地保存'}`})));
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     try {
       await submitOnce(form,'profile',async()=>{
+        if(profileTranslationConflicts.size)throw new Error('修改的字段含有旧英文内容，需要先解决旧内容的确认状态；当前编辑已保留，尚未保存。');
         const data=cleanProfile(profileDraft);
-        await api('/api/profile',{data,mode:modeSelect.value,confirmed:allConfirmed.checked});
-        profileDirty=false;profileDraft=null;drafts.delete('profile-confirmed');toast('确认资料已保存为新版本。');await refresh(true);
+        for(const kind of ['personal','skills','links','education','experience','projects']){
+          const entries=Array.isArray(data[kind])?data[kind]:[data[kind]];
+          for(const entry of entries){const old=Array.isArray(state.profile.data?.[kind])?state.profile.data[kind].find(item=>item.id===entry.id):state.profile.data?.[kind];
+            for(const [name,value] of Object.entries(entry)){const previous=old?.[name];if(name!=='id'&&previous?.en&&(value.zh!==previous.zh||value.en!==previous.en))throw new Error('修改的字段含有旧英文内容，需要先解决旧内容的确认状态；当前编辑已保留，尚未保存。');}
+          }
+        }
+        for(const kind of ['personal','skills','links','education','experience','projects']) for(const entry of (Array.isArray(data[kind])?data[kind]:[data[kind]])) for(const [name,value] of Object.entries(entry)) if(name!=='id' && value.zh) value.confirmed=true;
+        if(profileDraft._version!==state.profile.version)throw new Error('资料版本已变化，未保存的编辑仍保留；请先核对最新资料。');
+        await api('/api/profile',{data,mode:modeSelect.value,confirmed:true,baseVersion:profileDraft._version});
+        profileDirty=false;profileDraft=null;profileTranslationConflicts.clear();drafts.delete('profile-confirmed');toast('确认资料已保存为新版本。');await refresh(true);
       });
     }catch(error){errorBox(form,error);}
   });
-  const advanced=el('details',{open:drafts.get('profile-json-open')===true},el('summary',{text:'高级：查看与导入资料 JSON（可选）'}),p('常用资料请使用上方表单。导入只改变编辑草稿，仍需逐项确认并保存；不在此填写凭据。','details-note'));
+  const advanced=el('details',{open:drafts.get('profile-json-open')===true},el('summary',{text:'高级：查看与导入资料 JSON（可选）'}),p('常用资料请使用上方表单。导入只改变编辑草稿，仍需核对并保存；不在此填写凭据。','details-note'));
   advanced.addEventListener('toggle',()=>drafts.set('profile-json-open',advanced.open));
   const json=draftInput('profile-json',{'aria-label':'资料 JSON',spellcheck:'false'},JSON.stringify(profileDraft,null,2),null,'textarea');
   advanced.append(json,button('将 JSON 导入表单草稿',()=>{
-    try {const parsed=validateProfile(JSON.parse(json.value));profileDraft=parsed;profileDirty=true;render(true);toast('已导入编辑草稿，请核对资料后保存。');}catch(error){toast(`未导入：${error.message}`,true);}
+    try {const parsed=validateProfile(JSON.parse(json.value));Object.defineProperty(parsed,'_version',{value:profileDraft._version,writable:true,enumerable:false});profileDraft=parsed;profileDirty=true;render(true);toast('已导入编辑草稿，请核对资料后保存。');}catch(error){toast(`未导入：${error.message}`,true);}
   },'small'));
   const uploadForm=el('form',{'aria-label':'上传简历文件'});
   const fileInput=el('input',{disabled:pendingForms.has('resume')||pendingForms.has('pdf-import'),type:'file',accept:'.pdf,.doc,.docx,.txt','aria-label':'选择本机简历文件','data-focus':'resume-file'});
@@ -658,7 +664,7 @@ function renderProfile() {
     }catch(error){errorBox(uploadForm,error);}
   });
   const resume=state.resume;
-  return el('div',{},modeStrip(),card('资料文件导入与更新',profileFileImport.render()),el('div',{class:'two-column'},card('申请资料',el('div',{},importPreview(),Object.values(state.profileArchives||{}).map(archive=>button('载入保留的'+modeLabel(archive.mode)+'资料到编辑草稿',()=>{profileDraft=clone(archive.data);profileDirty=true;drafts.set('profile-mode',archive.mode);drafts.set('profile-editor-open',true);render(true);},'text')),el('details',{open:drafts.get('profile-editor-open')===true},el('summary',{text:'查看或修改完整资料（可选）'}),profileDirty?button('放弃未保存编辑，保留已保存资料',()=>{profileDirty=false;profileDraft=null;render(true);},'text'):null,form,advanced)),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
+  return el('div',{},modeStrip(),card('资料文件导入与更新',profileFileImport.render()),el('div',{class:'two-column'},card('申请资料',el('div',{},importPreview(),Object.values(state.profileArchives||{}).map(archive=>button('载入保留的'+modeLabel(archive.mode)+'资料到编辑草稿',()=>{profileDraft=clone(archive.data);Object.defineProperty(profileDraft,'_version',{value:state.profile.version,writable:true,enumerable:false});profileDirty=true;drafts.set('profile-mode',archive.mode);drafts.set('profile-editor-open',true);render(true);},'text')),el('details',{open:drafts.get('profile-editor-open')===true},el('summary',{text:'查看或修改完整资料（可选）'}),profileDirty?button('放弃未保存编辑，保留已保存资料',()=>{profileDirty=false;profileDraft=null;profileTranslationConflicts.clear();render(true);},'text'):null,form,advanced)),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
 }
 
 function renderSettingsSite(site,index) {

@@ -276,6 +276,10 @@ async function executeGreenhouse(command,expect,payload) {
   }
   if(command.op==='preflight'){
     const inspected=await read(tab,expect,'inspect');if(!inspected.ok)return inspected;
+    // A conditional field can appear after the previous answer. Reinspect the
+    // same task before crossing the submit boundary, so it is recorded and
+    // answered rather than treated as a completed form.
+    if(inspected.questions?.length)return fail('questions_changed','申请表出现尚未确认的问题，将重新检查当前任务。');
     if((!expect.replay||inspected.uploadedResumeConfirmed)&&!await uploadProofFor(command,tab,payload.file))return fail('manual','缺少绑定本任务、执行资料及源文件的精确上传对象证据，已暂停，未提交申请。');
     await inject(tab,expect);
     const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
