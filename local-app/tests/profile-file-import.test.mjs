@@ -16,7 +16,7 @@ const delta=()=>example('PROFILE_UPDATE_FICTIONAL.json');
 const empty=()=>example('PROFILE_UPDATE_EMPTY.json');
 const field=(zh,en=null)=>({zh,en,confirmed:true,source:'Fictional local import test'});
 function preview(store,document){return store.previewProfileFile({document,mode:'demo',profileVersion:store.state.profile.version});}
-function decisions(draft,select=()=>false){return draft.changes.map(row=>({id:row.id,action:select(row)?'apply':'keep',...(select(row)?{replace:true}:{})}));}
+function decisions(draft,select=()=>false){return draft.changes.map(row=>({id:row.id,action:select(row)?'apply':'keep',...(select(row)?{replace:true,...(row.existing?.en&&row.value.zh!==row.existing.zh&&row.value.en===null?{retireEnglish:true}:{})}:{})}));}
 function confirm(store,draft,body={}){
   return store.confirmProfileFile({id:draft.id,profileVersion:draft.profileVersion,mode:'demo',confirmed:true,decisions:decisions(draft),recordMappings:{},createRecords:[],answerSelections:[],...body});
 }
@@ -103,7 +103,7 @@ test('legacy record can target an explicitly chosen current ID while unrelated r
   const projectDraft=preview(store,document),project=projectDraft.records.find(record=>record.kind==='projects');
   confirm(store,projectDraft,{decisions:decisions(projectDraft,row=>row.recordKey===project.key),recordMappings:{[project.key]:'new'},createRecords:[{kind:project.kind,id:project.proposedId}]});
   const added=store.state.profile.data.projects.find(record=>record.id===project.proposedId),source=document.config.projectList[0];assert.ok(added);
-  for(const key of ['项目描述','职责','项目中职责','描述And职责'])assert.ok(added.description.zh.includes(source[key]),key);
+  for(const [key,name] of [['项目描述','description'],['职责','responsibility'],['项目中职责','projectDuty'],['描述And职责','descriptionAndDuty']])assert.equal(added[name].zh,source[key],key);
   assert.equal(added.role,undefined);assert.equal(added.title.zh,source['项目名称']);
 });
 test('complete legacy fixture maps supported fields once while preserving unsupported content and in-progress education semantics',t=>{
@@ -115,7 +115,7 @@ test('complete legacy fixture maps supported fields once while preserving unsupp
   // The source explicitly says in-progress: an unqualified endDate must not
   // silently turn the estimated date into a completed education fact.
   assert.notEqual(education[0].endDate?.zh,'2028-06-30');
-  assert.equal(profile.skills.description.zh,document.config.selfDescription['专业技能']);assert.equal(profile.customAnswers['证件号码'],undefined);
+  const skills=Object.values(profile.skills).map(row=>row.zh).join('');for(const item of document.config.selfDescription['专业技能'].split('；'))assert.ok(skills.includes(item),item);assert.equal(profile.customAnswers['证件号码'],undefined);
   const history=JSON.stringify(store.snapshot().profileImportHistory);for(const text of ['示例工程学院','虚构课程项目奖','语言能力待本人核对','具有示例工程课程和项目经验','在读'])assert.ok(history.includes(text),text);
 });
 test('confirmed profile change invalidates a waiting task confirmation while unknown history and extension identity remain untouched',t=>{
@@ -178,8 +178,11 @@ test('file preview/confirm HTTP flow saves selected fields once, survives reload
   const post=(route,body)=>fetch(app.url+route,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Key':key,Origin:app.url},body:JSON.stringify(body)});
   const response=await post('/api/profile/import/preview',{document:delta(),mode:'demo',profileVersion});assert.equal(response.status,200);const {draft}=await response.json();
   assert.equal(app.store.state.profile.version,profileVersion);assert.equal(draft.status,'ready');
-  const confirmed=await post('/api/profile/import/confirm',{id:draft.id,profileVersion,mode:'demo',confirmed:true,decisions:decisions(draft,row=>row.target==='personal.desiredCity'),recordMappings:{},createRecords:[],answerSelections:answerSelections(draft)});assert.equal(confirmed.status,200);assert.equal((await confirmed.json()).count,1);
-  const state=await(await fetch(app.url+'/api/state',{headers:{'X-Local-Key':key}})).json();assert.equal(state.profile.version,profileVersion+1);assert.equal(state.profile.data.personal.desiredCity.zh,'示例城市丙');assert.equal(state.profileImport.status,'saved');assert.equal(state.profileImportHistory.length,1);assert.equal(state.resume.file,undefined);assert.equal(JSON.stringify(state).includes(pdf.resume.file),false);assertPDF(app.store,pdf);
+  const body={id:draft.id,profileVersion,mode:'demo',confirmed:true,decisions:decisions(draft,row=>row.target==='personal.desiredCity'),recordMappings:{},createRecords:[],answerSelections:answerSelections(draft)};
+  const before=structuredClone(app.store.state);const unapproved=structuredClone(body);delete unapproved.decisions.find(row=>row.action==='apply').retireEnglish;
+  const rejected=await post('/api/profile/import/confirm',unapproved);assert.equal(rejected.status,400);assert.match((await rejected.json()).error,/旧英文/);assert.deepEqual(app.store.state,before);assertPDF(app.store,pdf);
+  const confirmed=await post('/api/profile/import/confirm',body);assert.equal(confirmed.status,200);assert.equal((await confirmed.json()).count,1);
+  const state=await(await fetch(app.url+'/api/state',{headers:{'X-Local-Key':key}})).json();assert.equal(state.profile.version,profileVersion+1);assert.equal(state.profile.data.personal.desiredCity.zh,'示例城市丙');assert.equal(state.profile.data.personal.desiredCity.en,null);assert.equal(state.profileImport.status,'saved');assert.equal(state.profileImportHistory.length,1);assert.equal(state.profileImportHistory[0].pendingChanges.find(c=>c.id.endsWith('-old-en')).value.en,'Hangzhou');assert.equal(state.resume.file,undefined);assert.equal(JSON.stringify(state).includes(pdf.resume.file),false);assertPDF(app.store,pdf);
   const repeated=await post('/api/profile/import/confirm',{id:draft.id,profileVersion,mode:'demo',confirmed:true,decisions:decisions(draft,()=>true),recordMappings:{},createRecords:[],answerSelections:[]});assert.equal(repeated.status,400);
   const restored=new Store({data:dataDir});assert.deepEqual(restored.state.profile,app.store.state.profile);assert.equal(restored.snapshot().profileImportHistory.length,1);assertPDF(restored,pdf);
 });

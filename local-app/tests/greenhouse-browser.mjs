@@ -110,7 +110,8 @@ async function startPageDriver(){
     const site=command.site,task=command.task,payload=command.payload||{};
     assert.equal(site.adapter,'greenhouse-replay-v1');assert.equal(site.origin,FIXTURE);assert.equal(site.mode,'demo');
     const mapping={'personal.email':'email','personal.phone':'phone','personal.location':'candidate-location'};
-    const expected={origin:FIXTURE,replay:true,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed:task?.applicantConfirmed===true&&task.executionProfileId===client.profileId,profileFields:(task?.confirmedProfileKeys||[]).map(key=>mapping[key]).filter(Boolean),confirmedAnswers:task?.confirmedAnswers||[]};
+    const entries=(task?.confirmedProfileEntries||[]).filter(entry=>mapping[entry.key]);
+    const expected={origin:FIXTURE,replay:true,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed:task?.applicantConfirmed===true&&task.executionProfileId===client.profileId,profileFields:entries.map(entry=>mapping[entry.key]),profileValues:Object.fromEntries(entries.map(entry=>[mapping[entry.key],entry.value])),confirmedAnswers:task?.confirmedAnswers||[]};
     if(['discover','check','open'].includes(command.op)){
       if(!await authorize(command))return {ok:false,kind:'paused'};
       const tab=await pageFor(command,command.op==='discover'?site.listUrl:site.loginUrl);

@@ -184,11 +184,18 @@
     }
     return expected.confirmedAnswers.some(answer=>answer?.confirmed===true&&['key','scope','version','text','source','purpose'].every(key=>answer[key]===q[key])&&(answer.value??answer.answer)===value);
   }
+  function profileFact(expected,q,record,allowEmpty=false) {
+    if(q.customControl||!Array.isArray(expected.profileFields)||!expected.profileFields.includes(q.key)||!profileIds.has(q.key))return false;
+    const value=expected.profileValues?.[q.key];
+    if(typeof value!=='string'||!value.trim())return false;
+    if(!q.alreadyPopulated)return allowEmpty;
+    const actual=controlValue(record);
+    return typeof actual==='string'&&(q.key==='email'?actual.trim().toLowerCase()===value.trim().toLowerCase():actual===value);
+  }
   async function confirmedQuestions(expected,current) {
-    const profile=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
     for(const record of current.records){
       const q=await question(expected,record);
-      if(q.type!=='file'&&!(profile.has(q.key)&&!q.customControl)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
+      if(q.type!=='file'&&!profileFact(expected,q,record)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
     }
     return {ok:true};
   }
@@ -238,8 +245,7 @@
       if(!title||title.length>300)return fail('structure','岗位标题尚未可靠识别。');
       const jobMetadata={tenant:expected.tenant,jobId:expected.jobId,url:current.source,title,company:expected.company,location:text(document.querySelector('.job__location,.job-location,[data-job-location]')).slice(0,200)};
       const fields=await Promise.all(result.records.map(record=>question(expected,record)));
-      const fillable=new Set(Array.isArray(expected.profileFields)?expected.profileFields.filter(key=>profileIds.has(key)):[]);
-      const questions=fields.filter((field,index)=>field.type!=='file'&&!(fillable.has(field.key)&&!field.customControl)&&!ownedAnswer(expected,field,result.records[index]));
+      const questions=fields.filter((field,index)=>field.type!=='file'&&!profileFact(expected,field,result.records[index],true)&&!ownedAnswer(expected,field,result.records[index]));
       return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
@@ -279,7 +285,7 @@
     if(records.length!==1||records[0].node.disabled||records[0].node.multiple)return fail('structure','未识别到唯一的简历附件控件。');
     return {ok:true,...records[0]};
   }
-  const sameExpected=(a,b)=>['origin','tenant','jobId','company','expectedAccount','replay','applicantConfirmed'].every(key=>a[key]===b[key])&&JSON.stringify(a.confirmedAnswers||[])===JSON.stringify(b.confirmedAnswers||[]);
+  const sameExpected=(a,b)=>['origin','tenant','jobId','company','expectedAccount','replay','applicantConfirmed'].every(key=>a[key]===b[key])&&JSON.stringify(a.confirmedAnswers||[])===JSON.stringify(b.confirmedAnswers||[])&&JSON.stringify(a.profileValues||{})===JSON.stringify(b.profileValues||{});
   // Values stay in this isolated world only. They must not be serialized into
   // layout, task reports, or logs; submission binds the form state seen before
   // asynchronous hashing and authorization to the final synchronous click.
@@ -330,6 +336,17 @@
     if(target.node.files.length!==1||target.node.files[0]!==file)return fail('manual','附件在摘要核对期间已被替换。');
     return {ok:true,node:target.node,file};
   }
+  // Read-only revalidation for a retained upload. No DOM write or upload is
+  // triggered; the runner separately binds the network proof to this document.
+  api.verifyUpload=async(expected,layout,locked)=>{
+    try{const current=checked(expected,layout);if(!current.ok)return current;
+      const file=await lockedFile(current,locked);if(!file.ok)return file;
+      const fresh=checked(expected,layout);if(!fresh.ok||fresh.form!==current.form)return fail('structure','附件所在申请表已变化。');
+      const target=uploadTarget(fresh);
+      if(!target.ok||target.node!==file.node||target.node.files.length!==1||target.node.files[0]!==file.file)return fail('manual','原附件已变化，请本人核对。');
+      return {ok:true,fileName:file.file.name,fileSize:file.file.size,sha256:locked.sha256,layout};
+    }catch{return fail('manual','原附件无法核实，请本人检查。');}
+  };
   api.validateSubmit=async(expected,layout,locked)=>{
     try{
       const current=checked(expected,layout);if(!current.ok)return current;

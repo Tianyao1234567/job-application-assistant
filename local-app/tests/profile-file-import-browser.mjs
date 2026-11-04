@@ -156,12 +156,12 @@ try{
     // editor saves. Only its state reads are frozen; actual confirm reaches HTTP.
     const freeze=route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(oldState)});
     await page.route(app.url+'/api/state',freeze);
-    const latest=structuredClone(app.store.state.profile.data);latest.skills.description={zh:'本人稍后保存的虚构技能事实',en:null,source:'Fictional concurrent local edit',confirmed:true};
-    const edited=await page.request.post(app.url+'/api/profile',{headers:{'X-Local-Key':key,Origin:app.url},data:{data:latest,mode:'demo',confirmed:true}});assert.equal(edited.status(),200);
+    const latest=structuredClone(app.store.state.profile.data),retireEnglish=latest.skills.description?.en?['skills.description']:[];latest.skills.description={zh:'本人稍后保存的虚构技能事实',en:null,source:'Fictional concurrent local edit',confirmed:true};
+    const edited=await page.request.post(app.url+'/api/profile',{headers:{'X-Local-Key':key,Origin:app.url},data:{data:latest,mode:'demo',confirmed:true,baseVersion:beforeVersion,retireEnglish}});assert.equal(edited.status(),200);
     const response=page.waitForResponse(reply=>new URL(reply.url()).pathname==='/api/profile/import/confirm'&&reply.request().method()==='POST');
     await importForm().getByRole('button',{name:'确认保存所选资料变更',exact:true}).click();
     const rejected=await response;assert.equal(rejected.status(),400);assert.match((await rejected.json()).error,/变化|版本|过期/);
-    assert.equal(app.store.state.profile.version,beforeVersion+1);assert.equal(app.store.state.profile.data.skills.description.zh,latest.skills.description.zh);assert.equal(app.store.state.profileImportHistory.length,historyCount);assert.deepEqual(rows(),importedIds);
+    assert.equal(app.store.state.profile.version,beforeVersion+1);assert.equal(app.store.state.profile.data.skills.description.zh,latest.skills.description.zh);assert.equal(app.store.state.profileImportHistory.length,historyCount+(retireEnglish.length?1:0));assert.deepEqual(rows(),importedIds);
     await page.unroute(app.url+'/api/state',freeze);
     await page.getByText('资料版本已经变化',{exact:true}).waitFor();
     assert.equal(await importForm().getByRole('button',{name:'确认保存所选资料变更',exact:true}).isDisabled(),true);

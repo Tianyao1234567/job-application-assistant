@@ -25,7 +25,7 @@ let composing = false;
 let fetching = false;
 let profileDraft = null;
 let profileDirty = false;
-const profileTranslationConflicts=new Set();
+const profileRetireEnglish=new Set();
 let settingsDraft = null;
 let settingsDirty = false;
 let selectedResumeFile = null;
@@ -270,7 +270,7 @@ function checkLine(label, input) {return el('label', {class:'checkbox-line'}, in
 const profileFileImport=createProfileFileImport({el,button,p,banner,field,checkLine,definitions,api,
   getState:()=>state,isDirty:()=>profileDirty,render,refresh,toast,
   openEditor(){drafts.set('profile-editor-open',true);render(true);},
-  discardDirty(){profileDirty=false;profileDraft=null;profileTranslationConflicts.clear();drafts.delete('profile-json');drafts.delete('profile-confirmed');},
+  discardDirty(){profileDirty=false;profileDraft=null;profileRetireEnglish.clear();drafts.delete('profile-json');drafts.delete('profile-confirmed');},
   onSaved(){if(!profileDirty)profileDraft=null;}
 });
 function modeStrip() {
@@ -555,15 +555,21 @@ function profileField(kind,entry,keyName) {
   const data=entry[keyName]||{zh:null,en:null,source:'用户填写',confirmed:false};
   const label=(definitions[kind]?.[keyName]||keyName).split(' / ')[0];
   const prefix=`profile-${kind}-${entry.id||'base'}-${keyName}`;
+  const path=entry.id?`${kind}.${entry.id}.${keyName}`:`${kind}.${keyName}`;
+  const original=(Array.isArray(state.profile.data?.[kind])?state.profile.data[kind].find(item=>item.id===entry.id):state.profile.data?.[kind])?.[keyName];
+  const needsRetirement=()=>Boolean(original?.en&&(entry[keyName]?.zh||null)!==(original.zh||null));
+  const retire=el('input',{type:'checkbox',checked:profileRetireEnglish.has(path),'aria-label':`${label}停用旧英文并保留备份`});
+  retire.addEventListener('change',()=>{if(retire.checked)profileRetireEnglish.add(path);else profileRetireEnglish.delete(path);});
+  const retirement=el('div',{},checkLine('停用此字段的旧英文并保留备份',retire));retirement.hidden=!needsRetirement();
   const multiline=/description|responsibilit/i.test(keyName);
   const input=el(multiline?'textarea':'input',{'data-focus':`${prefix}-zh`,value:data.zh||'', 'aria-label':label,maxlength:10000,onInput:event=>{
     if(!entry[keyName])entry[keyName]={zh:null,en:null,source:'用户填写',confirmed:false};
-    const original=(Array.isArray(state.profile.data?.[kind])?state.profile.data[kind].find(item=>item.id===entry.id):state.profile.data?.[kind])?.[keyName];
-    if(original?.en && (event.target.value.trim()||null)!==(original.zh||null))profileTranslationConflicts.add(prefix);else profileTranslationConflicts.delete(prefix);
     entry[keyName].zh=event.target.value.trim()?event.target.value:null;
     entry[keyName].source='用户填写';entry[keyName].confirmed=false;profileDirty=true;
+    retirement.hidden=!needsRetirement();
+    if(retirement.hidden){profileRetireEnglish.delete(path);retire.checked=false;}
   }});
-  return el('div',{class:'field'},el('label',{},el('span',{text:label}),input),/Date$/.test(keyName)?el('small',{text:'日期格式：YYYY-MM 或 YYYY-MM-DD；未知可留空。'}):null);
+  return el('div',{class:'field'},el('label',{},el('span',{text:label}),input),retirement,/Date$/.test(keyName)?el('small',{text:'日期格式：YYYY-MM 或 YYYY-MM-DD；未知可留空。'}):null);
 }
 function profileSection(kind,title,multiple=false) {
   const section=el('section',{class:'profile-section'},el('div',{class:'section-heading'},el('h3',{text:title}),multiple?button('添加一段',()=>{
@@ -572,7 +578,13 @@ function profileSection(kind,title,multiple=false) {
   },'small'):null));
   if(multiple){
     if(!profileDraft[kind].length)section.append(p('尚未填写；没有相关经历可留空。','subtle'));
-    profileDraft[kind].forEach((entry,index)=>section.append(el('div',{class:'profile-group'},el('div',{class:'profile-entry-header'},el('strong',{text:`第 ${index+1} 段${title}`}),button('移除',()=>{profileDraft[kind]=profileDraft[kind].filter(item=>item.id!==entry.id);profileDirty=true;render(true);},'text danger')),Object.keys(definitions[kind]).map(fieldName=>profileField(kind,entry,fieldName)))));
+    profileDraft[kind].forEach((entry,index)=>section.append(el('div',{class:'profile-group'},el('div',{class:'profile-entry-header'},el('strong',{text:`第 ${index+1} 段${title}`}),button('移除',()=>{
+      const original=state.profile.data?.[kind]?.find(item=>item.id===entry.id);
+      const paths=Object.entries(original||{}).filter(([name,value])=>name!=='id'&&value?.en).map(([name])=>`${kind}.${entry.id}.${name}`);
+      if(paths.length&&!window.confirm('这段经历包含旧英文内容。确认移除这段经历，并停用其旧英文、保存备份？取消将保留此经历。'))return;
+      for(const path of paths)profileRetireEnglish.add(path);
+      profileDraft[kind]=profileDraft[kind].filter(item=>item.id!==entry.id);profileDirty=true;render(true);
+    },'text danger')),Object.keys(definitions[kind]).map(fieldName=>profileField(kind,entry,fieldName)))));
   }else section.append(...Object.keys(definitions[kind]).map(fieldName=>profileField(kind,profileDraft[kind],fieldName)));
   return section;
 }
@@ -613,7 +625,7 @@ function importPreview() {
 }
 function renderProfile() {
   if(!profileDraft||(!profileDirty&&profileDraft._version!==state.profile.version)){
-    profileDraft=clone(state.profile.data||emptyProfile());Object.defineProperty(profileDraft,'_version',{value:state.profile.version,writable:true,enumerable:false});
+    profileRetireEnglish.clear();profileDraft=clone(state.profile.data||emptyProfile());Object.defineProperty(profileDraft,'_version',{value:state.profile.version,writable:true,enumerable:false});
   }
   const form=el('form',{'aria-label':'确认申请资料'});
   const mode=draftInput('profile-mode',{class:'form-input','aria-label':'资料用途'},state.profile.mode);
@@ -625,18 +637,17 @@ function renderProfile() {
     event.preventDefault();
     try {
       await submitOnce(form,'profile',async()=>{
-        if(profileTranslationConflicts.size)throw new Error('修改的字段含有旧英文内容，需要先解决旧内容的确认状态；当前编辑已保留，尚未保存。');
         const data=cleanProfile(profileDraft);
         for(const kind of ['personal','skills','links','education','experience','projects']){
           const entries=Array.isArray(data[kind])?data[kind]:[data[kind]];
           for(const entry of entries){const old=Array.isArray(state.profile.data?.[kind])?state.profile.data[kind].find(item=>item.id===entry.id):state.profile.data?.[kind];
-            for(const [name,value] of Object.entries(entry)){const previous=old?.[name];if(name!=='id'&&previous?.en&&(value.zh!==previous.zh||value.en!==previous.en))throw new Error('修改的字段含有旧英文内容，需要先解决旧内容的确认状态；当前编辑已保留，尚未保存。');}
+            for(const [name,value] of Object.entries(entry)){const previous=old?.[name];if(name!=='id'&&previous?.en&&(value.zh!==previous.zh||value.en!==previous.en)){const path=entry.id?`${kind}.${entry.id}.${name}`:`${kind}.${name}`;if(value.en!==previous.en||!profileRetireEnglish.has(path))throw new Error('修改的字段含有旧英文，请在该字段选择停用并保留备份；当前编辑已保留。');}}
           }
         }
         for(const kind of ['personal','skills','links','education','experience','projects']) for(const entry of (Array.isArray(data[kind])?data[kind]:[data[kind]])) for(const [name,value] of Object.entries(entry)) if(name!=='id' && value.zh) value.confirmed=true;
         if(profileDraft._version!==state.profile.version)throw new Error('资料版本已变化，未保存的编辑仍保留；请先核对最新资料。');
-        await api('/api/profile',{data,mode:modeSelect.value,confirmed:true,baseVersion:profileDraft._version});
-        profileDirty=false;profileDraft=null;profileTranslationConflicts.clear();drafts.delete('profile-confirmed');toast('确认资料已保存为新版本。');await refresh(true);
+        await api('/api/profile',{data,mode:modeSelect.value,confirmed:true,baseVersion:profileDraft._version,retireEnglish:[...profileRetireEnglish]});
+        profileDirty=false;profileDraft=null;profileRetireEnglish.clear();drafts.delete('profile-confirmed');toast('确认资料已保存为新版本。');await refresh(true);
       });
     }catch(error){errorBox(form,error);}
   });
@@ -644,7 +655,7 @@ function renderProfile() {
   advanced.addEventListener('toggle',()=>drafts.set('profile-json-open',advanced.open));
   const json=draftInput('profile-json',{'aria-label':'资料 JSON',spellcheck:'false'},JSON.stringify(profileDraft,null,2),null,'textarea');
   advanced.append(json,button('将 JSON 导入表单草稿',()=>{
-    try {const parsed=validateProfile(JSON.parse(json.value));Object.defineProperty(parsed,'_version',{value:profileDraft._version,writable:true,enumerable:false});profileDraft=parsed;profileDirty=true;render(true);toast('已导入编辑草稿，请核对资料后保存。');}catch(error){toast(`未导入：${error.message}`,true);}
+    try {const parsed=validateProfile(JSON.parse(json.value));profileRetireEnglish.clear();Object.defineProperty(parsed,'_version',{value:profileDraft._version,writable:true,enumerable:false});profileDraft=parsed;profileDirty=true;render(true);toast('已导入编辑草稿，请核对资料后保存。');}catch(error){toast(`未导入：${error.message}`,true);}
   },'small'));
   const uploadForm=el('form',{'aria-label':'上传简历文件'});
   const fileInput=el('input',{disabled:pendingForms.has('resume')||pendingForms.has('pdf-import'),type:'file',accept:'.pdf,.doc,.docx,.txt','aria-label':'选择本机简历文件','data-focus':'resume-file'});
@@ -664,7 +675,7 @@ function renderProfile() {
     }catch(error){errorBox(uploadForm,error);}
   });
   const resume=state.resume;
-  return el('div',{},modeStrip(),card('资料文件导入与更新',profileFileImport.render()),el('div',{class:'two-column'},card('申请资料',el('div',{},importPreview(),Object.values(state.profileArchives||{}).map(archive=>button('载入保留的'+modeLabel(archive.mode)+'资料到编辑草稿',()=>{profileDraft=clone(archive.data);Object.defineProperty(profileDraft,'_version',{value:state.profile.version,writable:true,enumerable:false});profileDirty=true;drafts.set('profile-mode',archive.mode);drafts.set('profile-editor-open',true);render(true);},'text')),el('details',{open:drafts.get('profile-editor-open')===true},el('summary',{text:'查看或修改完整资料（可选）'}),profileDirty?button('放弃未保存编辑，保留已保存资料',()=>{profileDirty=false;profileDraft=null;profileTranslationConflicts.clear();render(true);},'text'):null,form,advanced)),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
+  return el('div',{},modeStrip(),card('资料文件导入与更新',profileFileImport.render()),el('div',{class:'two-column'},card('申请资料',el('div',{},importPreview(),Object.values(state.profileArchives||{}).map(archive=>button('载入保留的'+modeLabel(archive.mode)+'资料到编辑草稿',()=>{profileRetireEnglish.clear();profileDraft=clone(archive.data);Object.defineProperty(profileDraft,'_version',{value:state.profile.version,writable:true,enumerable:false});profileDirty=true;drafts.set('profile-mode',archive.mode);drafts.set('profile-editor-open',true);render(true);},'text')),el('details',{open:drafts.get('profile-editor-open')===true},el('summary',{text:'查看或修改完整资料（可选）'}),profileDirty?button('放弃未保存编辑，保留已保存资料',()=>{profileDirty=false;profileDraft=null;profileRetireEnglish.clear();render(true);},'text'):null,form,advanced)),badge(`资料 v${state.profile.version}`)),el('div',{class:'stack'},card('简历文件',el('div',{},resume?el('div',{class:'file-summary'},el('strong',{text:resume.name}),p(`${resume.size} 字节 · 简历 v${resume.version} · ${modeLabel(resume.mode)}`),p(resume.sha256,'hash-text')):p('尚未保存简历文件。','muted'),uploadForm)),card('版本与确认说明',el('div',{},p('每个任务在实际执行前锁定资料与简历版本。Greenhouse 任务在资料、附件版本或执行配置变化时会要求重新确认，不会悄悄改用新内容。','details-note'),p('未确认字段不会自动填写。已有值与页面结构检查仍由通用填写引擎执行；遇到冲突暂停处理。','details-note'),p('云端开发和演示请仅使用虚构资料。本人资料与真实申请仍在本机处理，不在补答或资料库中填写网站凭据。','details-note'))),answerMemoryCard())));
 }
 
 function renderSettingsSite(site,index) {

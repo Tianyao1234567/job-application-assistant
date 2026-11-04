@@ -18,7 +18,8 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
   const h={allowed:true,clicks:0,writes:0,authorizations:0,created:[],updated:[],removed:[],prepared:[],storage:{localTaskTabs:{task:7},localSubmissionAttempts:{}}};
   const tabs=new Map([[7,{id:7,status:'complete',url:origin+prefix+'/jobs/1234567'}]]);
   const page={JobGreenhouse:{
-    async read(op,expected){h.observedExpected=expected;return {ok:true,layout,questions:h.questions||[],receipt:op==='verify'&&receipt?{id:'fictional-receipt'}:null};},
+    async read(op,expected){h.observedExpected=expected;return {ok:true,layout,fields:h.fields||[],questions:h.questions||[],receipt:op==='verify'&&receipt?{id:'fictional-receipt'}:null};},
+    async verifyUpload(expected,actualLayout,actualFile){h.verifiedUpload={expected,actualLayout,actualFile};return h.fileCheck||{ok:true,layout:actualLayout,fileName:actualFile.name,fileSize:actualFile.size,sha256:actualFile.sha256};},
     async prepare(method,expected,args){h.prepared.push({method,expected,args});if(prepareGate){prepareGate.enter();await prepareGate.ready;}return {ok:true,token:method};},
     commit(expected,token){if(token==='submit')h.clicks++;else h.writes++;return {ok:token!=='submit',attempted:token==='submit',filled:1};}
   }};
@@ -110,4 +111,12 @@ test('preflight forwards confirmed blank and routes newly observed questions bac
  h.questions=[{key:'conditional'}];const result=await h.runCommand(command);
  assert.equal(result.kind,'questions_changed');assert.equal(h.observedExpected.confirmedAnswers[0].leaveBlank,true);
  assert.equal(h.prepared.length,0);assert.equal(h.clicks,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
+});
+test('resuming an already uploaded file reuses only bound proof and never starts another upload',async()=>{
+ const h=harness({replay:false});h.fields=[{key:'resume',alreadyPopulated:true}];
+ const proof=structuredClone(h.storage.greenhouseUploadProofs.task),result=await h.run('upload');
+ assert.equal(result.ok,true);assert.equal(h.verifiedUpload.actualFile.sha256,file.sha256);assert.equal(h.writes,0);
+ assert.deepEqual(h.storage.greenhouseUploadProofs.task,proof);
+ h.storage.greenhouseUploadProofs.task.documentId='other-document';delete h.verifiedUpload;
+ assert.equal((await h.run('upload')).ok,false);assert.equal(h.verifiedUpload,undefined);assert.equal(h.writes,0);
 });

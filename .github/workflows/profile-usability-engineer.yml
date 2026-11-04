@@ -57,7 +57,7 @@ jobs:
         run: |
           node scripts/cloud-check.mjs
           node autofill-extension/tests/unit.test.js
-          if node --test --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs > .runtime/focused.log 2>&1; then
+          if node --test --test-reporter=tap --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/greenhouse-runner.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-english-retirement.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs > .runtime/focused.log 2>&1; then
             cat .runtime/focused.log
           else
             cat .runtime/focused.log

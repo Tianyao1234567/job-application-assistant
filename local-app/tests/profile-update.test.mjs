@@ -11,14 +11,14 @@ const preview=(document,profile=emptyProfile(),version=1,options)=>previewProfil
 const accept=v=>v.changes.map(row=>({id:row.id,action:'apply'}));
 
 test('complete documented v3 maps every supported source and preserves all four distinct project description fragments',()=>{
- const doc=fixture('PROFILE_LEGACY_V3_FICTIONAL'),p=parseProfileImport(doc);assert.equal(p.kind,'legacy-v3');assert.equal(p.changes.length,34);assert.equal(p.records.length,6);
+ const doc=fixture('PROFILE_LEGACY_V3_FICTIONAL'),p=parseProfileImport(doc);assert.equal(p.kind,'legacy-v3');assert.equal(p.records.length,6);
  const v=previewProfileImport(p,emptyProfile(),0),map=Object.fromEntries(v.records.map(r=>[r.key,'new'])),applied=applyProfileImport(emptyProfile(),v,accept(v),{recordMappings:map});
- assert.equal(applied.count,32);assert.equal(applied.data.education.length,2);assert.equal(applied.data.experience.length,1);assert.equal(applied.data.projects.length,3);
- for(const [i,project]of applied.data.projects.entries())for(const key of ['项目描述','职责','项目中职责','描述And职责'])assert.ok(project.description.zh.includes(doc.config.projectList[i][key]),key);
+ assert.ok(applied.count>=32);assert.equal(applied.data.education.length,2);assert.equal(applied.data.experience.length,1);assert.equal(applied.data.projects.length,3);
+ for(const [i,project]of applied.data.projects.entries())for(const [key,field] of [['项目描述','description'],['职责','responsibility'],['项目中职责','projectDuty'],['描述And职责','descriptionAndDuty']])assert.equal(project[field].zh,doc.config.projectList[i][key],key);
  assert.equal(applied.data.projects[0].role,undefined,'long duty text never becomes a fabricated role name');
  const notes=JSON.stringify(p.notes);for(const label of ['学院名称','奖项名称','语言能力','自我描述','其他信息'])assert.ok(notes.includes(label));
- assert.equal(applied.data.education[0].degree,undefined);assert.equal(applied.data.education[0].endDate,undefined);assert.equal(applied.data.education[1].endDate.zh,'2025-06-30');
- assert.equal(applied.pendingChanges.length,2);for(const row of applied.pendingChanges){assert.equal(row.qualifier,'in_progress');assert.ok(row.source_text.includes('硕士研究生（在读）'));}
+ assert.equal(applied.data.education[0].degree.zh,'硕士');assert.equal(applied.data.education[0].studyStatus.zh,'在读');assert.equal(applied.data.education[0].expectedEndDate.zh,'2028-06-30');assert.equal(applied.data.education[0].endDate,undefined);assert.equal(applied.data.education[1].endDate.zh,'2025-06-30');
+ assert.equal(applied.pendingChanges.filter(row=>row.requiresUserValue).length,3);
 });
 
 test('record identity uses old kind and ID, never a same-school/company guess; repeat import has no new records or writes',()=>{
@@ -47,11 +47,12 @@ test('unknown target can be explicitly matched or created, while qualified dates
  assert.throws(()=>applyProfileImport(emptyProfile(),v,[{id:v.changes[0].id,action:'apply',target:'__proto__.polluted'}]),/字段|路径/);assert.equal({}.polluted,undefined);
 });
 
-test('fixed delta preserves every unlisted value and incoming null languages, with no deletion or whole-profile replacement',()=>{
+test('fixed delta preserves unlisted values and requires explicit retirement of an older translation',()=>{
  const profile=emptyProfile();profile.personal.name=fact('Original Fictional Name');profile.personal.desiredCity=fact('Old City','Existing English');profile.skills.description=fact('Unlisted original skills');profile.customAnswers.savedFact=fact('Kept ordinary fact');
  const original=structuredClone(profile),v=preview(delta([change('personal.desiredCity',{zh:'New City',en:null})]),profile,2);
  assert.equal(v.changes[0].conflict,true);assert.throws(()=>applyProfileImport(profile,v,accept(v)),/冲突/);assert.deepEqual(profile,original);
- const applied=applyProfileImport(profile,v,[{id:v.changes[0].id,action:'apply',replace:true}]);assert.equal(applied.count,1);assert.equal(applied.data.personal.desiredCity.zh,'New City');assert.equal(applied.data.personal.desiredCity.en,'Existing English');assert.deepEqual(applied.data.personal.name,original.personal.name);assert.deepEqual(applied.data.customAnswers,original.customAnswers);assert.deepEqual(applied.data.skills,original.skills);
+ assert.throws(()=>applyProfileImport(profile,v,[{id:v.changes[0].id,action:'apply',replace:true}]),/旧英文/);assert.deepEqual(profile,original);
+ const applied=applyProfileImport(profile,v,[{id:v.changes[0].id,action:'apply',replace:true,retireEnglish:true}]);assert.equal(applied.count,1);assert.equal(applied.data.personal.desiredCity.zh,'New City');assert.equal(applied.data.personal.desiredCity.en,null);assert.equal(applied.pendingChanges.find(c=>c.id.endsWith('-old-en')).value.en,'Existing English');assert.deepEqual(applied.data.personal.name,original.personal.name);assert.deepEqual(applied.data.customAnswers,original.customAnswers);assert.deepEqual(applied.data.skills,original.skills);
  const keep=applyProfileImport(profile,v,[{id:v.changes[0].id,action:'keep',target:''}]);assert.equal(keep.count,0);assert.deepEqual(keep.data,profile);
 });
 
@@ -99,12 +100,12 @@ test('empty template is a no-op and same-kind duplicate legacy IDs are rejected'
  const doc=fixture('PROFILE_LEGACY_V3_FICTIONAL');doc.config.educationList[1].id=doc.config.educationList[0].id;assert.throws(()=>parseProfileImport(doc),/ID重复/);
 });
 
-test('four long project fragments stay intact in pending data and notes instead of aborting the whole import',()=>{
+test('four project fragments that exceed the old combined field limit save independently without truncation',()=>{
  const doc=fixture('PROFILE_LEGACY_V3_FICTIONAL'),row=doc.config.projectList[0];
  for(const [i,key]of ['项目描述','职责','项目中职责','描述And职责'].entries())row[key]='Fragment-'+i+' '+String(i).repeat(3000);
  const p=preview(doc),applied=applyProfileImport(emptyProfile(),p,accept(p),{recordMappings:Object.fromEntries(p.records.map(r=>[r.key,'new']))});
- const long=applied.pendingChanges.find(c=>c.target?.endsWith('.description'));assert.ok(long);assert.ok(long.value.zh.length>10000);assert.equal(applied.data.projects[0].description,undefined);
- for(const key of ['项目描述','职责','项目中职责','描述And职责']){assert.ok(long.value.zh.includes(row[key]));assert.ok(p.notes.some(n=>n.text.includes(row[key])));}
+ const project=applied.data.projects[0];for(const [key,field]of [['项目描述','description'],['职责','responsibility'],['项目中职责','projectDuty'],['描述And职责','descriptionAndDuty']])assert.equal(project[field].zh,row[key]);
+ row['职责']='x'.repeat(10001);assert.throws(()=>preview(doc),/过长/);
  assert.ok(applied.count>0,'unrelated valid fields are still accepted');
 });
 

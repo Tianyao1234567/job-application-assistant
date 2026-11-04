@@ -9,7 +9,7 @@ import {webcrypto,createHash} from 'node:crypto';
 const source=await readFile(new URL('../../autofill-extension/runner/greenhouse-adapter.js',import.meta.url),'utf8');
 const bytes=Buffer.from('Fictional Greenhouse resume for controlled tests only.');
 const file={name:'fictional.txt',mime:'text/plain',base64:bytes.toString('base64'),size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
-const expected={origin:'http://127.0.0.1:17322',tenant:'fictional',jobId:'1234567',company:'Fictional Company',expectedAccount:'person@example.invalid',replay:true,applicantConfirmed:true,profileFields:['email','phone','candidate-location']};
+const expected={origin:'http://127.0.0.1:17322',tenant:'fictional',jobId:'1234567',company:'Fictional Company',expectedAccount:'person@example.invalid',replay:true,applicantConfirmed:true,profileFields:['email','phone','candidate-location'],profileValues:{email:'person@example.invalid',phone:'10000000000','candidate-location':'Fictional Test City'}};
 function gate(){let entered,release;return {entered:new Promise(resolve=>entered=resolve),ready:new Promise(resolve=>release=resolve),enter:()=>entered(),release:()=>release()};}
 function harness(options={}){
   const h={writes:0,uploads:0,clicks:0,receipt:null,captcha:false,validationHook:null,links:[]};
@@ -62,7 +62,7 @@ function harness(options={}){
     JobFill:{guardText:value=>/authoriz|sponsor|gender/i.test(value)?'manual-sensitive':null}});
   vm.runInContext(source,page);
   const raw=page.JobGreenhouse,context=value=>({...value,confirmedAnswers:value?.confirmedAnswers||h.confirmedAnswers||[]});
-  const api={read:(op,value)=>raw.read(op,context(value)),prepare:(op,value,args)=>raw.prepare(op,context(value),args),commit:(value,token)=>raw.commit(context(value),token),validateSubmit:(value,...args)=>raw.validateSubmit(context(value),...args)};
+  const api={read:(op,value)=>raw.read(op,context(value)),prepare:(op,value,args)=>raw.prepare(op,context(value),args),commit:(value,token)=>raw.commit(context(value),token),validateSubmit:(value,...args)=>raw.validateSubmit(context(value),...args),verifyUpload:(value,...args)=>raw.verifyUpload(context(value),...args)};
   Object.assign(h,{api,page,document,inputs,button});
   h.inspect=async context=>h.api.read('inspect',context||expected);
   h.complete=async()=>{
@@ -124,6 +124,17 @@ test('prefilled required answers remain visible for confirmation until exact tas
   await h.complete();assert.equal((await h.inspect()).questions.length,0);
   h.field('last_name')._value='Unconfirmed manual surname';const changed=await h.inspect();assert.ok(changed.questions.some(q=>q.key==='last_name'));
   assert.equal((await h.api.validateSubmit(expected,changed.layout,file)).ok,false);assert.equal(h.clicks,0);
+});
+test('changed confirmed profile value becomes a question and blocks submission',async()=>{
+ const h=harness();await h.complete();h.field('phone')._value='Human changed phone';
+ const inspected=await h.inspect();assert.ok(inspected.questions.some(q=>q.key==='phone'&&q.currentValue==='Human changed phone'));
+ assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,false);assert.equal(h.clicks,0);
+});
+test('retained upload verification hashes the current file without another write',async()=>{
+ const h=harness();await h.complete();const inspected=await h.inspect();
+ assert.equal((await h.api.verifyUpload(expected,inspected.layout,file)).ok,true);assert.equal(h.uploads,0);
+ h.field('resume')._files=[new File([Buffer.from('different')],file.name,{type:file.mime})];
+ assert.equal((await h.api.verifyUpload(expected,inspected.layout,file)).ok,false);assert.equal(h.uploads,0);
 });
 test('a populated optional non-profile answer cannot be transmitted without exact confirmation',async()=>{
   const h=harness();await h.complete();

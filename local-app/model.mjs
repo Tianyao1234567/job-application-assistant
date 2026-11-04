@@ -227,11 +227,33 @@ export class Store {
     for(const t of this.state.tasks){const site=mapped.find(s=>s.id===t.siteId);if(['queued','running'].includes(t.status)&&(next.mode!==t.mode||!site?.enabled||site.skipped)){this.invalidateTask(t);t.status='queued';}}
     this.state.settings=next;this.state.sites=mapped;this.save();
   }
-  setProfile({data,mode,confirmed,baseVersion}){
+  setProfile({data,mode,confirmed,baseVersion,retireEnglish=[]}){
     if(confirmed!==true||!['demo','real'].includes(mode))throw new Error('请先确认资料及用途');
     if(baseVersion!==undefined&&(!Number.isInteger(baseVersion)||baseVersion!==this.state.profile.version))throw new Error('资料已变化，请重新核对后再保存；原编辑内容仍保留');
     const validated=validateProfile(data);if(mode==='real'&&Object.values(validated.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
-    this.state.profile={version:this.state.profile.version+1,data:validated,mode,updatedAt:this.now()};this.invalidateGreenhouseVersions();this.save();
+    if(!Array.isArray(retireEnglish)||retireEnglish.some(v=>typeof v!=='string')||new Set(retireEnglish).size!==retireEnglish.length)throw new Error('旧英文停用选择无效');
+    if(retireEnglish.length&&baseVersion!==this.state.profile.version)throw new Error('资料版本已变化，请重新核对旧英文');
+    const selected=new Set(retireEnglish),backups=[],oldProfile=this.state.profile;
+    for(const kind of ['personal','skills','links','customAnswers','education','experience','projects']){
+      const entries=Array.isArray(oldProfile.data[kind])?oldProfile.data[kind]:[oldProfile.data[kind]];
+      for(const entry of entries)for(const [name,old]of Object.entries(entry)){
+        if(name==='id'||!old?.en)continue;
+        const target=entry.id?`${kind}.${entry.id}.${name}`:`${kind}.${name}`,next=profileValue(validated,target);
+        if(next?.zh===old.zh&&next?.en===old.en)continue;
+        if(!selected.has(target))throw new Error('修改或删除字段前，请明确选择停用旧英文并保留备份：'+target);
+        if(next?.en&&next.en!==old.en)throw new Error('不能把旧英文替换成未经确认的新内容：'+target);
+        if(next)next.en=null;
+        backups.push({id:uid()+'-old-en',field:target,target,target_hint:'停用的旧英文备份',value:{zh:null,en:old.en},source_text:'本人确认停用的旧英文',qualifier:null,pendingReason:'旧英文已停用，保留备份供本人核对'});selected.delete(target);
+      }
+    }
+    if(selected.size)throw new Error('旧英文停用选择已过期，请重新核对');
+    const original={state:this.state,queue:this.queue,command:this.command};
+    this.state=clone(this.state);this.queue=clone(this.queue);this.command=clone(this.command);
+    try{
+      this.state.profile={version:oldProfile.version+1,data:validated,mode,updatedAt:this.now()};
+      if(backups.length){this.state.profileImportHistory ||= [];if(this.state.profileImportHistory.length>=100)throw new Error('已保存100份资料核对记录，无法安全保存备份');this.state.profileImportHistory.push({id:uid(),kind:'profile-edit',fingerprint:uid(),profileVersion:oldProfile.version,savedProfileVersion:this.state.profile.version,count:backups.length,answerCount:0,createdAt:this.now(),notes:[],questions:[],pendingChanges:backups,jobAnswers:[],profileBefore:clone(oldProfile)});}
+      this.invalidateGreenhouseVersions();this.save();
+    }catch(error){this.state=original.state;this.queue=original.queue;this.command=original.command;throw error;}
   }
   matchProfileFileAnswers(answers,mode){
     const equivalent=(a,b)=>{try{return new URL(a).href===new URL(b).href;}catch{return false;}};
@@ -520,7 +542,7 @@ export class Store {
     c.clientId=client.clientId;c.profileId=client.profileId;c.extensionId=client.extensionId;c.claimedAt=this.clock();if(c.taskId)c.revision=this.task(c.taskId).revision||0;this.command=c;this.save();
     const site=clone(this.site(c.siteId)),task=c.taskId?this.task(c.taskId):null;
     delete site.login;
-    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.submitConfirmed===true:this.confirmedTask(task),confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true).map(answer=>clone(answer)),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
+    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.submitConfirmed===true:this.confirmedTask(task),confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true).map(answer=>clone(answer)),confirmedProfileEntries:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>['personal.email','personal.phone','personal.location'].includes(e.key)&&e.confirmed&&e.value.trim()).map(e=>({key:e.key,value:e.key==='personal.email'?site.expectedAccount:e.value,confirmed:true})),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
   }
   authorize({clientId,commandId}){
     this.expireCommand();

@@ -221,7 +221,7 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
         json(res, 200, store.action(body)); return;
       }
       if (url.pathname === '/api/settings') store.setSettings(body);
-      else if (url.pathname === '/api/profile') store.setProfile(body);
+      else if (url.pathname === '/api/profile') {if(!Number.isInteger(body.baseVersion))throw new RequestError(409,'资料版本缺失，请刷新并重新核对');store.setProfile(body);}
       else if(url.pathname==='/api/profile/import/preview'){json(res,200,{ok:true,draft:store.previewProfileFile(body)});return;}
       else if(url.pathname==='/api/profile/import/repair-preview'){json(res,200,{ok:true,draft:store.previewProjectRepair(body)});return;}
       else if(url.pathname==='/api/profile/import/confirm'){json(res,200,{ok:true,...store.confirmProfileFile(body)});return;}

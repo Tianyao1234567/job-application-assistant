@@ -168,9 +168,9 @@ function greenhouseExpected(command) {
   if(task&&(!/^\d{1,30}$/.test(task.jobId)||task.mode!==(replay?'demo':'real')))throw new Stop('structure','Greenhouse 岗位身份或任务模式不符。');
   const applicantConfirmed=!!task&&task.applicantConfirmed===true&&task.executionProfileId===bridge.profileId;
   if(task&&!['inspect','verify'].includes(command.op)&&!applicantConfirmed)throw new Stop('manual','请先在后台确认本岗位、申请资料、附件及提交动作，并使用同一投递浏览器。');
-  const profileMap={'personal.email':'email','personal.phone':'phone','personal.location':'candidate-location'};
   return {adapter:site.adapter,origin,replay,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed,
-    profileFields:Array.isArray(task?.confirmedProfileKeys)?task.confirmedProfileKeys.map(key=>profileMap[key]).filter(Boolean):[],
+    profileFields:Array.isArray(task?.confirmedProfileEntries)?greenhouseEntries(task.confirmedProfileEntries).map(entry=>entry.name):[],
+    profileValues:Object.fromEntries(Array.isArray(task?.confirmedProfileEntries)?greenhouseEntries(task.confirmedProfileEntries).map(entry=>[entry.name,entry.value]):[]),
     confirmedAnswers:Array.isArray(task?.confirmedAnswers)?task.confirmedAnswers:[]};
 }
 function greenhouseUrl(value,expect,kind) {
@@ -261,6 +261,17 @@ async function executeGreenhouse(command,expect,payload) {
     const file=payload.file;
     if(!file||typeof file.name!=='string'||!file.name||/[\\/\x00-\x1f]/.test(file.name)||file.name.length>200||typeof file.mime!=='string'||typeof file.base64!=='string'||file.base64.length>12000000||!Number.isInteger(file.size)||file.size<=0||file.size>8*1024*1024||!/^[a-f0-9]{64}$/.test(file.sha256))throw new Stop('manual','简历附件信息或摘要无效。');
     const inspected=await read(tab,expect,'inspect');if(!inspected.ok)return inspected;
+    if(inspected.uploadedResumeConfirmed||inspected.fields?.some(field=>field.key==='resume'&&field.alreadyPopulated)){
+      // Reuse only an exact retained file and its original document-bound
+      // upload proof. Never discard the old proof or repeat the upload here.
+      const proof=await uploadProofFor(command,tab,file);
+      if((!expect.replay||inspected.submissionProtocol)&&!proof)return fail('manual','原附件上传证明不可用，请本人核对；未重新上传。');
+      await inject(tab,expect);
+      const frames=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(context,layout,file)=>JobGreenhouse.verifyUpload(context,layout,file),args:[expect,payload.layout,file]});
+      const verified=frames[0]?.result;
+      if(proof&&frames[0]?.documentId!==proof.documentId)return fail('structure','附件所在页面已变化；未重新上传。');
+      return verified?.ok?{...verified,tabId:tab.id,url:tab.url}:verified||fail('manual','无法核对原附件，未重新上传。');
+    }
     const result=!expect.replay||inspected.submissionProtocol?await observedGreenhouseUpload(command,tab,expect,file):await mutate(command,tab,expect,'upload',payload.layout,file);
     return {...result,tabId:tab.id,url:tab.url};
   }

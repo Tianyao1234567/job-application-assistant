@@ -13,7 +13,7 @@ const require=createRequire(new URL('../../autofill-extension/package.json',impo
 const {chromium}=require('playwright');
 const BASE='http://127.0.0.1:17321',FIXTURE='http://127.0.0.1:17322';
 const isolated=await testDirectory('greenhouse-answer-ui'),dataDir=path.join(isolated,'data');
-const testKey=randomBytes(24).toString('base64url'),results=[],blockedExternal=[],pageErrors=[],applicationPosts=[];
+const testKey=randomBytes(24).toString('base64url'),results=[],blockedExternal=[],pageErrors=[],applicationPosts=[],importRequests=[];
 const CV=Buffer.from('Fictional Greenhouse replay resume. No actual applicant.\n\x00\xff','latin1');
 const SHA=createHash('sha256').update(CV).digest('hex');
 const mode=process.env.GREENHOUSE_BROWSER_MODE||'page-driver';
@@ -110,7 +110,8 @@ async function startPageDriver(){
     const site=command.site,task=command.task,payload=command.payload||{};
     assert.equal(site.adapter,'greenhouse-replay-v1');assert.equal(site.origin,FIXTURE);assert.equal(site.mode,'demo');
     const mapping={'personal.email':'email','personal.phone':'phone','personal.location':'candidate-location'};
-    const expected={origin:FIXTURE,replay:true,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed:task?.applicantConfirmed===true&&task.executionProfileId===client.profileId,profileFields:(task?.confirmedProfileKeys||[]).map(key=>mapping[key]).filter(Boolean),confirmedAnswers:task?.confirmedAnswers||[]};
+    const entries=(task?.confirmedProfileEntries||[]).filter(entry=>mapping[entry.key]);
+    const expected={origin:FIXTURE,replay:true,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed:task?.applicantConfirmed===true&&task.executionProfileId===client.profileId,profileFields:entries.map(entry=>mapping[entry.key]),profileValues:Object.fromEntries(entries.map(entry=>[mapping[entry.key],entry.value])),confirmedAnswers:task?.confirmedAnswers||[]};
     if(['discover','check','open'].includes(command.op)){
       if(!await authorize(command))return {ok:false,kind:'paused'};
       const tab=await pageFor(command,command.op==='discover'?site.listUrl:site.loginUrl);
@@ -169,6 +170,7 @@ try{
   evidence.environment.browser=context.browser().version();
   await context.route('**/*',route=>{
     const url=new URL(route.request().url());
+    if(url.origin===BASE&&route.request().method()==='POST'&&url.pathname.startsWith('/api/profile/import/'))importRequests.push(url.pathname);
     if(['http:','https:'].includes(url.protocol)&&![BASE,FIXTURE].includes(url.origin)){blockedExternal.push({origin:url.origin,method:route.request().method()});return route.abort('blockedbyclient');}
     return route.continue();
   });
@@ -255,6 +257,19 @@ try{
     const dynamicTask=task(dynamic,first);assert.equal(dynamicTask.id,originalId);
     assert.deepEqual(dynamicTask.answerBatch.questions.map(q=>q.key),['question_2'],'Already confirmed questions must not be asked again');
     const dynamicQuestion=dynamicTask.answerBatch.questions[0];assert.ok(dynamicQuestion.options.length);
+    // Verify the explicitly blank choice and the required answer were actually
+    // persisted, including after a second backend restart, before continuing.
+    const savedBefore=Object.values(app.store.state.tasks.find(t=>t.id===originalId).answers||{});
+    assert.ok(savedBefore.some(a=>a.key==='preferred_name'&&a.confirmed===true&&a.leaveBlank===true&&a.value===''));
+    assert.ok(savedBefore.some(a=>a.key==='question_1'&&a.confirmed===true&&a.value===values.question_1));
+    assert.deepEqual(counts(first),{posts:0,receipts:0});
+    await restartBackend();
+    const savedAfter=Object.values(app.store.state.tasks.find(t=>t.id===originalId).answers||{});
+    assert.deepEqual(savedAfter,savedBefore);
+    const afterRestart=await until('conditional question persisted',state,v=>{const t=task(v,first);return t?.status==='waiting_answer'&&t.answerBatch?.questions.some(q=>q.key==='question_2');});
+    assert.equal(task(afterRestart,first).id,originalId);
+    await until('execution heartbeat after answer restart',state,v=>v.connection.connected);
+    await action('resume');await dashboard.reload();
     const nextForm=dashboard.getByRole('form',{name:`集中补充答案：${dynamicTask.title}`});
     const select=nextForm.getByLabel(dynamicQuestion.text+'：答案',{exact:true});await select.waitFor();
     for(const choice of dynamicQuestion.options.filter(x=>!x.disabled))assert.ok(await select.locator('option').getByText(choice.text,{exact:true}).count());
@@ -273,9 +288,13 @@ try{
     await restartBackend();
     await until('same submitted task after restart',state,v=>task(v,first)?.status==='submitted');
     assert.equal(task(await state(),first).id,originalId);
+    const retry=await action('task-resume',{taskId:originalId},{allowFailure:true});
+    assert.equal(retry.ok,false,'A submitted task cannot be resumed into another submission');
+    await action('resume');await delay(1500);
+    assert.equal((await state()).tasks.filter(t=>t.jobId===first).length,1);
     assert.deepEqual(counts(first),{posts:1,receipts:1});
   });
-  assert.deepEqual(blockedExternal,[]);assert.deepEqual(pageErrors,[]);
+  assert.deepEqual(blockedExternal,[]);assert.deepEqual(pageErrors,[]);assert.deepEqual(importRequests,[],'Daily answers do not upload JSON');
   evidence.finishedAt=new Date().toISOString();
   evidence.fixture={receipts:fixture.state().receipts.length,actualApplicationPosts:applicationPosts.length,persistedAttempts:fixture.state().submitRequests.length};
 }catch(error){evidence.error=redact(error.stack||error.message);throw error;}
