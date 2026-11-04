@@ -1,5 +1,7 @@
 # Manager给Work：补齐首次资料来源与平台后续补答引导
 
+> 2026-11-03最新优先级：用户已实际导入JSON并提出字段与操作体验返工。先执行[中文资料草稿与字段完整性返工](PROFILE_IMPORT_USABILITY_REWORK_001.md)；本任务只合并直接相关的简短帮助，其余暂缓，不另做多页向导。下文“尚未导入/等待原文件”是任务发布时的历史状态，不再作为用户当前阻塞。
+
 2026-11-03（北京时间）。Work指负责工程实现的会话，沿用Engineer职责与`HANDOFF_ENGINEER.md`；Manager仍由当前经理负责，另一个GPT仅教用户操作。收到此任务后先核对有效分支及当前实现者，保留现有工作，不另起并行实现。
 
 有效分支：`dev/pm9-demo-windows-readiness`；功能基线candidate.10 / `46a28d3ee7402dad992c0fa721e6e01f676cff1e`；R1验收`b077a78`。本任务不重开已通过的R1，不改Manager验收正文，PR #5保持draft。
