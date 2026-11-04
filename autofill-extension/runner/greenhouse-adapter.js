@@ -171,7 +171,11 @@
     const manualSelection=field.customControl&&!field.optionsComplete&&!!selectedChoice(record.node);
     const selected=record.node.tagName==='SELECT'?[...record.node.options].filter(option=>option.value===record.node.value):[];
     const current=record.node.tagName==='SELECT'?(selected.length===1?text(selected[0]):''):controlValue(record);
-    return {...field,...(field.type!=='file'&&field.alreadyPopulated?{currentValue:String(current||'').slice(0,5000)}:{}),...(manualSelection?{manualSelection:true,options:[{text:selectedChoice(record.node),disabled:false}]}:{}),version,source:expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId,scope:`greenhouse-v1:${expected.tenant}:${expected.jobId}:${field.key}:${version}`,defaultRemember:false};
+    // Contact fields may already contain private values from the website or a
+    // human. Compare them locally, but never transmit those values to the
+    // backend as conflict evidence or as part of the field inventory.
+    const privateContact=['email','phone','candidate-location'].includes(field.key);
+    return {...field,...(privateContact&&(field.customControl||field.tag==='SELECT')?{options:[],optionsComplete:false}:{}),...(field.type!=='file'&&field.alreadyPopulated&&!privateContact?{currentValue:String(current||'').slice(0,5000)}:{}),...(manualSelection&&!privateContact?{manualSelection:true,options:[{text:selectedChoice(record.node),disabled:false}]}:{}),version,source:expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId,scope:`greenhouse-v1:${expected.tenant}:${expected.jobId}:${field.key}:${version}`,defaultRemember:false};
   }
   function ownedAnswer(expected,q,record) {
     if(!Array.isArray(expected.confirmedAnswers))return false;

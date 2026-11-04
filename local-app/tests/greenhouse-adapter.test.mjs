@@ -127,7 +127,7 @@ test('prefilled required answers remain visible for confirmation until exact tas
 });
 test('changed confirmed profile value becomes a question and blocks submission',async()=>{
  const h=harness();await h.complete();h.field('phone')._value='Human changed phone';
- const inspected=await h.inspect();assert.ok(inspected.questions.some(q=>q.key==='phone'&&q.currentValue==='Human changed phone'));
+ const inspected=await h.inspect();assert.ok(inspected.questions.some(q=>q.key==='phone'&&q.alreadyPopulated));assert.equal(JSON.stringify(inspected).includes('Human changed phone'),false);
  assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,false);assert.equal(h.clicks,0);
 });
 test('retained upload verification hashes the current file without another write',async()=>{

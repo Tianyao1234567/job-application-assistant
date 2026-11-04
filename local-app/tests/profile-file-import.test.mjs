@@ -66,11 +66,11 @@ test('one confirmed delta changes only its selected fact, preserves all other da
 test('stale preview, mismatched base/previous value and missing or duplicate decisions cannot silently overwrite newer facts',t=>{
   const store=demoStore(t),draft=preview(store,scalarDocument()),before=structuredClone(store.state.profile);
   for(const body of [{confirmed:false},{profileVersion:999},{decisions:[]},{decisions:[...decisions(draft),decisions(draft)[0]]}]){assert.throws(()=>confirm(store,draft,body));assert.deepEqual(store.state.profile,before);}
-  const edited=structuredClone(before.data);edited.skills.description=field('Locally edited fictional skill');store.setProfile({data:edited,mode:'demo',confirmed:true});const newer=structuredClone(store.state.profile);
+  const edited=structuredClone(before.data);edited.skills.description=field('Locally edited fictional skill');store.setProfile({data:edited,mode:'demo',confirmed:true,baseVersion:before.version,retireEnglish:['skills.description']});const newer=structuredClone(store.state.profile);
   assert.throws(()=>confirm(store,draft,{profileVersion:newer.version,decisions:decisions(draft,()=>true)}),/版本|变化|过期/);assert.deepEqual(store.state.profile,newer);
   const document=scalarDocument();document.base_profile_version=0;document.profile_changes[0].previous_value={zh:'A different old city',en:null};const conflict=preview(store,document),row=conflict.changes[0];assert.equal(row.conflict,true);
   assert.throws(()=>confirm(store,conflict,{decisions:[{id:row.id,action:'apply'}]}),/冲突|替换|明确/);assert.deepEqual(store.state.profile,newer);
-  confirm(store,conflict,{decisions:[{id:row.id,action:'apply',replace:true}]});assert.equal(store.state.profile.data.personal.desiredCity.zh,'Fictional new city');
+  confirm(store,conflict,{decisions:[{id:row.id,action:'apply',replace:true,retireEnglish:true}]});assert.equal(store.state.profile.data.personal.desiredCity.zh,'Fictional new city');assert.equal(store.state.profile.data.personal.desiredCity.en,null);
 });
 test('null/unknown record and expected education date stay pending rather than erasing facts or claiming graduation',t=>{
   const store=demoStore(t),before=structuredClone(store.state.profile),document=delta(),draft=preview(store,document);
