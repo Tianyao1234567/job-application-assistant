@@ -18,7 +18,7 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
   const h={allowed:true,clicks:0,writes:0,authorizations:0,created:[],updated:[],removed:[],prepared:[],storage:{localTaskTabs:{task:7},localSubmissionAttempts:{}}};
   const tabs=new Map([[7,{id:7,status:'complete',url:origin+prefix+'/jobs/1234567'}]]);
   const page={JobGreenhouse:{
-    async read(op,expected){h.observedExpected=expected;return {ok:true,layout,fields:h.fields||[],questions:h.questions||[],receipt:op==='verify'&&receipt?{id:'fictional-receipt'}:null};},
+    async read(op,expected){h.observedExpected=expected;return {ok:true,layout,fields:h.fields||[],questions:h.questions||[],submissionProtocol:h.submissionProtocol||null,uploadedResumeConfirmed:h.uploadedResumeConfirmed===true,receipt:op==='verify'&&receipt?{id:'fictional-receipt'}:null};},
     async verifyUpload(expected,actualLayout,actualFile){h.verifiedUpload={expected,actualLayout,actualFile};return h.fileCheck||{ok:true,layout:actualLayout,fileName:actualFile.name,fileSize:actualFile.size,sha256:actualFile.sha256};},
     async prepare(method,expected,args){h.prepared.push({method,expected,args});if(prepareGate){prepareGate.enter();await prepareGate.ready;}return {ok:true,token:method};},
     commit(expected,token){if(token==='submit')h.clicks++;else h.writes++;return {ok:token!=='submit',attempted:token==='submit',filled:1};}
@@ -88,11 +88,11 @@ test('pause during durable Greenhouse ledger storage prevents click and retains 
   await assert.rejects(operation,error=>error.kind==='paused');assert.equal(h.clicks,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,1);
 });
 test('unknown Greenhouse result is never clicked twice or returned as success',async()=>{
-  const h=harness({replay:false});const result=await h.run('submit');
+  const h=harness();const result=await h.run('submit');
   assert.equal(result.ok,false);assert.equal(result.kind,'unknown');assert.equal(h.clicks,1);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,1);
   assert.equal((await h.run('submit')).kind,'unknown');assert.equal(h.clicks,1);
   assert.equal((await h.run('inspect')).kind,'unknown');assert.equal(h.clicks,1);
-  const verified=await h.run('verify');assert.equal(verified.receipt,null);assert.equal(h.created.length,0);assert.equal(h.updated.length,0);
+  const verified=await h.run('verify');assert.equal(verified.receipt,null);assert.equal(h.created.length,0);assert.equal(h.updated.length,1);assert.equal(h.clicks,1);
 });
 test('Greenhouse recovery checks replay receipts separately and preserves the live application',async()=>{
   const h=harness();assert.equal((await h.run('inspect')).ok,true);
@@ -106,16 +106,38 @@ test('missing or stale exact upload proof pauses before preflight and before the
   assert.equal(h.clicks,0);assert.equal(h.writes,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
  }
 });
+test('native submission remains paused even with earlier upload proof, before any submit ledger or click',async()=>{
+ for(const replay of [false,true]){
+  const h=harness({replay});if(replay)h.submissionProtocol={submitUrl:'fictional-native-submit'};
+  const before=structuredClone(h.storage.greenhouseUploadProofs||{});
+  for(const op of ['preflight','submit']){const result=await h.run(op);assert.equal(result.ok,false);assert.equal(result.kind,'manual');}
+  assert.equal(h.clicks,0);assert.equal(h.writes,0);assert.equal(h.authorizations,0);
+  assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
+  assert.deepEqual(h.storage.greenhouseUploadProofs||{},before);
+ }
+});
 test('preflight forwards confirmed blank and routes newly observed questions back for inspection',async()=>{
  const h=harness(),command=h.command('preflight');command.task.confirmedAnswers=[{key:'optional',confirmed:true,leaveBlank:true,value:''}];
  h.questions=[{key:'conditional'}];const result=await h.runCommand(command);
  assert.equal(result.kind,'questions_changed');assert.equal(h.observedExpected.confirmedAnswers[0].leaveBlank,true);
  assert.equal(h.prepared.length,0);assert.equal(h.clicks,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
 });
+test('replay submission checks receive attachment identity without resume bytes',async()=>{
+ const h=harness();assert.equal((await h.run('preflight')).ok,true);
+ assert.equal((await h.run('submit')).kind,'unknown');
+ const checks=h.prepared.filter(value=>value.method==='submit');assert.equal(checks.length,2);
+ for(const {args}of checks){
+  const identity=args[1];assert.equal(identity.name,file.name);assert.equal(identity.size,file.size);assert.equal(identity.sha256,file.sha256);
+  assert.equal(Object.hasOwn(identity,'base64'),false);assert.equal(Object.hasOwn(identity,'mime'),false);
+ }
+ assert.equal(h.clicks,1);
+});
 test('resuming an already uploaded file reuses only bound proof and never starts another upload',async()=>{
  const h=harness({replay:false});h.fields=[{key:'resume',alreadyPopulated:true}];
  const proof=structuredClone(h.storage.greenhouseUploadProofs.task),result=await h.run('upload');
  assert.equal(result.ok,true);assert.equal(h.verifiedUpload.actualFile.sha256,file.sha256);assert.equal(h.writes,0);
+ assert.equal(h.verifiedUpload.actualFile.name,file.name);assert.equal(h.verifiedUpload.actualFile.size,file.size);
+ assert.equal(Object.hasOwn(h.verifiedUpload.actualFile,'base64'),false);assert.equal(Object.hasOwn(h.verifiedUpload.actualFile,'mime'),false);
  assert.deepEqual(h.storage.greenhouseUploadProofs.task,proof);
  h.storage.greenhouseUploadProofs.task.documentId='other-document';delete h.verifiedUpload;
  assert.equal((await h.run('upload')).ok,false);assert.equal(h.verifiedUpload,undefined);assert.equal(h.writes,0);

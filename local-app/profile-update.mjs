@@ -86,7 +86,7 @@ function parseLegacy(doc){
    const hash=digest([kind,oldID]).slice(0,24),id='legacy-'+kind+'-'+hash,key='legacy:'+kind+':'+hash;
    const labelKey=kind==='education'?'学校名称':kind==='experience'?'公司名称':'项目名称';
    out.records.push({key,kind,proposedId:id,label:typeof row[labelKey]==='string'&&!sensitive('',row[labelKey])?row[labelKey].slice(0,200):kind});
-   if(kind==='projects')add(out,{field:kind+'.'+id+'.role',target_hint:'本人角色',value:{zh:null,en:null},source_text:'本人填写的项目角色',recordKey:key,requiresUserValue:true},['legacy',key,'role']);
+   if(kind==='projects')add(out,{field:kind+'.'+id+'.role',target_hint:(typeof row[labelKey]==='string'?row[labelKey]:'项目')+' / 本人角色',value:{zh:null,en:null},source_text:'本人填写的项目角色',recordKey:key,requiresUserValue:true},['legacy',key,'role']);
    if(kind==='education'&&inProgressIDs.has(row.id))add(out,{field:kind+'.'+id+'.studyStatus',target_hint:'学习状态',value:{zh:'在读',en:null},source_text:'最高学历：'+highest,recordKey:key},['legacy',key,'studyStatus']);
    for(const [oldField,raw]of Object.entries(row)){
     if(oldField==='id'||raw===null||raw==='')continue;if(sensitive(oldField,typeof raw==='string'?raw:'')){excluded(out);continue;}
@@ -136,19 +136,26 @@ export function parseProfileImport(document){
  let out;if(own(document,'format')){if(document.format!=='job-application-assistant.profile-update')throw new Error('未知资料更新格式');out=parseDelta(document);}else if(own(document,'version')||own(document,'config'))out=parseLegacy(document);else if(document.schemaVersion===1)out=parseFull(document);else throw new Error('无法识别资料格式或版本');
  if(out.changes.length+out.notes.length+out.jobAnswers.length+out.questions.length>300)throw new Error('导入清单最多300项');out.fingerprint=digest(out);return out;
 }
-// Old v3 imports concatenated labelled fragments into description. Only
-// propose a repair when provenance and boundaries can be checked; never mutate
-// saved data while producing a preview.
+// Old v3 imports concatenated labelled fragments into description. Preview only
+// unambiguous labelled boundaries; the source stores at most 200 characters and
+// cannot prove the rest was not edited later. Keep the current value until the
+// owner reviews the proposed split and explicitly resolves any existing values.
 export function parseProjectRepair(profile){
  validateProfile(profile);const out=result('project-repair');
  const names={'项目描述':'description','职责':'responsibility','项目中职责':'projectDuty','描述And职责':'descriptionAndDuty'};
  for(const project of profile.projects){
   const old=project.description,value=old?.zh;
-  if(typeof value!=='string'||!old.source||old.source!==value.slice(0,200)||sensitive('项目描述',value))continue;
-  const parts=value.split('\n\n'),rows=[];let ambiguous=false;
-  for(const part of parts){const m=/^(项目描述|职责|项目中职责|描述And职责)：([\s\S]+)$/.exec(part);if(!m||rows.some(r=>r.label===m[1])||/(?:项目描述|职责|项目中职责|描述And职责)：/.test(m[2])){ambiguous=true;break;}rows.push({label:m[1],value:m[2]});}
-  if(ambiguous||rows.length<2||rows.map(r=>r.label+'：'+r.value).join('\n\n')!==value)continue;
-  for(const row of rows)add(out,{field:'projects.'+project.id+'.'+names[row.label],target_hint:row.label,value:{zh:row.value,en:null},source_text:'本人核对的旧项目修复'},['repair',project.id,row.label,value]);
+  const title=project.title?.zh||'项目';
+  if(!project.role?.zh&&!project.role?.en)add(out,{field:'projects.'+project.id+'.role',target_hint:title+' / 本人角色',value:{zh:null,en:null},source_text:'本人填写的项目角色',requiresUserValue:true},['repair',project.id,'role']);
+  if(typeof value!=='string'||sensitive('项目描述',value))continue;
+  const markers=[...value.matchAll(/(?:^|\n\n)(项目描述|职责|项目中职责|描述And职责)：/g)];
+  if(!markers.length){note(out,'项目内容待核对',title+'：找不到明确的旧版字段标签。已保留项目原文，请仅补充缺失的项目字段。');continue;}
+  const labels=markers.map(m=>m[1]);
+  if(!old.source||old.source!==value.slice(0,200)||markers[0].index!==0||markers.length<2||new Set(labels).size!==labels.length){note(out,'项目内容待核对',title+'：原有项目内容无法可靠拆分，请保留原文并核对缺少的字段。');continue;}
+  const rows=markers.map((m,i)=>({label:m[1],value:value.slice(m.index+m[0].length,i+1<markers.length?markers[i+1].index:value.length)}));
+  if(rows.some(r=>!r.value.trim()||/(?:项目描述|职责|项目中职责|描述And职责)：/.test(r.value))||rows.map(r=>r.label+'：'+r.value).join('\n\n')!==value){note(out,'项目内容待核对',title+'：原有项目内容无法可靠拆分，请保留原文并核对缺少的字段。');continue;}
+  note(out,'项目分段请核对',title+'：分段来自当前保存的原文，不能判断之后是否修改过。请核对各段；冲突时可保留现有内容。');
+  for(const row of rows)add(out,{field:'projects.'+project.id+'.'+names[row.label],target_hint:row.label,value:{zh:row.value,en:null},source_text:'本人核对的旧项目修复',repairFromCurrent:true},['repair',project.id,row.label,value]);
  }
  out.fingerprint=digest(out);return out;
 }
@@ -161,7 +168,7 @@ function rowState(change,target,profile,parsed,version){
  if(!target)reasons.push('目标字段或记录尚未匹配');
  if(parsed.baseProfileVersion!==null&&parsed.baseProfileVersion!==version){conflict=true;reasons.push('文件基准资料版本与本机当前版本不一致');}
  if(change.previous_value&&['zh','en'].some(lang=>change.previous_value[lang]!==null&&change.previous_value[lang]!==existing?.[lang])){conflict=true;reasons.push('文件声明的旧值与当前资料不一致');}
- if(existing?.confirmed&&['zh','en'].some(lang=>change.value[lang]!==null&&existing[lang]!==null&&change.value[lang]!==existing[lang])){conflict=true;reasons.push('将替换已有已确认值，须明确选择替换');}
+ if((existing?.confirmed||change.repairFromCurrent)&&['zh','en'].some(lang=>change.value[lang]!==null&&existing?.[lang]!==null&&existing?.[lang]!==undefined&&change.value[lang]!==existing[lang])){conflict=true;reasons.push('将替换已有内容，须明确选择替换');}
  if(['zh','en'].some(lang=>typeof change.value[lang]==='string'&&change.value[lang].length>10000)){blocked=true;reasons.push('完整原文超过当前资料字段长度，保留待整理，不截断或丢弃');}
  const info=target?pathInfo(target):change.field?pathInfo(change.field):null;
  const qualified=change.qualifier&&(!info||/Date$/.test(info.field)||['zh','en'].some(lang=>change.value[lang]!==null&&!(change.qualifier==='expected'?/预计|预期|expected/i:/在读|进行中|至今|in.progress|ongoing|currently|present/i).test(change.value[lang])));

@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {createApp} from '../server.mjs';
+import {parseProfileImport} from '../profile-update.mjs';
+import {emptyProfile} from '../../autofill-extension/shared/schema.js';
 import {testDirectory,removeTestDirectory,browserOptions,evidenceRoot} from '../../autofill-extension/tests/runtime.mjs';
 
 const {chromium}=createRequire(new URL('../../autofill-extension/package.json',import.meta.url))('playwright');
@@ -59,6 +61,52 @@ try{
   await page.reload();await page.getByText('查看或修改完整资料（可选）',{exact:true}).click();
   assert.equal(await editor().locator(`[data-focus="profile-projects-${ids[0]}-responsibility-zh"]`).inputValue(),'重启后本人再次修改');
   assert.deepEqual(app.store.state.profile.data.projects.map(p=>p.id),ids);
+ });
+ await check('旧版已导入项目的真实页面修复、冲突保护和重复导入',async()=>{
+  // Seed the persisted shape produced by the accepted older importer. The
+  // attachment and all project contents are deliberately fictional.
+  await page.goto('about:blank');await app.close();
+  const oldDir=path.join(isolated,'old-import');app=await createApp({dataDir:oldDir,port:0,startFixture:false,testMode:true});localOrigins.add(app.url);
+  const oldProjects=[1,2,3].map(i=>({id:`legacy-${i}`,项目名称:`虚构旧项目${i}`,项目描述:`虚构描述${i}第一段\n\n第二段`,职责:`虚构职责${i}`,项目中职责:`虚构项目职责${i}`,描述And职责:`虚构描述与职责${i}`}));
+  const oldDocument={version:'3.0.0',exportTime:'2026-01-01',config:{projectList:oldProjects}};
+  const parsed=parseProfileImport(oldDocument),profile=emptyProfile(),mappings={};
+  const value=(zh,source=zh)=>({zh,en:null,source:source.slice(0,200),confirmed:true});
+  for(let i=0;i<oldProjects.length;i++){
+   const row=oldProjects[i],record=parsed.records[i];mappings[record.key]=record.proposedId;
+   const combined=['项目描述','职责','项目中职责','描述And职责'].map(label=>label+'：'+row[label]).join('\n\n');
+   profile.projects.push({id:record.proposedId,title:value(row.项目名称),description:value(combined),...(i===0?{projectDuty:value('本人后来修改的项目职责')}: {})});
+  }
+  const ambiguous='项目描述：待本人核对\n\n职责：第一段\n\n职责：第二段';
+  profile.projects.push({id:'ambiguous-project',title:value('虚构需核对项目'),role:value('既有角色'),description:value(ambiguous)});
+  app.store.state.profile={version:1,data:profile,mode:'demo',updatedAt:new Date().toISOString()};app.store.state.profileImportMappings=mappings;app.store.save();
+  const bytes=Buffer.from('Fictional attachment retained during old profile repair');app.store.setResume({name:'fictional-repair.txt',mime:'text/plain',base64:bytes.toString('base64'),mode:'demo'});
+  const attachment=structuredClone(app.store.state.resume),oldIds=profile.projects.map(row=>row.id);
+  await open();const pending=responseFor('/api/profile/import/repair-preview');await page.getByRole('button',{name:'检查已有资料是否需要修复',exact:true}).click();assert.equal((await pending).status(),200);await form().waitFor();
+  const repair=structuredClone(app.store.profileFileDraft);assert.equal(repair.kind,'project-repair');
+  assert.equal(app.store.state.profile.version,1);assert.ok(repair.notes.some(note=>note.label==='项目内容待核对'));
+  assert.equal(await form().getByText('请核对项目内容',{exact:true}).isVisible(),true);
+  assert.equal(await form().getByText('草稿按当前保存的项目原文尝试分段；请逐项核对。无法确认时保留原内容。',{exact:true}).isVisible(),true);
+  assert.equal(await form().getByText('虚构需核对项目：原有项目内容无法可靠拆分，请保留原文并核对缺少的字段。',{exact:true}).isVisible(),true);
+  for(let i=1;i<=3;i++)await form().getByLabel(`选择项目 ${i} 的角色`,{exact:true}).check();
+  await form().getByRole('button',{name:'将选中项目的角色设为核心成员',exact:true}).click();
+  for(const id of oldIds.slice(0,3)){
+   const item=repair.changes.find(change=>change.field===`projects.${id}.description`);assert.ok(item);
+   await form().locator(`[data-import-change-id="${item.id}"]`).getByLabel('项目描述冲突处理',{exact:true}).selectOption('apply');
+  }
+  const edited=repair.changes.find(change=>change.field===`projects.${oldIds[0]}.projectDuty`);assert.ok(edited);
+  assert.equal(await form().locator(`[data-import-change-id="${edited.id}"]`).getByLabel('项目中职责冲突处理',{exact:true}).inputValue(),'keep');
+  const confirmation=responseFor('/api/profile/import/confirm');await form().getByRole('button',{name:'确认并保存资料',exact:true}).click();assert.equal((await confirmation).status(),200);
+  let saved=app.store.state.profile;assert.equal(saved.version,2);assert.deepEqual(saved.data.projects.map(row=>row.id),oldIds);
+  for(let i=0;i<3;i++){const row=saved.data.projects[i];assert.equal(row.role.zh,'核心成员');assert.equal(row.description.zh,oldProjects[i].项目描述);assert.equal(row.responsibility.zh,oldProjects[i].职责);assert.equal(row.projectDuty.zh,i===0?'本人后来修改的项目职责':oldProjects[i].项目中职责);assert.equal(row.descriptionAndDuty.zh,oldProjects[i].描述And职责);}
+  assert.equal(saved.data.projects[3].description.zh,ambiguous);assert.deepEqual(app.store.state.resume,attachment);
+  await page.goto('about:blank');await app.close();app=await createApp({dataDir:oldDir,port:0,startFixture:false,testMode:true});localOrigins.add(app.url);await open();
+  assert.deepEqual(app.store.state.profile.data.projects.map(row=>row.id),oldIds);assert.equal(app.store.state.profile.data.projects[0].projectDuty.zh,'本人后来修改的项目职责');
+  const preview=responseFor('/api/profile/import/preview');await page.getByLabel('选择资料文件（JSON）',{exact:true}).setInputFiles({name:'fictional-old-profile.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(oldDocument))});assert.equal((await preview).status(),200);await form().waitFor();
+  const repeated=structuredClone(app.store.profileFileDraft);assert.ok(repeated.records.every(record=>record.suggestedTarget===mappings[record.key]));
+  const conflict=repeated.changes.find(change=>change.field===`projects.${oldIds[0]}.projectDuty`);assert.ok(conflict);
+  assert.equal(await form().locator(`[data-import-change-id="${conflict.id}"]`).getByLabel('项目中职责冲突处理',{exact:true}).inputValue(),'keep');
+  const reConfirm=responseFor('/api/profile/import/confirm');await form().getByRole('button',{name:'确认并保存资料',exact:true}).click();assert.equal((await reConfirm).status(),200);
+  saved=app.store.state.profile;assert.equal(saved.version,2);assert.deepEqual(saved.data.projects.map(row=>row.id),oldIds);assert.equal(saved.data.projects[0].projectDuty.zh,'本人后来修改的项目职责');assert.equal(saved.data.projects[3].description.zh,ambiguous);assert.deepEqual(app.store.state.resume,attachment);assert.deepEqual(await fs.readFile(attachment.file),bytes);
  });
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(app.store.state.tasks.length,0);evidence.ok=true;
 }catch(error){evidence.ok=false;evidence.failure=String(error.stack||error).slice(0,3500);console.error(evidence.failure);process.exitCode=1;}

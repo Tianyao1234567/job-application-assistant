@@ -104,6 +104,10 @@ async function uploadProofFor(command,tab,file) {
   const frames=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:()=>location.href});
   return frames[0]?.documentId===proof.documentId&&frames[0]?.result===command.task.url?proof:null;
 }
+// Read-only attachment checks need identity and digest, never the resume bytes.
+function greenhouseFileIdentity(file) {
+  return file&&typeof file==='object'?{name:file.name,size:file.size,sha256:file.sha256}:null;
+}
 async function observedGreenhouseUpload(command,tab,expect,file) {
   const {greenhouseUploadProofs={}}=await chrome.storage.local.get('greenhouseUploadProofs');
   delete greenhouseUploadProofs[command.task.id];await chrome.storage.local.set({greenhouseUploadProofs});
@@ -267,7 +271,8 @@ async function executeGreenhouse(command,expect,payload) {
       const proof=await uploadProofFor(command,tab,file);
       if((!expect.replay||inspected.submissionProtocol)&&!proof)return fail('manual','原附件上传证明不可用，请本人核对；未重新上传。');
       await inject(tab,expect);
-      const frames=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(context,layout,file)=>JobGreenhouse.verifyUpload(context,layout,file),args:[expect,payload.layout,file]});
+      const metadata=greenhouseFileIdentity(file);
+      const frames=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(context,layout,file)=>JobGreenhouse.verifyUpload(context,layout,file),args:[expect,payload.layout,metadata]});
       const verified=frames[0]?.result;
       if(proof&&frames[0]?.documentId!==proof.documentId)return fail('structure','附件所在页面已变化；未重新上传。');
       return verified?.ok?{...verified,tabId:tab.id,url:tab.url}:verified||fail('manual','无法核对原附件，未重新上传。');
@@ -291,18 +296,25 @@ async function executeGreenhouse(command,expect,payload) {
     // same task before crossing the submit boundary, so it is recorded and
     // answered rather than treated as a completed form.
     if(inspected.questions?.length)return fail('questions_changed','申请表出现尚未确认的问题，将重新检查当前任务。');
+    // The native Greenhouse form keeps the outgoing attachment reference in
+    // application state. The upload proof certifies an earlier object only;
+    // network observation after a click cannot prevent a different object
+    // being sent. Do not cross the submission boundary without a pre-click
+    // binding of the actual outgoing attachment.
+    if(!expect.replay||inspected.submissionProtocol)return fail('manual','当前页面的最终附件引用无法在提交前核实；已暂停，未提交申请。');
     if((!expect.replay||inspected.uploadedResumeConfirmed)&&!await uploadProofFor(command,tab,payload.file))return fail('manual','缺少绑定本任务、执行资料及源文件的精确上传对象证据，已暂停，未提交申请。');
     await inject(tab,expect);
-    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
+    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,greenhouseFileIdentity(payload.file)]);
     return prepared.ok?{ok:true,tabId:tab.id,url:tab.url}:prepared;
   }
   if(command.op==='submit'){
     const checked=await read(tab,expect,'inspect');
     if(!checked.ok||checked.receipt)return checked;
+    if(!expect.replay||checked.submissionProtocol)return fail('manual','当前页面的最终附件引用无法在提交前核实；未点击提交。');
     if(checked.layout!==payload.layout)return fail('structure','提交前 Greenhouse 表单已变化。');
     const uploadProof=await uploadProofFor(command,tab,payload.file);
     if((!expect.replay||checked.uploadedResumeConfirmed)&&!uploadProof)return fail('manual','本次附件精确对象尚未核实，未进入提交边界；请核对原任务。');
-    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,payload.file]);
+    const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,greenhouseFileIdentity(payload.file)]);
     if(!prepared.ok||!prepared.token)return prepared;
     if(checked.submissionProtocol){
       const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',spec:{taskId:command.task.id,profileId:bridge.profileId,tabId:tab.id,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,file:payload.file,uploadProof,documentId:uploadProof?.documentId,uploadedResumeConfirmed:checked.uploadedResumeConfirmed===true,source:command.task.url,replay:expect.replay,...checked.submissionProtocol}});

@@ -151,10 +151,13 @@ export function createProfileFileImport(context) {
   }
   function previewForm(value){
     initialize(value);
+    const repairNotice=value.kind==='project-repair'?banner('请核对项目内容','草稿按当前保存的项目原文尝试分段；请逐项核对。无法确认时保留原内容。','warning'):null;
     if(value.status==='saved')return el('div',{},banner('资料文件已核对保存',`已保存到资料 v${value.savedProfileVersion||value.profileVersion}；原附件和未列出的资料保持不变。`,'good'),pending(value));
     if(value.status!=='ready')return banner('资料文件暂不能确认保存',value.message||'请核对文件格式后重新预览。','warning');
     const stale=value.profileVersion!==getState().profile.version,wrongMode=selectedMode&&selectedMode!==value.mode;
     const form=el('form',{'aria-label':'核对资料文件变更'});
+    if(repairNotice)form.append(repairNotice);
+    if(value.kind==='project-repair')for(const note of value.notes||[])form.append(p(typeof note==='string'?note:note.text||'项目内容需要本人核对。','warning'));
     if(stale)form.append(banner('资料版本已经变化','原资料未被覆盖。请点击“重新预览所选资料文件”，用当前版本重新核对。','warning'));
     if(wrongMode)form.append(banner('资料文件用途已经切换','请重新预览所选文件，不能用旧用途的预览保存。','warning'));
     form.append(p('请核对并按需修改草稿，然后一次确认保存。已有资料冲突时可选择保留的内容。','details-note'),...recordControls({...value,records:(value.records||[]).filter(record=>!record.suggestedTarget)}));
