@@ -86,7 +86,8 @@ try{
   assert.equal(app.store.state.profile.version,1);assert.ok(repair.notes.some(note=>note.label==='项目内容待核对'));
   assert.equal(await form().getByText('请核对项目内容',{exact:true}).isVisible(),true);
   assert.equal(await form().getByText('草稿按当前保存的项目原文尝试分段；请逐项核对。无法确认时保留原内容。',{exact:true}).isVisible(),true);
-  assert.equal(await form().getByText('虚构需核对项目：原有项目内容无法可靠拆分，请保留原文并核对缺少的字段。',{exact:true}).isVisible(),true);
+  const warning=form().locator('p.warning').filter({hasText:'虚构需核对项目：原有项目内容无法可靠拆分，请保留原文并核对缺少的字段。'});
+  assert.equal(await warning.count(),1);assert.equal(await warning.isVisible(),true);
   for(let i=1;i<=3;i++)await form().getByLabel(`选择项目 ${i} 的角色`,{exact:true}).check();
   await form().getByRole('button',{name:'将选中项目的角色设为核心成员',exact:true}).click();
   for(const id of oldIds.slice(0,3)){
