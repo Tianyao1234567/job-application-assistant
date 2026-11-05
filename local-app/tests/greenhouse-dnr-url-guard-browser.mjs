@@ -11,11 +11,12 @@ import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot} from '../
 const {chromium}=createRequire(new URL('../../autofill-extension/package.json',import.meta.url))('playwright');
 const directory=await testDirectory('dnr-url-guard'),extension=path.join(directory,'extension');
 const origin='http://127.0.0.1:17322',url=origin+'/greenhouse/fictional/jobs/12345',received=[];
-let server,context;
+let server,context,sw;
 const report={scope:'Fictional MV3 DNR + CDP URL-marker experiment; not a production guard',checks:[],ok:false};
 function worker(){
  let target,listener,hold=false,paused=false;
  const token=crypto.randomUUID();
+ globalThis.stats={events:0,matched:0,rejected:0,errors:0,missingBody:0};
  globalThis.isPaused=()=>paused;
  globalThis.install=async()=>{
   const prefix='^http://127[.]0[.]0[.]1:17322/greenhouse/fictional/jobs/12345';
@@ -29,14 +30,17 @@ function worker(){
   target={tabId};hold=shouldHold;paused=false;
   listener=async(source,method,params)=>{
    if(source.tabId!==tabId||method!=='Fetch.requestPaused')return;
-   paused=true;if(hold)return;
+   paused=true;globalThis.stats.events++;if(hold)return;
    try{
+    if(!params.request.postData)globalThis.stats.missingBody++;
     const body=JSON.parse(params.request.postData||'');
     if(params.request.method!=='POST'||params.request.url!==url||body.reference!=='fictional-object-a'){
+     globalThis.stats.rejected++;
      await chrome.debugger.sendCommand(target,'Fetch.failRequest',{requestId:params.requestId,errorReason:'BlockedByClient'});return;
     }
+    globalThis.stats.matched++;
     await chrome.debugger.sendCommand(target,'Fetch.continueRequest',{requestId:params.requestId,url:params.request.url+'?mv3_guard='+token});
-   }catch{try{await chrome.debugger.sendCommand(target,'Fetch.failRequest',{requestId:params.requestId,errorReason:'BlockedByClient'});}catch{}}
+   }catch{globalThis.stats.errors++;try{await chrome.debugger.sendCommand(target,'Fetch.failRequest',{requestId:params.requestId,errorReason:'BlockedByClient'});}catch{}}
   };
   chrome.debugger.onEvent.addListener(listener);await chrome.debugger.attach(target,'1.3');
   await chrome.debugger.sendCommand(target,'Fetch.enable',{patterns:[{urlPattern:url,requestStage:'Request'}]});
@@ -54,7 +58,7 @@ server=http.createServer(async(req,res)=>{
 await new Promise((resolve,reject)=>server.once('error',reject).listen(17322,'127.0.0.1',resolve));
 try{
  context=await chromium.launchPersistentContext(path.join(directory,'browser'),browserOptions({headless:false,args:['--disable-extensions-except='+extension,'--load-extension='+extension]}));
- const sw=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:15000});assert.match(sw.url(),/^chrome-extension:\/\/[a-p]{32}\//);
+ sw=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:15000});assert.match(sw.url(),/^chrome-extension:\/\/[a-p]{32}\//);
  const page=await context.newPage();await page.goto(url);const tabId=await sw.evaluate(async u=>(await chrome.tabs.query({url:u}))[0]?.id,url);assert.ok(Number.isInteger(tabId));
  await sw.evaluate(()=>globalThis.install());assert.equal(await page.evaluate(()=>window.apply('wrong')),0);assert.equal(received.length,0);report.checks.push('default block without debugger');
  await sw.evaluate(id=>globalThis.arm(id,false),tabId);assert.equal(await page.evaluate(()=>window.apply('wrong')),0);assert.equal(received.length,0);report.checks.push('wrong reference blocked');
@@ -68,5 +72,5 @@ try{
  // replayed after detach, it is not a safe authorization mechanism.
  const replay=origin+received[0].url;await page.evaluate(async u=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:'wrong'})}).catch(()=>{}),replay);
  assert.equal(received.length,1,'server-observed marker replay allowed an unverified request');report.checks.push('observed marker cannot be replayed');report.ok=true;
-}catch(error){report.error=String(error.stack||error).slice(0,3500);process.exitCode=1;}
+}catch(error){report.error=String(error.stack||error).slice(0,3500);if(sw)try{report.guard=await sw.evaluate(()=>globalThis.stats);}catch{}process.exitCode=1;}
 finally{await context?.close();await new Promise(resolve=>server.close(resolve));await fs.mkdir(evidenceRoot,{recursive:true});await fs.writeFile(path.join(evidenceRoot,'greenhouse-dnr-url-guard.json'),JSON.stringify(report,null,2));await removeTestDirectory(directory);console.log('::notice title=Fictional DNR URL guard experiment::'+JSON.stringify(report).replaceAll('%','%25').replaceAll('\n','%0A'));}

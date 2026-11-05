@@ -65,10 +65,10 @@ test('changed confirmed profile fact retains the earlier answer for review witho
  const family=env.q(task,'last_name','Last Name*','confirmed-profile-fact');begin(env,task,[family]);
  const body=batchBody(store,task,['Earlier family name']);body.answers[0].save='scope';store.action(body);
  const data=structuredClone(store.state.profile.data);data.personal.lastName={zh:'Changed family name',en:null,source:'Fictional owner edit',confirmed:true};
- store.setProfile({data,mode:'demo',confirmed:true,baseVersion:store.state.profile.version});env.confirm(task);
- assert.equal(task.answers[family.scope].value,'Earlier family name');assert.equal(task.answers[family.scope].stale,true);
- const page={...family,alreadyPopulated:true,currentValue:'Earlier family name'};task.questions=[page];
- assert.equal(store.applicableAnswer(task,page),null);assert.equal(store.answerBatch(task).questions[0].priorAnswer.value,'Earlier family name');
+ store.setProfile({data,mode:'demo',confirmed:true,baseVersion:store.state.profile.version});env.confirm(task);const current=store.task(task.id);
+ assert.equal(current.answers[family.scope].value,'Earlier family name');assert.equal(current.answers[family.scope].stale,true);
+ const page={...family,alreadyPopulated:true,currentValue:'Earlier family name'};current.questions=[page];
+ assert.equal(store.applicableAnswer(current,page),null);assert.equal(store.answerBatch(current).questions[0].priorAnswer.value,'Earlier family name');
  const command=env.take();assert.equal(command.op,'inspect');assert.ok(!command.task.confirmedAnswers.some(answer=>answer.scope===family.scope));
  const reopened=new Store(store.paths);assert.equal(reopened.task(task.id).answers[family.scope].value,'Earlier family name');
 });
