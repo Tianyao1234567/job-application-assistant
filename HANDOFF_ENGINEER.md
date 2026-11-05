@@ -6,6 +6,9 @@
 
 2026-11-06 已读 Manager 续办 `5afcd67`，继续原任务 `5c8b638`。有效工程分支仍为 `engineer/profile-import-usability`；未合并 PR #5、未发布更新或执行真实投递。
 
+- [托管运行 42087321711](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42087321711)对应 `403168a`：源码/定点、旧学历及技能修复页面、真实 MV3 虚构补答与跨任务事实复用通过；Windows 虚构 candidate.8/.10 实际更新、扩展身份/数据/附件和 unknown 不重投检查通过，但未覆盖更新后实际资料修复及待答继续。调试器断开时错误请求仍到达；DNR 请求头匹配在随包 Chromium 中不受支持。真实原生 Greenhouse 仍暂停，新包尚未发布。
+- 正在补充 Windows 两条旧版本更新后的平台修复与原待答任务排队检查；另用虚构站实验 DNR URL 标记及标记重放风险。实验只用于判断机制，不改产品扩展权限，未通过前不解除原生提交暂停。
+
 - [托管运行 42071609819](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42071609819)对应 `d7caa6e`，真实 MV3 加载与原虚构补答页面场景通过；跨任务事实复用新增测试另行验证，不能把前次结果当作通过。
 - [托管运行 42086198637](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42086198637)因容器内 Git 元数据访问导致打包回归失败，浏览器复制未执行；附件拦截实验因此没有启动浏览器，不能作为可行性结论。正在修复 CI 工作目录信任并重跑。
 - 正在验证真实 MV3 发送前核验；调试器断开可能释放暂停请求，需独立证明失效时服务端收到零次申请。原生真实站提交暂停仍保留。旧学历/在读及综合技能的既有资料修复、candidate.8/.10 升级兼容均为开发中，须以新提交托管测试为准；尚无可交付 update.cmd。

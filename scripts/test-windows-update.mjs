@@ -49,9 +49,19 @@ try{
   phase='old-normal-stop';service(directory,'stop');managed=undefined;
   const stateFile=path.join(directory,'.runtime/data/state.json'),state=JSON.parse(await fs.readFile(stateFile,'utf8'));
   state.profile.data.projects.push({id:'fictional-stable-project',title:{zh:'虚构本人修改项目',en:null,source:'本人确认',confirmed:true}});
-  if(source===UPDATE_BASELINES[3])state.profileImportMappings={'legacy:projects:0123456789abcdef01234567':'fictional-stable-project'};
+  const value=zh=>({zh,en:null,source:'虚构本人确认',confirmed:true});
+  state.profile.data.education=[{id:'fictional-master',school:value('虚构大学'),major:value('虚构专业')}];
+  state.profile.data.skills={description:value('编程：熟练 Python、C++；工具：Git；熟悉虚构模块。')};
+  if(source===UPDATE_BASELINES[3]){
+   const recordKey='legacy:education:0123456789abcdef01234567',oldId='legacy-education-0123456789abcdef01234567';
+   state.profileImportMappings={'legacy:projects:0123456789abcdef01234567':'fictional-stable-project',[recordKey]:'fictional-master'};
+   state.profileImportHistory=[{id:'fictional-old-import',kind:'legacy-v3',fingerprint:'fictional',notes:[],pendingChanges:[
+    {id:'degree',recordKey,field:`education.${oldId}.degree`,target:null,qualifier:'in_progress',value:{zh:'硕士',en:null},source_text:'学历：硕士；最高学历：硕士研究生（在读）'},
+    {id:'date',recordKey,field:`education.${oldId}.endDate`,target:null,qualifier:'in_progress',value:{zh:'2028-06',en:null},source_text:'结束就读时间：2028-06；最高学历：硕士研究生（在读）'}
+   ]}];
+  }
   const task={id:'fictional-task',jobId:'fictional-job',siteId:state.sites[0].id,title:'Fictional relocation task',url:'http://127.0.0.1:17322/site/alpha/jobs/cpp-001',company:'Fictional company',location:'Fictional city',mode:'demo',status:'unknown',phase:'verify',steps:[],executionProfileId:originalBridge.profileId,submissionStarted:true,resumeSnapshot:structuredClone(state.resume),profileSnapshot:structuredClone(state.profile),profileVersion:state.profile.version,resumeVersion:state.resume.version};
-  const pending={id:'fictional-pending',jobId:'fictional-pending-job',siteId:state.sites[0].id,title:'Fictional pending task',url:'http://127.0.0.1:17322/site/alpha/jobs/cpp-002',company:'Fictional company',location:'Fictional city',mode:'demo',status:'waiting_answer',phase:'answer',steps:[],question:{key:'motivation',text:'Fictional missing answer',scope:'fictional-task-only'}};
+  const pending={id:'fictional-pending',jobId:'cpp-002',siteId:state.sites[0].id,title:'Fictional pending task',url:'http://127.0.0.1:17322/site/alpha/jobs/cpp-002',company:'Fictional company',location:'Fictional city',mode:'demo',status:'waiting_answer',phase:'answer',steps:[],question:{key:'motivation',text:'Fictional missing answer',scope:`local-v1:${state.sites[0].tenant}:cpp-002:motivation:v1`}};
   state.tasks=[task,pending];state.answers=[{scope:'fictional-memory',value:'Preserve the answer'}];await fs.writeFile(stateFile,JSON.stringify(state,null,2));
   const before=structuredClone(state),originalPDF=await fs.readFile(state.resume.file),browserDirectory=(await fs.readdir(path.join(directory,'.runtime/browsers'))).find(name=>/^chromium-[0-9]+$/.test(name)),browserRelative=path.join('.runtime/browsers',browserDirectory,'chrome-win64/chrome.exe'),browserHash=hash(await fs.readFile(path.join(directory,browserRelative)));
   phase='move-and-update';const shorter=path.join(parent,'short-'+index);await fs.rename(directory,shorter);directory=shorter;activeRoot=directory;await fs.copyFile(updateFile,path.join(directory,'更新.cmd'));
@@ -72,7 +82,17 @@ try{
   const current=await api(directory);assert.equal(current.connection.profileId,originalBridge.profileId);assert.equal(current.connection.extensionId,newId);assert.equal(current.manualPaused,true);assert.equal(current.tasks[0].canResume,false);assert.equal(current.tasks[0].status,'unknown');assert.equal(JSON.parse(await fs.readFile(path.join(directory,'.runtime/installation.json'),'utf8')).migration.pending,false);
   assert.ok((await fresh.context.cookies(BASE)).some(c=>c.name==='fictional_migration_cookie'&&c.value==='preserve-fixture-session'));
   assert.match((await api(directory,'/action',{action:'task-resume',taskId:'fictional-task'},400)).error,/已记录过提交阶段/);assert.equal((await api(directory)).tasks[0].status,'unknown');
+  phase='repair-existing-and-answer';
+  const version=(await api(directory)).profile.version,{draft}=await api(directory,'/profile/import/repair-preview',{mode:'demo',profileVersion:version});
+  const decisions=draft.changes.map(change=>({id:change.id,action:change.blocked||change.conflict||change.requiresUserValue&&change.field!=='education.fictional-master.degree'?'keep':'apply',...(change.requiresUserValue&&change.field==='education.fictional-master.degree'?{editedValue:'硕士'}:{})}));
+  await api(directory,'/profile/import/confirm',{id:draft.id,profileVersion:version,mode:'demo',confirmed:true,decisions,recordMappings:{},createRecords:[],answerSelections:[]});
+  const repaired=await api(directory);assert.equal(repaired.profile.data.education[0].id,'fictional-master');assert.equal(repaired.profile.data.education[0].degree.zh,'硕士');
+  if(source===UPDATE_BASELINES[3]){assert.equal(repaired.profile.data.education[0].studyStatus.zh,'在读');assert.equal(repaired.profile.data.education[0].expectedEndDate.zh,'2028-06');}
+  assert.equal(repaired.profile.data.skills.programming.zh,'编程：熟练 Python、C++；');assert.equal(repaired.profile.data.skills.description.zh,'编程：熟练 Python、C++；工具：Git；熟悉虚构模块。');
+  await api(directory,'/action',{action:'answer',taskId:'fictional-pending',answer:'Fictional confirmed answer',save:false});
+  const queued=(await api(directory)).tasks.find(t=>t.id==='fictional-pending');assert.equal(queued.status,'queued');assert.equal(queued.phase,'inspect');
   phase='new-stop-restart';service(directory,'stop');managed=undefined;service(directory,'start');const again=await connect(directory);assert.equal((await again.runner.evaluate(async()=>(await chrome.storage.local.get('localBridge')).localBridge.profileId)),originalBridge.profileId);assert.equal((await api(directory)).manualPaused,true);service(directory,'stop');managed=undefined;
+  const restored=JSON.parse(await fs.readFile(path.join(directory,'.runtime/data/state.json'),'utf8'));assert.equal(restored.tasks.find(t=>t.id==='fictional-pending').answer.value,'Fictional confirmed answer');assert.equal(restored.tasks.find(t=>t.id==='fictional-task').status,'unknown');assert.equal(restored.profile.data.education[0].degree.zh,'硕士');
   const repeated=cmd(directory);assert.equal(repeated.status,0);assert.ok(repeated.stdout.includes('UPDATE_CURRENT'));
   assert.equal(hash(await fs.readFile(path.join(directory,browserRelative))),browserHash);
   evidence.scenarios.push({baseline:baselineVersion,baselineSource:source,passed:true,extensionIdPreserved:true,originalProfileIdAndLedgersPreserved:true,pdfDependencyInstalledOrReused:true,freshActualHeartbeat:true,attachmentBytesAndHashMatch:true,cookieRetained:true,unknownCannotResume:true,manualPausePreserved:true,restartPassed:true,repeatedUpdatePassed:true,restoreRejectsNewExtensionData:index===0?true:undefined,corruptPackageRejected:true,unrelatedLivePidRefusedWithoutKilling:true,existingBrowserBinaryUnchanged:true,fullBrowserReinstall:false});
