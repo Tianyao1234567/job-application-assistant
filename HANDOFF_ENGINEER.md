@@ -8,6 +8,7 @@
 
 - [托管运行 42087321711](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42087321711)对应 `403168a`：源码/定点、旧学历及技能修复页面、真实 MV3 虚构补答与跨任务事实复用通过；Windows 虚构 candidate.8/.10 实际更新、扩展身份/数据/附件和 unknown 不重投检查通过，但未覆盖更新后实际资料修复及待答继续。调试器断开时错误请求仍到达；DNR 请求头匹配在随包 Chromium 中不受支持。真实原生 Greenhouse 仍暂停，新包尚未发布。
 - 正在补充 Windows 两条旧版本更新后的平台修复与原待答任务排队检查；另用虚构站实验 DNR URL 标记及标记重放风险。实验只用于判断机制，不改产品扩展权限，未通过前不解除原生提交暂停。
+- [托管运行 42088279646](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42088279646)对应 `1e0ce37`：Windows 中 candidate.8/.10 更新后实际完成旧学历/技能平台修复、保存原待答并重新排队，重启后数据保留；尚未证明原任务在真实扩展中继续完成。真实 MV3 虚构补答通过。DNR URL 标记实验默认拦截和错误引用拦截通过，但正确引用也未放行；初版规则未覆盖任意查询串，正在修正规则后重试，不能据此放行产品。
 
 - [托管运行 42071609819](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42071609819)对应 `d7caa6e`，真实 MV3 加载与原虚构补答页面场景通过；跨任务事实复用新增测试另行验证，不能把前次结果当作通过。
 - [托管运行 42086198637](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42086198637)因容器内 Git 元数据访问导致打包回归失败，浏览器复制未执行；附件拦截实验因此没有启动浏览器，不能作为可行性结论。正在修复 CI 工作目录信任并重跑。

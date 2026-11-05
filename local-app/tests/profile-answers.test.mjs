@@ -60,6 +60,18 @@ test('confirming one profile fact retains a different confirmed task-only fact w
  assert.equal(task.answers[family.scope].value,'Applicant');assert.equal(store.applicableAnswer(task,family),'Applicant');
  const reopened=new Store(store.paths);assert.equal(reopened.task(task.id).answers[family.scope].value,'Applicant');
 });
+test('changed confirmed profile fact retains the earlier answer for review without authorizing it in the runner',t=>{
+ const store=demoStore(t),env=taskEnvironment(store),task=env.add('651');
+ const family=env.q(task,'last_name','Last Name*','confirmed-profile-fact');begin(env,task,[family]);
+ const body=batchBody(store,task,['Earlier family name']);body.answers[0].save='scope';store.action(body);
+ const data=structuredClone(store.state.profile.data);data.personal.lastName={zh:'Changed family name',en:null,source:'Fictional owner edit',confirmed:true};
+ store.setProfile({data,mode:'demo',confirmed:true,baseVersion:store.state.profile.version});env.confirm(task);
+ assert.equal(task.answers[family.scope].value,'Earlier family name');assert.equal(task.answers[family.scope].stale,true);
+ const page={...family,alreadyPopulated:true,currentValue:'Earlier family name'};task.questions=[page];
+ assert.equal(store.applicableAnswer(task,page),null);assert.equal(store.answerBatch(task).questions[0].priorAnswer.value,'Earlier family name');
+ const command=env.take();assert.equal(command.op,'inspect');assert.ok(!command.task.confirmedAnswers.some(answer=>answer.scope===family.scope));
+ const reopened=new Store(store.paths);assert.equal(reopened.task(task.id).answers[family.scope].value,'Earlier family name');
+});
 test('saved own/memory answers with a different current page value remain in the conflict batch',t=>{
  const store=demoStore(t),env=taskEnvironment(store),task=env.add('701'),original=env.q(task,'motivation','Why this fictional role?','company-motivation');begin(env,task,[original]);store.action(batchBody(store,task,['Saved answer']));
  const conflict={...original,alreadyPopulated:true,currentValue:'Manually changed answer'};env.prepare(task,[conflict]);assert.equal(task.status,'waiting_answer');assert.equal(store.answerBatch(task).questions.length,1);assert.equal(store.applicableAnswer(task,conflict),null);

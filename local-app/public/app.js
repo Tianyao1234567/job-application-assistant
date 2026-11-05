@@ -482,9 +482,9 @@ function answerForm(issue,task) {
   const batch=task.answerBatch,form=el('form',{'aria-label':`集中补充答案：${task.title}`}),rows=[];
   form.append(p(`当前已收集 ${batch.questions.length} 项待处理问题。已有适用资料不再提问；一次核对后保存。`,'details-note'));
   for(const q of batch.questions){
-    const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.importedDraft?.value??q.currentValue??'');
+    const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.importedDraft?.value??q.currentValue??q.priorAnswer?.value??'');
     input.node.setAttribute('aria-label',q.text+'：答案');
-    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null);
+    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null,q.priorAnswer?p('此前回答已保留；资料发生变化，请核对后确认本次答案。','warning'):null);
     if(q.importedDraft)group.append(banner('来自已匹配资料文件的待核对答案','仅为此任务原问题预填草稿；请连同其余缺项核对后保存，不会自动执行申请。'),q.importedDraft.source_text?p('原始依据：'+q.importedDraft.source_text,'subtle'):null);
     if(input.blocked){group.append(input.node);form.append(group);continue;}
     const stable=q.profileKey,existing=q.existingFact?.zh||q.existingFact?.en||'';

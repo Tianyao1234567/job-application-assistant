@@ -18,10 +18,11 @@ function worker(){
  const token=crypto.randomUUID();
  globalThis.isPaused=()=>paused;
  globalThis.install=async()=>{
-  const match={regexFilter:'^http://127\\.0\\.0\\.1:17322/greenhouse/fictional/jobs/12345$',resourceTypes:['xmlhttprequest'],requestMethods:['post']};
+  const prefix='^http://127[.]0[.]0[.]1:17322/greenhouse/fictional/jobs/12345';
+  const match={regexFilter:prefix+'([?].*)?$',resourceTypes:['xmlhttprequest'],requestMethods:['post']};
   await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:[1,2],addRules:[
    {id:1,priority:1,action:{type:'block'},condition:match},
-   {id:2,priority:2,action:{type:'allow'},condition:{...match,regexFilter:match.regexFilter.slice(0,-1)+'\\?mv3_guard='+token+'$'}}
+   {id:2,priority:2,action:{type:'allow'},condition:{...match,regexFilter:prefix+'[?]mv3_guard='+token+'$'}}
   ]});
  };
  globalThis.arm=async(tabId,shouldHold)=>{
