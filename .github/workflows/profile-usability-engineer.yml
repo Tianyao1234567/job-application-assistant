@@ -78,6 +78,17 @@ jobs:
             python3 -c 'from pathlib import Path; a=Path(".runtime/answer-browser.log").read_text()[-4000:]; b=Path(".runtime/profile-browser.log").read_text()[-4000:]; print("::error title=Fictional browser failures::"+("Answer workflow:\n"+a+"\nProfile workflow:\n"+b).replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
             exit 1
           fi
+      - name: Probe actual MV3 answer workflow
+        env:
+          GREENHOUSE_BROWSER_MODE: extension
+        run: |
+          if xvfb-run --auto-servernum node local-app/tests/greenhouse-answer-ui-browser.mjs > .runtime/mv3-answer.log 2>&1; then
+            cat .runtime/mv3-answer.log
+          else
+            cat .runtime/mv3-answer.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/mv3-answer.log").read_text()[-5000:]; print("::error title=MV3 answer workflow::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Preserve fictional answer workflow result
         if: always()
         uses: actions/upload-artifact@v6
