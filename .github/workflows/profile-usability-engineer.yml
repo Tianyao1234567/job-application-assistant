@@ -39,6 +39,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -57,7 +58,7 @@ jobs:
         run: |
           node scripts/cloud-check.mjs
           node autofill-extension/tests/unit.test.js
-          if node --test --test-reporter=tap --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/greenhouse-runner.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-english-retirement.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs > .runtime/focused.log 2>&1; then
+          if node --test --test-reporter=tap --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/greenhouse-runner.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-english-retirement.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs local-app/tests/profile-update-package.test.mjs local-app/tests/update-install.test.mjs > .runtime/focused.log 2>&1; then
             cat .runtime/focused.log
           else
             cat .runtime/focused.log
@@ -89,6 +90,16 @@ jobs:
             python3 -c 'from pathlib import Path; s=Path(".runtime/mv3-answer.log").read_text()[-5000:]; print("::error title=MV3 answer workflow::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
             exit 1
           fi
+      - name: Probe MV3 pre-send attachment verification
+        if: ${{ !cancelled() }}
+        run: |
+          if xvfb-run --auto-servernum node local-app/tests/greenhouse-cdp-guard-browser.mjs > .runtime/mv3-guard.log 2>&1; then
+            cat .runtime/mv3-guard.log
+          else
+            cat .runtime/mv3-guard.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/mv3-guard.log").read_text()[-5000:]; print("::error title=MV3 pre-send experiment::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Preserve fictional answer workflow result
         if: always()
         uses: actions/upload-artifact@v6
@@ -96,6 +107,8 @@ jobs:
           name: fictional-answer-workflow-result
           path: |
             /workspace/.runtime/tests/evidence/greenhouse-answer-ui-browser.json
+            /workspace/.runtime/tests/evidence/greenhouse-answer-mv3-browser.json
+            /workspace/.runtime/tests/evidence/greenhouse-cdp-guard.json
             /workspace/.runtime/tests/evidence/profile-usability-ui-browser.json
           if-no-files-found: warn
           retention-days: 7

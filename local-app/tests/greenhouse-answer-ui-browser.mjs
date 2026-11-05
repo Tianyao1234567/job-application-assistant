@@ -174,7 +174,7 @@ try{
   fixture.server.on('request',request=>{const url=new URL(request.url,FIXTURE),match=/^\/greenhouse\/([a-z0-9_-]+)\/jobs\/(\d+)$/.exec(url.pathname);if(request.method==='POST'&&match)applicationPosts.push({tenant:match[1],jobId:match[2]});});
   app=await createApp({dataDir,startFixture:false,testMode:true,testKey});
   const extension=path.join(projectRoot,'autofill-extension');
-  context=await chromium.launchPersistentContext(path.join(isolated,'browser-profile'),browserOptions({headless:true,...(mode==='extension'?{args:['--disable-extensions-except='+extension,'--load-extension='+extension]}:{})}));
+  context=await chromium.launchPersistentContext(path.join(isolated,'browser-profile'),browserOptions({headless:mode!=='extension',...(mode==='extension'?{args:['--disable-extensions-except='+extension,'--load-extension='+extension]}:{})}));
   evidence.environment.browser=context.browser().version();
   await context.route('**/*',route=>{
     const url=new URL(route.request().url());
@@ -246,7 +246,7 @@ try{
       assert.ok(Object.hasOwn(values,q.key),'Unexpected question '+q.key);
       const control=form.getByLabel(q.text+'：答案',{exact:true});
       if(q.options?.length)await control.selectOption({label:values[q.key]});else await control.fill(values[q.key]);
-      await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
+      await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption(mode==='extension'&&q.key==='first_name'?'profile':'task');
     }
     // The site introduces a conditional question after the original batch was
     // captured. Keep the same live page and enable the fixture's validation.
@@ -261,6 +261,14 @@ try{
       group.append(label,select);document.querySelector('#submit_app').before(group);
     },GREENHOUSE_REPLAY.syntheticSourceChoices);
     await form.getByRole('button',{name:'一次保存以上答案并继续原任务'}).click();
+    if(mode==='extension'){
+      const review=await until('updated profile requires confirmation on the same application',state,v=>{const t=task(v,first);return t?.status==='waiting_user'&&t.needsConfirmation;});
+      assert.equal(task(review,first).id,originalId);
+      assert.equal(review.profile.data.personal.firstName.zh,'Fictional');
+      assert.equal(review.profile.data.personal.firstName.confirmed,true);
+      assert.deepEqual(counts(first),{posts:0,receipts:0});
+      await confirm(first);await action('resume');
+    }
     const dynamic=await until('new conditional question without losing original answers',state,v=>{const t=task(v,first);return t?.status==='waiting_answer'&&t.answerBatch?.questions.some(q=>q.key==='question_2');});
     const dynamicTask=task(dynamic,first);assert.equal(dynamicTask.id,originalId);
     assert.deepEqual(dynamicTask.answerBatch.questions.map(q=>q.key),['question_2'],'Already confirmed questions must not be asked again');
@@ -302,6 +310,35 @@ try{
     assert.equal((await state()).tasks.filter(t=>t.jobId===first).length,1);
     assert.deepEqual(counts(first),{posts:1,receipts:1});
   });
+  if(mode==='extension')await check('actual MV3 reuses confirmed personal fact on another task without reusing scoped answer or blank',async()=>{
+    const second=GREENHOUSE_REPLAY.jobs[1].id;
+    fixture.setScenario(second,{sourceQuestion:false});
+    await action('add',{url:jobURL(second)});await confirm(second);await action('resume');
+    let current=await until('second application batch',state,v=>task(v,second)?.status==='waiting_answer'&&task(v,second)?.answerBatch?.questions?.length);
+    let item=task(current,second);const secondId=item.id;
+    assert.notEqual(secondId,originalId);
+    const questions=item.answerBatch.questions;
+    assert.ok(!questions.some(q=>q.key==='first_name'),'Confirmed personal first name must be reused');
+    assert.ok(questions.some(q=>q.key==='question_1'),'Prior job-specific motivation must not be reused');
+    assert.ok(questions.some(q=>q.key==='preferred_name'),'Prior task-only blank must not be reused');
+    await dashboard.goto(BASE+'/#issues');
+    const form=dashboard.getByRole('form',{name:`集中补充答案：${item.title}`});await form.waitFor();
+    const values={last_name:'Applicant',country:GREENHOUSE_REPLAY.syntheticCountryChoices[0],question_1:'A different fictional reason for the second position.',question_2:GREENHOUSE_REPLAY.syntheticSourceChoices[0]};
+    for(const q of questions){
+      if(q.key==='preferred_name'){await form.getByLabel(q.text+'：本次留空',{exact:true}).check();continue;}
+      assert.ok(Object.hasOwn(values,q.key),'Unexpected second-task question '+q.key);
+      const control=form.getByLabel(q.text+'：答案',{exact:true});
+      if(q.options?.length)await control.selectOption({label:values[q.key]});else await control.fill(values[q.key]);
+      await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
+    }
+    await form.getByRole('button',{name:'一次保存以上答案并继续原任务'}).click();
+    current=await until('second task completes',state,v=>['submitted','unknown','failed','waiting_user'].includes(task(v,second)?.status));
+    item=task(current,second);assert.equal(item.id,secondId);assert.equal(item.status,'submitted',JSON.stringify(item.issue));
+    assert.deepEqual(counts(second),{posts:1,receipts:1});
+    const receipt=fixture.state().receipts.find(r=>r.jobId===second);
+    assert.equal(receipt.fields.first_name,'Fictional');assert.equal(receipt.fields.question_1,values.question_1);
+    assert.equal(receipt.fields.preferred_name,'');assert.equal(receipt.sha256,SHA);
+  });
   assert.deepEqual(blockedExternal,[]);assert.deepEqual(pageErrors,[]);assert.deepEqual(importRequests,[],'Daily answers do not upload JSON');
   evidence.finishedAt=new Date().toISOString();
   evidence.fixture={receipts:fixture.state().receipts.length,actualApplicationPosts:applicationPosts.length,persistedAttempts:fixture.state().submitRequests.length};
@@ -309,6 +346,6 @@ try{
 finally{
   evidence.finishedAt ||= new Date().toISOString();evidence.pageErrors=pageErrors;evidence.blockedExternal=blockedExternal;evidence.applicationPosts=applicationPosts;
   if(app?.store)evidence.finalTasks=app.store.snapshot().tasks.map(value=>({id:value.id,jobId:value.jobId,status:value.status,phase:value.phase,issue:value.issue?.title,steps:value.steps.slice(-4)}));
-  await fs.writeFile(path.join(evidenceRoot,'greenhouse-answer-ui-browser.json'),JSON.stringify(evidence,null,2));
+  await fs.writeFile(path.join(evidenceRoot,mode==='extension'?'greenhouse-answer-mv3-browser.json':'greenhouse-answer-ui-browser.json'),JSON.stringify(evidence,null,2));
   driverRunning=false;clearInterval(driverHeartbeat);await context?.close();await driverLoop;await app?.close();await fixture?.close();await removeTestDirectory(isolated);
 }
