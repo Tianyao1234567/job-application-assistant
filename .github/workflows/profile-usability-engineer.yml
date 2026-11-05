@@ -103,6 +103,16 @@ jobs:
             python3 -c 'from pathlib import Path; s=Path(".runtime/mv3-guard.log").read_text()[-5000:]; print("::error title=MV3 pre-send experiment::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
             exit 1
           fi
+      - name: Probe MV3 default network block
+        if: ${{ !cancelled() }}
+        run: |
+          if xvfb-run --auto-servernum node local-app/tests/greenhouse-dnr-guard-browser.mjs > .runtime/mv3-dnr-guard.log 2>&1; then
+            cat .runtime/mv3-dnr-guard.log
+          else
+            cat .runtime/mv3-dnr-guard.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/mv3-dnr-guard.log").read_text()[-5000:]; print("::error title=MV3 default block experiment::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Preserve fictional answer workflow result
         if: always()
         uses: actions/upload-artifact@v6
@@ -112,6 +122,7 @@ jobs:
             /workspace/.runtime/tests/evidence/greenhouse-answer-ui-browser.json
             /workspace/.runtime/tests/evidence/greenhouse-answer-mv3-browser.json
             /workspace/.runtime/tests/evidence/greenhouse-cdp-guard.json
+            /workspace/.runtime/tests/evidence/greenhouse-dnr-guard.json
             /workspace/.runtime/tests/evidence/profile-usability-ui-browser.json
           if-no-files-found: warn
           retention-days: 7

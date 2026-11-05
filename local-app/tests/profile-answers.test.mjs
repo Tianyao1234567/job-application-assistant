@@ -52,6 +52,14 @@ test('later conditional batch preserves earlier task-only answers across explici
  const fact=first(env,task);env.prepare(task,[fact]);assert.equal(task.status,'waiting_answer');store.action(batchBody(store,task,['Fictional']));env.confirm(task);
  assert.equal(task.answers[motivation.scope].value,'Task-only original');assert.equal(store.state.answers.length,0);assert.equal(store.applicableAnswer(task,motivation),'Task-only original');
 });
+test('confirming one profile fact retains a different confirmed task-only fact when that profile field did not change',t=>{
+ const store=demoStore(t),env=taskEnvironment(store),task=env.add('650');
+ const given=first(env,task),family=env.q(task,'last_name','Last Name*','confirmed-profile-fact');
+ begin(env,task,[given,family]);const body=batchBody(store,task,['Fictional','Applicant']);body.answers[1].save='task';
+ store.action(body);assert.equal(task.status,'waiting_user');env.confirm(task);
+ assert.equal(task.answers[family.scope].value,'Applicant');assert.equal(store.applicableAnswer(task,family),'Applicant');
+ const reopened=new Store(store.paths);assert.equal(reopened.task(task.id).answers[family.scope].value,'Applicant');
+});
 test('saved own/memory answers with a different current page value remain in the conflict batch',t=>{
  const store=demoStore(t),env=taskEnvironment(store),task=env.add('701'),original=env.q(task,'motivation','Why this fictional role?','company-motivation');begin(env,task,[original]);store.action(batchBody(store,task,['Saved answer']));
  const conflict={...original,alreadyPopulated:true,currentValue:'Manually changed answer'};env.prepare(task,[conflict]);assert.equal(task.status,'waiting_answer');assert.equal(store.answerBatch(task).questions.length,1);assert.equal(store.applicableAnswer(task,conflict),null);

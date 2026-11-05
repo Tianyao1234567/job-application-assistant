@@ -105,10 +105,11 @@ export class Store {
     if(t.executionProfileId&&t.executionProfileId!==body.profileId)throw new Error('必须返回原执行浏览器配置恢复同一任务，不能切换执行 profile');
     const profile=this.state.profile,email=profile.data.personal.email;
     if(!profile.version||!this.state.resume||profile.mode!==site.mode||this.state.resume.mode!==site.mode||!email?.confirmed||![email.zh,email.en].some(value=>typeof value==='string'&&value.trim().toLowerCase()===site.expectedAccount))throw new Error('申请邮箱、资料和附件必须经本人确认，且与网站账号及运行模式一致');
+    const previousProfile=t.profileSnapshot?.data;
     this.invalidateTask(t);this.resolveTask(t);
     const versionsChanged=t.profileVersion!==profile.version||t.resumeVersion!==this.state.resume.version;
     t.executionProfileId=body.profileId;t.profileSnapshot=clone(profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=profile.version;t.resumeVersion=this.state.resume.version;
-    if(versionsChanged){delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).filter(([,answer])=>{const key=stableProfileKey(answer);return !key||answer.leaveBlank===true||profileValue(profile.data,key)?.zh===answer.value;}));t.questions=[];}delete t.answerSupplement;
+    if(versionsChanged){delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).filter(([,answer])=>{const key=stableProfileKey(answer);if(!key||answer.leaveBlank===true)return true;const before=previousProfile?profileValue(previousProfile,key):null,after=profileValue(profile.data,key);return JSON.stringify(before||null)===JSON.stringify(after||null)||after?.confirmed===true&&[after.zh,after.en].includes(answer.value);}));t.questions=[];}delete t.answerSupplement;
     t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,submitConfirmed:true,confirmedAt:this.now()};
     t.status='queued';t.phase='inspect';this.step(t,'本人已确认此次申请',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；填写前仍重新核对原值、结构和岗位。`);
   }
