@@ -5,6 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {gunzipSync} from 'node:zlib';
+import {pathToFileURL} from 'node:url';
 import {ROOT} from '../paths.mjs';
 import {Store} from '../model.mjs';
 import {SOURCE_PATHS,VERSION} from '../../scripts/package-candidate.mjs';
@@ -17,13 +18,22 @@ const baselines=await Promise.all(UPDATE_BASELINES.map(source=>baselineManifest(
 const targetFiles=await Promise.all([...SOURCE_PATHS,'DEV_REPORT_004.md','DEV_REPORT_005.md','REAL_SITE_PREPARATION.md'].map(async name=>{const bytes=await fs.readFile(path.join(ROOT,name));return {path:name,bytes:bytes.length,sha256:hash(bytes),value:bytes.toString('base64')};}));
 const changes=Object.fromEntries(targetFiles.filter(f=>baselines.some(b=>b.files.find(old=>old.path===f.path)?.sha256!==f.sha256)).map(f=>[f.path,f.value]));
 const bundle={format:1,target:{source:'f'.repeat(40),version:VERSION,files:targetFiles.map(({value,...file})=>file)},baselines,changes};
-async function installation(t,index=0){
+async function installation(t,index=0,{useBaselineStore=false}={}){
  const parent=path.join(ROOT,'.runtime/tests');await fs.mkdir(parent,{recursive:true});const tmp=await fs.mkdtemp(path.join(parent,'update-'));t.after(()=>fs.rm(tmp,{recursive:true,force:true}));
  const original=path.join(tmp,'deep','version files ! 中文','job-application-assistant');await fs.mkdir(original,{recursive:true});const baseline=baselines[index];
  for(const file of baseline.files){const bytes=spawnSync('git',['show',baseline.source+':'+file.path],{cwd:ROOT}).stdout;await fs.mkdir(path.dirname(path.join(original,file.path)),{recursive:true});await fs.writeFile(path.join(original,file.path),bytes);}
  await fs.writeFile(path.join(original,'SOURCE.json'),JSON.stringify({source:{commit:baseline.source},version:baseline.version,files:baseline.files}));
- const store=new Store({data:path.join(original,'.runtime/data')});store.demo();store.state.answers=[{scope:'fictional-answer',value:'Preserve fictional answer'}];
+ const BaselineStore=useBaselineStore?(await import(pathToFileURL(path.join(original,'local-app/model.mjs')).href)).Store:Store;
+ const store=new BaselineStore({data:path.join(original,'.runtime/data')});store.demo();store.state.answers=[{scope:'fictional-answer',value:'Preserve fictional answer'}];
  const task=store.manual('http://127.0.0.1:17322/site/alpha/jobs/cpp-001').task;task.resumeSnapshot=structuredClone(store.state.resume);task.submissionStarted=true;task.status='unknown';task.phase='verify';store.pause();store.save();
+ if(useBaselineStore){
+  const v={zh:'虚构本人修改后的项目',en:null,source:'本人确认',confirmed:true};
+  store.state.profile.data.projects.push({id:'fictional-stable-project',title:v});
+  if(index===3)store.state.profileImportMappings={'legacy:projects:0123456789abcdef01234567':'fictional-stable-project'};
+  const pending=store.manual('http://127.0.0.1:17322/site/alpha/jobs/cpp-002').task;
+  pending.status='waiting_answer';pending.phase='answer';pending.question={key:'motivation',text:'Fictional missing answer',scope:'fictional-task-only'};
+  store.save();
+ }
  await fs.writeFile(path.join(original,'.runtime/server.stopped'),'closed');await fs.writeFile(path.join(original,'.runtime/data/local-key'),'Fictional-local-key-12345678901234567890');
  const root=path.join(tmp,'short');await fs.rename(original,root);return {root,original,baseline,stateFile:path.join(root,'.runtime/data/state.json')};
 }
@@ -32,6 +42,21 @@ test('candidate5 first update and candidate6 compatibility preserve data/unknown
  for(const index of [0,1]){const env=await installation(t,index),before=JSON.parse(await fs.readFile(env.stateFile,'utf8')),bytes=await fs.readFile(path.join(env.root,'.runtime/data/resumes',before.resume.sha256+'.bin'));
   const result=await runUpdate(bundle,env.root,fakeOptions);assert.equal(result.updated,true);assert.equal(result.attachmentsRelocated,2);
   const after=JSON.parse(await fs.readFile(env.stateFile,'utf8')),expected=structuredClone(before);expected.resume.file=path.join(env.root,'.runtime/data/resumes',before.resume.sha256+'.bin');expected.tasks[0].resumeSnapshot.file=expected.resume.file;assert.deepEqual(after,expected);assert.equal(after.tasks[0].status,'unknown');assert.equal(after.manualPaused,true);assert.deepEqual(await fs.readFile(after.resume.file),bytes);
+  const restored=new Store({data:path.join(env.root,'.runtime/data')});assert.equal(restored.canResumeTask(restored.task(after.tasks[0].id)),false);
+  assert.equal((await runUpdate(bundle,env.root,fakeOptions)).alreadyCurrent,true);
+ }
+});
+test('candidate8 and candidate10 old-store installations preserve used state and attachment through the updater',async t=>{
+ for(const index of [2,3]){
+  const env=await installation(t,index,{useBaselineStore:true});
+  const before=JSON.parse(await fs.readFile(env.stateFile,'utf8'));
+  const bytes=await fs.readFile(path.join(env.root,'.runtime/data/resumes',before.resume.sha256+'.bin'));
+  const outcome=await runUpdate(bundle,env.root,fakeOptions);assert.equal(outcome.updated,true);
+  const after=JSON.parse(await fs.readFile(env.stateFile,'utf8')),expected=structuredClone(before);
+  expected.resume.file=path.join(env.root,'.runtime/data/resumes',before.resume.sha256+'.bin');
+  expected.tasks[0].resumeSnapshot.file=expected.resume.file;
+  assert.deepEqual(after,expected,'profile, answers, task state and baseline mapping data must survive');
+  assert.deepEqual(await fs.readFile(after.resume.file),bytes);assert.equal(after.tasks[0].status,'unknown');
   const restored=new Store({data:path.join(env.root,'.runtime/data')});assert.equal(restored.canResumeTask(restored.task(after.tasks[0].id)),false);
   assert.equal((await runUpdate(bundle,env.root,fakeOptions)).alreadyCurrent,true);
  }

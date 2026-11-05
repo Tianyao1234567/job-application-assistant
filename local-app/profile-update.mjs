@@ -140,7 +140,7 @@ export function parseProfileImport(document){
 // unambiguous labelled boundaries; the source stores at most 200 characters and
 // cannot prove the rest was not edited later. Keep the current value until the
 // owner reviews the proposed split and explicitly resolves any existing values.
-export function parseProjectRepair(profile){
+export function parseProjectRepair(profile,{history=[],mappings={}}={}){
  validateProfile(profile);const out=result('project-repair');
  const names={'项目描述':'description','职责':'responsibility','项目中职责':'projectDuty','描述And职责':'descriptionAndDuty'};
  for(const project of profile.projects){
@@ -156,6 +156,71 @@ export function parseProjectRepair(profile){
   if(rows.some(r=>!r.value.trim()||/(?:项目描述|职责|项目中职责|描述And职责)：/.test(r.value))||rows.map(r=>r.label+'：'+r.value).join('\n\n')!==value){note(out,'项目内容待核对',title+'：原有项目内容无法可靠拆分，请保留原文并核对缺少的字段。');continue;}
   note(out,'项目分段请核对',title+'：分段来自当前保存的原文，不能判断之后是否修改过。请核对各段；冲突时可保留现有内容。');
   for(const row of rows)add(out,{field:'projects.'+project.id+'.'+names[row.label],target_hint:row.label,value:{zh:row.value,en:null},source_text:'本人核对的旧项目修复',repairFromCurrent:true},['repair',project.id,row.label,value]);
+ }
+ // The full old export is not retained. Recover only pending fields that
+ // explicitly identify an existing record by its saved mapping or target.
+ const education=profile.education, proposals=new Map(), progress=new Map();
+ const propose=(path,value,source)=>{
+  if(!proposals.has(path))proposals.set(path,new Map());
+  proposals.get(path).set(value,source);
+ };
+ for(const h of Array.isArray(history)?history:[]){
+  if(h?.kind!=='legacy-v3'||!Array.isArray(h.pendingChanges))continue;
+  for(const row of h.pendingChanges){
+   if(!row||typeof row!=='object'||!['in_progress','expected'].includes(row.qualifier))continue;
+   const original=pathInfo(row.field), mapped=row.recordKey&&typeof mappings?.[row.recordKey]==='string'?mappings[row.recordKey]:null;
+   const target=pathInfo(row.target), mappedValid=mapped&&education.some(e=>e.id===mapped), targetValid=target?.kind==='education'&&target.field===original?.field&&education.some(e=>e.id===target.id);
+   if(original?.kind!=='education'||!['degree','endDate'].includes(original.field))continue;
+   if(row.target&&(!target||target.kind!=='education'||target.field!==original.field)||mapped&&targetValid&&mapped!==target.id||mapped&&!mappedValid||!mappedValid&&!targetValid){note(out,'教育经历待核对','旧资料中有尚未匹配的学历或日期，请在教育经历中核对并仅补充缺项。');continue;}
+   const id=mappedValid?mapped:target.id, raw=row.value?.zh;
+   if(typeof raw!=='string'||!raw.trim()||raw.length>10000||sensitive('学历',raw))continue;
+   if(original.field==='degree'){
+    propose(`education.${id}.degree`,raw,'旧导入待核对的学历');
+    const match=typeof row.source_text==='string'?/最高学历[：:]([^；;\n]+)/.exec(row.source_text):null;
+    if(row.qualifier==='in_progress'&&match&&/在读|进行中|in.progress|currently|ongoing/i.test(match[1])&&raw.trim().length>1&&match[1].includes(raw.trim().replace(/[（(].*$/,''))){
+     if(!progress.has(h))progress.set(h,new Set());progress.get(h).add(id);
+    }
+   }
+  }
+ }
+ for(const h of Array.isArray(history)?history:[]){
+  const ids=progress.get(h);if(ids?.size!==1)continue;
+  const id=[...ids][0];if(proposals.get(`education.${id}.degree`)?.size!==1)continue;
+  propose(`education.${id}.studyStatus`,'在读','旧导入记录中明确标注在读');
+ }
+ for(const h of Array.isArray(history)?history:[]){
+  if(h?.kind!=='legacy-v3'||!Array.isArray(h.pendingChanges))continue;
+  for(const row of h.pendingChanges){
+   const original=pathInfo(row?.field),target=pathInfo(row?.target),mapped=row?.recordKey&&typeof mappings?.[row.recordKey]==='string'?mappings[row.recordKey]:null;
+   if(original?.kind!=='education'||original.field!=='endDate'||!['expected','in_progress'].includes(row.qualifier))continue;
+   const mappedValid=mapped&&education.some(e=>e.id===mapped),targetValid=target?.kind==='education'&&target.field===original.field&&education.some(e=>e.id===target.id);
+   if(row.target&&(!target||target.kind!=='education'||target.field!==original.field)||mapped&&targetValid&&mapped!==target.id||mapped&&!mappedValid||!mappedValid&&!targetValid)continue;
+   const id=mappedValid?mapped:target.id,raw=row.value?.zh;
+   if((proposals.get(`education.${id}.degree`)?.size||0)>1)continue;
+   if(typeof raw!=='string'||!validDate(raw)){note(out,'预计日期待核对','旧资料中的日期不能直接确认，请在教育经历中核对预计日期。');continue;}
+   if(row.qualifier==='expected'||progress.get(h)?.size===1&&progress.get(h).has(id)&&proposals.get(`education.${id}.degree`)?.size===1)propose(`education.${id}.expectedEndDate`,raw,'旧导入待核对的预计日期');
+   else note(out,'学习状态待核对','旧资料没有足够依据确定这段教育是否在读，请在教育经历中核对。');
+  }
+ }
+ for(const [path,values]of proposals){
+  if(values.size!==1){note(out,'教育经历待核对','旧记录中同一教育字段有不同内容，请在教育经历中核对。');continue;}
+  const [value,source]=[...values.entries()][0];
+  add(out,{field:path,target_hint:definitions.education[path.split('.').at(-1)],value:{zh:value,en:null},source_text:source,repairFromCurrent:true},['saved-education',path,value]);
+ }
+ for(const entry of education)if(!entry.degree?.zh&&!entry.degree?.en&&!proposals.has(`education.${entry.id}.degree`)){
+  add(out,{field:`education.${entry.id}.degree`,target_hint:'学历',value:{zh:null,en:null},source_text:'本人填写的学历',requiresUserValue:true},['saved-education',entry.id,'degree-missing']);
+ }
+ // Retain the original combined field. Classification is a reviewable draft;
+ // no original text is removed even when a category is selected.
+ const combined=profile.skills.description?.zh;
+ if(typeof combined==='string'&&combined.trim()&&!sensitive('专业技能',combined)){
+  const classified=result('skill-repair');legacySkills(classified,combined);
+  for(const change of classified.changes){
+   const {id,...candidate}=change;
+   add(out,{...candidate,source_text:'本人核对的已有技能分类',repairFromCurrent:true},['saved-skills',change.field,change.value.zh,combined]);
+  }
+  for(const n of classified.notes)out.notes.push(n);
+  if(classified.changes.some(change=>change.field!=='skills.description'))note(out,'技能分类请核对','已按已有原文生成分类草稿；综合技能原文保留，请核对分类及不确定的条目。');
  }
  out.fingerprint=digest(out);return out;
 }

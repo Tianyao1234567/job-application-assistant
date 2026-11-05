@@ -48,6 +48,8 @@ jobs:
         run: |
           test /workspace -ef "$GITHUB_WORKSPACE"
           mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
+          git config --global --add safe.directory /workspace
+          git -C /workspace rev-parse --verify HEAD
       - name: Install locked test dependencies
         working-directory: /workspace/autofill-extension
         run: npm ci --ignore-scripts --no-audit --no-fund
@@ -58,7 +60,7 @@ jobs:
         run: |
           node scripts/cloud-check.mjs
           node autofill-extension/tests/unit.test.js
-          if node --test --test-reporter=tap --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/greenhouse-runner.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-english-retirement.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs local-app/tests/profile-update-package.test.mjs local-app/tests/update-install.test.mjs > .runtime/focused.log 2>&1; then
+          if node --test --test-reporter=tap --test-concurrency=1 local-app/tests/profile-answers.test.mjs local-app/tests/greenhouse-adapter.test.mjs local-app/tests/greenhouse-runner.test.mjs local-app/tests/profile-education-status.test.mjs local-app/tests/profile-english-retirement.test.mjs local-app/tests/profile-rework-fields.test.mjs local-app/tests/profile-skill-categories.test.mjs local-app/tests/profile-saved-education-repair.test.mjs local-app/tests/profile-saved-skills-repair.test.mjs local-app/tests/profile-update.test.mjs local-app/tests/profile-update-target-memory.test.mjs local-app/tests/profile-file-import.test.mjs local-app/tests/profile-update-package.test.mjs local-app/tests/update-install.test.mjs > .runtime/focused.log 2>&1; then
             cat .runtime/focused.log
           else
             cat .runtime/focused.log
@@ -66,6 +68,7 @@ jobs:
             exit 1
           fi
       - name: Verify and copy bundled Chromium
+        if: ${{ !cancelled() }}
         run: node scripts/cloud-check.mjs container-browser
       - name: Exercise fictional dashboard and answer workflows
         run: |
@@ -110,5 +113,36 @@ jobs:
             /workspace/.runtime/tests/evidence/greenhouse-answer-mv3-browser.json
             /workspace/.runtime/tests/evidence/greenhouse-cdp-guard.json
             /workspace/.runtime/tests/evidence/profile-usability-ui-browser.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  windows-update:
+    if: ${{ contains(github.event.head_commit.message, '[windows-check]') }}
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      JOB_ASSISTANT_NONINTERACTIVE: '1'
+      JOB_ASSISTANT_BROWSER_TEST: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Test fictional candidate.8 and candidate.10 updates
+        run: node scripts/test-windows-update.mjs
+      - name: Preserve bounded test evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-windows-update-check
+          path: |
+            .runtime/delivery/update-*/更新.cmd
+            .runtime/delivery/update-*/UPDATE.json
+            .runtime/tests/evidence/windows-update.json
           if-no-files-found: warn
           retention-days: 7

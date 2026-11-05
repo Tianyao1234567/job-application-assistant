@@ -287,7 +287,7 @@ export class Store {
   previewProjectRepair({mode,profileVersion}){
     if(!['demo','real'].includes(mode)||profileVersion!==this.state.profile.version)throw new Error('当前资料版本已变化，请重新预览');
     if(this.state.profile.version&&mode!==this.state.profile.mode)throw new Error('资料用途已变化，请重新核对');
-    const parsed=parseProjectRepair(this.state.profile.data);
+    const parsed=parseProjectRepair(this.state.profile.data,{history:this.state.profileImportHistory||[],mappings:this.state.profileImportMappings||{}});
     const preview=previewProfileImport(parsed,this.state.profile.data,profileVersion,{recordMappings:this.state.profileImportMappings||{}});
     this.profileFileParsed=parsed;
     this.profileFileDraft={...preview,id:uid(),profileVersion,mode,status:'ready',createdAt:this.now(),jobAnswers:[]};

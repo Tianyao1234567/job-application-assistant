@@ -109,6 +109,30 @@ try{
   const reConfirm=responseFor('/api/profile/import/confirm');await form().getByRole('button',{name:'确认并保存资料',exact:true}).click();assert.equal((await reConfirm).status(),200);
   saved=app.store.state.profile;assert.equal(saved.version,2);assert.deepEqual(saved.data.projects.map(row=>row.id),oldIds);assert.equal(saved.data.projects[0].projectDuty.zh,'本人后来修改的项目职责');assert.equal(saved.data.projects[3].description.zh,ambiguous);assert.deepEqual(app.store.state.resume,attachment);assert.deepEqual(await fs.readFile(attachment.file),bytes);
  });
+ await check('已有学历和综合技能在平台内修复，无需重选文件',async()=>{
+  await page.goto('about:blank');await app.close();
+  const savedDir=path.join(isolated,'old-education-skills');app=await createApp({dataDir:savedDir,port:0,startFixture:false,testMode:true});localOrigins.add(app.url);
+  const profile=emptyProfile(),value=zh=>({zh,en:null,source:'虚构既有资料',confirmed:true});
+  const id='saved-education',sourceId='legacy-education-0123456789abcdef01234567',recordKey='legacy:education:0123456789abcdef01234567';
+  const originalSkills='编程：熟练 Python、C++；工具：Git；熟悉虚构模块。';
+  profile.education=[{id,school:value('虚构大学'),major:value('虚构专业')}];profile.skills.description=value(originalSkills);
+  app.store.state.profile={version:1,data:profile,mode:'demo',updatedAt:new Date().toISOString()};
+  app.store.state.profileImportMappings={[recordKey]:id};
+  app.store.state.profileImportHistory=[{id:'fictional-history',kind:'legacy-v3',fingerprint:'fictional',notes:[],pendingChanges:[
+   {id:'old-degree',recordKey,field:`education.${sourceId}.degree`,target:null,qualifier:'in_progress',value:{zh:'硕士',en:null},source_text:'学历：硕士；最高学历：硕士研究生（在读）'},
+   {id:'old-date',recordKey,field:`education.${sourceId}.endDate`,target:null,qualifier:'in_progress',value:{zh:'2028-06',en:null},source_text:'结束就读时间：2028-06；最高学历：硕士研究生（在读）'}
+  ]}];app.store.save();
+  await open();const pending=responseFor('/api/profile/import/repair-preview');await page.getByRole('button',{name:'检查已有资料是否需要修复',exact:true}).click();assert.equal((await pending).status(),200);await form().waitFor();
+  const repair=structuredClone(app.store.profileFileDraft);
+  const programming=repair.changes.find(c=>c.field==='skills.programming');assert.ok(programming);
+  await form().locator(`[data-import-change-id="${programming.id}"] textarea`).fill('本人核对：熟练 Python、C++');
+  assert.ok(await form().locator('p.warning').filter({hasText:'熟悉虚构模块'}).isVisible());
+  const save=responseFor('/api/profile/import/confirm');await form().getByRole('button',{name:'确认并保存资料',exact:true}).click();assert.equal((await save).status(),200);
+  let saved=app.store.state.profile.data;assert.equal(saved.education[0].id,id);assert.equal(saved.education[0].degree.zh,'硕士');assert.equal(saved.education[0].studyStatus.zh,'在读');assert.equal(saved.education[0].expectedEndDate.zh,'2028-06');assert.equal(saved.education[0].endDate,undefined);
+  assert.equal(saved.skills.programming.zh,'本人核对：熟练 Python、C++');assert.equal(saved.skills.tools.zh,'工具：Git；');assert.equal(saved.skills.description.zh,originalSkills);
+  await page.goto('about:blank');await app.close();app=await createApp({dataDir:savedDir,port:0,startFixture:false,testMode:true});localOrigins.add(app.url);await open();
+  saved=app.store.state.profile.data;assert.equal(saved.education[0].id,id);assert.equal(saved.education[0].studyStatus.zh,'在读');assert.equal(saved.skills.programming.zh,'本人核对：熟练 Python、C++');assert.equal(saved.skills.description.zh,originalSkills);
+ });
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(app.store.state.tasks.length,0);evidence.ok=true;
 }catch(error){evidence.ok=false;evidence.failure=String(error.stack||error).slice(0,3500);console.error(evidence.failure);process.exitCode=1;}
 finally{await browser?.close();await app?.close();await fs.mkdir(evidenceRoot,{recursive:true});await fs.writeFile(path.join(evidenceRoot,'profile-usability-ui-browser.json'),JSON.stringify(evidence,null,2));await removeTestDirectory(isolated);}
