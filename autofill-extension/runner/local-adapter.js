@@ -21,6 +21,14 @@
     if (marker.dataset.jobId !== expected.jobId || marker.dataset.tenant !== expected.tenant || marker.dataset.account !== expected.expectedAccount || !marker.dataset.receiptId || !/^[a-f0-9]{64}$/.test(marker.dataset.sha256 || '') || !Number.isInteger(Number(marker.dataset.fileSize)) || Number(marker.dataset.fileSize)<=0) throw new Error('回执与当前岗位或账号不符。');
     return {id:marker.dataset.receiptId,jobId:marker.dataset.jobId,account:marker.dataset.account,fileName:marker.dataset.fileName,fileSize:Number(marker.dataset.fileSize),sha256:marker.dataset.sha256};
   }
+  function detailMetadata(expected) {
+    const marker=document.querySelector('[data-job-detail]');
+    if(location.pathname!=='/site/'+expected.tenant+'/jobs/'+expected.jobId || !marker || marker.dataset.tenant!==expected.tenant || marker.dataset.jobId!==expected.jobId)throw new Error('岗位详情身份不符。');
+    // Only these visible source fields may become task metadata. Page datasets
+    // cannot supply task ids, workflow states, or submission history.
+    const text=selector=>(marker.querySelector(selector)?.textContent || '').trim().slice(0,200);
+    return {tenant:expected.tenant,jobId:expected.jobId,url:location.href,title:text('[data-job-title]'),company:text('[data-job-company]'),location:text('[data-job-location]')};
+  }
   async function liveContext(expected,layout) {
     try {
       const response=await fetch('/site/'+expected.tenant+'/session',{cache:'no-store',credentials:'same-origin',redirect:'error',signal:AbortSignal.timeout(5000)});
@@ -46,8 +54,9 @@
       if (op === 'verify') return {ok:true,receipt:existing,login:current.login};
       if (existing) return {ok:true,receipt:existing,login:current.login};
       if (op === 'detail') {
+        const jobMetadata=detailMetadata(expected);
         const link=document.querySelector('a[data-apply-link]');
-        return link ? {ok:true,applyUrl:link.href,login:current.login} : fail('structure','没有找到明确的申请入口，需人工检查。');
+        return link ? {ok:true,applyUrl:link.href,jobMetadata,login:current.login} : fail('structure','没有找到明确的申请入口，需人工检查。');
       }
       const checked=context(expected,true); if (!checked.ok) return checked;
       const scan=JobFill.scan();
