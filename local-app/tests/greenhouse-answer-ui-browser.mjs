@@ -52,7 +52,8 @@ async function configure(){
   const profile=JSON.parse(await fs.readFile(path.join(projectRoot,'autofill-extension/profile.example.json'),'utf8'));
   profile.personal.email.zh=profile.personal.email.en='fictional@example.invalid';
   profile.personal.location.zh=profile.personal.location.en='Fictional Test City';
-  await api('/profile',{data:profile,mode:'demo',confirmed:true});
+  const current=await state();
+  await api('/profile',{data:profile,mode:'demo',confirmed:true,baseVersion:current.profile.version});
   await api('/resume',{name:'fictional-greenhouse-resume.txt',mime:'text/plain',base64:CV.toString('base64'),mode:'demo'});
   await api('/settings',{settings:{mode:'demo',scheduleEnabled:false,time:'09:00',dailyLimit:5,keywords:['Fictional'],cities:['Fictional Test City'],visual:true},sites:[{id:'greenhouse-replay',name:'Fictional Greenhouse replay',company:GREENHOUSE_REPLAY.company,adapter:'greenhouse-replay-v1',origin:FIXTURE,listUrl:`${FIXTURE}/greenhouse/${GREENHOUSE_REPLAY.tenant}`,loginUrl:`${FIXTURE}/greenhouse/${GREENHOUSE_REPLAY.tenant}`,tenant:GREENHOUSE_REPLAY.tenant,expectedAccount:'fictional@example.invalid',mode:'demo',enabled:true}]});
 }
@@ -142,7 +143,14 @@ async function startPageDriver(){
     }
     if(command.op==='upload')return detail(await mutate('upload',[payload.layout,payload.file]));
     if(command.op==='answer')return detail(await mutate('answer',[payload]));
-    if(command.op==='preflight')return detail(await invoke(tab.page,'validateSubmit',[expected,payload.layout,payload.file]));
+    if(command.op==='preflight'){
+      // Match the production runner's read-before-preflight behavior: a newly
+      // visible question returns to inspect before the submission boundary.
+      const inspected=await invoke(tab.page,'read',['inspect',expected]);
+      if(!inspected.ok)return detail(inspected);
+      if(inspected.questions?.length)return detail({ok:false,kind:'questions_changed',message:'申请表出现尚未确认的问题，将重新检查当前任务。'});
+      return detail(await invoke(tab.page,'validateSubmit',[expected,payload.layout,payload.file]));
+    }
     if(command.op==='submit'){
       const prepared=await invoke(tab.page,'prepare',['submit',expected,[payload.layout,payload.file]]);if(!prepared.ok||!prepared.token)return detail(prepared);
       ledger.set(task.id,{commandId:command.id,jobId:task.jobId});await fs.writeFile(path.join(isolated,'controlled-submission-ledger.json'),JSON.stringify([...ledger]));
