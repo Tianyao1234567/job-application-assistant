@@ -59,11 +59,23 @@ jobs:
             python3 -c 'from pathlib import Path; s=Path(".runtime/trusted-sender.log").read_text()[-5000:]; print("::error title=Fictional trusted sender::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
             exit 1
           fi
+      - name: Diagnose isolated-world request origin and blocking
+        if: ${{ !cancelled() }}
+        run: |
+          if xvfb-run --auto-servernum node local-app/tests/greenhouse-isolated-origin-browser.mjs > .runtime/isolated-origin.log 2>&1; then
+            cat .runtime/isolated-origin.log
+          else
+            cat .runtime/isolated-origin.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/isolated-origin.log").read_text()[-5000:]; print("::error title=Fictional isolated origin::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Preserve fictional experiment evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: fictional-trusted-sender-evidence
-          path: /workspace/.runtime/tests/evidence/greenhouse-trusted-sender.json
+          path: |
+            /workspace/.runtime/tests/evidence/greenhouse-trusted-sender.json
+            /workspace/.runtime/tests/evidence/greenhouse-isolated-origin.json
           if-no-files-found: warn
           retention-days: 7
