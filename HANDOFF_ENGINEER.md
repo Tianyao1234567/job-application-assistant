@@ -1,11 +1,12 @@
 # Engineer交接（简版）
 
-更新：2026-11-04（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
+更新：2026-11-06。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
 ## 当前接续（进行中，尚未交付）
 
 2026-11-06 Manager 续办 `96e64c3` 的新增证据：
 
+- [丢响应与浏览器重启实验 42186558251](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42186558251)对应源码 `5c5ab037524454d893b037a671bf7c860e74c72b`：临时真实 MV3 向严格虚构服务发送不符合校验的请求，服务计数一次后断开连接，客户端记为 unknown；完整关闭并以同一隔离 profile 重启 Chromium 后，重新授权、重新取得上传证明并尝试发送，同一任务被账本拒绝，服务计数仍为一次。这不是服务接受申请后丢失回执的证明。随后另一任务的并发试验中服务收到一次，但扩展 Origin 未满足虚构服务要求，返回 unknown，另一并发调用为 busy；断言需要可信成功回执，故该实验步骤及整个实验运行失败。不能把一次到达当作成功申请或可信回执。
 - [断线边界实验 42158934708](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42158934708)对应 `a5ca470`：临时 MV3 实验在受控测试钩子下先持久化 unknown，确认原端口断线事件生效后再释放发送，虚构服务收到零次，账本仍为 unknown；不覆盖任意进程强杀或调度竞态。随后正确独立请求发出一次，但扩展 Origin 不符合虚构服务页面 Origin 要求，未取得可信回执；正常成功及发出后丢回执重启不重发步骤未执行。产品原生提交仍暂停。
 - [托管运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 Windows 步骤对 `839f24a` 通过：candidate.8 和 candidate.10 更新后，原待答任务由真实 MV3 各完成一次虚构申请，服务端各收到一次，答案及附件摘要一致，原 unknown 不能重投；该运行整体因既有附件探索步骤失败。后续提交只改测试或交接，最终包仍须按最终源码重新核对。
 - [独立发送实验 42157548290](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157548290)对应 `ba05851`：虚构服务对错误对象、预检后换引用、缺身份/CSRF、未知字段、未确认选项及执行端断线均收到零次申请；正确请求到达一次，但浏览器发送扩展 Origin 而非页面 Origin，严格虚构服务拒绝，故没有可信回执。成功回执与结果丢失后重启不重发的后续步骤未执行。
@@ -13,7 +14,7 @@
 - [权限对照 42158636490](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42158636490)对应 `47f769a`：WithHostAccess 规则下外站有两次请求到达；较广的 declarativeNetRequest 规则在扩展运行及 runner 端口断开时挡住测试页面请求，但扩展重载期间有 40 次外站虚构请求到达。扩展发起的请求仍因 Origin 被虚构服务拒绝。临时实验使用更广权限，产品 manifest 未改变；不能视作产品安全门禁。
 - 当前独立可信发送尚未满足正常路径、可信回执和失效时零请求的组合要求；不能解除原生 Greenhouse 暂停、发布新包或请求真实申请。最小后续方向需独立于扩展生命周期的持续默认阻断，以及能够保持真实站点身份、Origin、CSRF 和精确上传对象绑定的受信发送通道；须先验证是否可部署且不扩大到通用代理，再用真实 MV3/虚构服务证明一次发送、零漏发、可信回执与 unknown 重启不重投。此方向尚未实现，不能宣称兼容 Greenhouse。
 
-已读 Manager 续办 `96e64c3`，原任务 `5c8b638` 不变。[托管运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 Windows 步骤对应 `839f24a`：candidate.8/.10 更新后，真实 MV3 均继续同一虚构待答任务，虚构服务各收到一次申请，答案和附件摘要一致，原 unknown 未重投；整个运行因无关附件探索实验失败，不能记为整体通过。独立发送的首次虚构 MV3 实验只证实页面原生 POST 被阻断；上传观察器初始化失败，正确发送与回执未执行。已修正实验初始化，待重跑；产品原生提交暂停未解除。
+已读 Manager 续办 `96e64c3`，原任务 `5c8b638` 不变。[托管运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 Windows 步骤对应 `839f24a`：candidate.8/.10 更新后，真实 MV3 均继续同一虚构待答任务，虚构服务各收到一次申请，答案和附件摘要一致，原 unknown 未重投；整个运行因无关附件探索实验失败，不能记为整体通过。独立发送实验后续结果见上，可信成功路径仍未实现；产品原生提交暂停未解除。
 
 2026-11-06 已读 Manager 续办 `5afcd67`，继续原任务 `5c8b638`。有效工程分支仍为 `engineer/profile-import-usability`；未合并 PR #5、未发布更新或执行真实投递。
 
