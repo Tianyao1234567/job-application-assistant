@@ -12,24 +12,25 @@ import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoo
 
 const {chromium}=createRequire(new URL('../../autofill-extension/package.json',import.meta.url))('playwright');
 const dir=await testDirectory('global-deny'),ext=path.join(dir,'extension'),origin='http://127.0.0.1:17322',external='http://127.0.0.2:17323',target=origin+'/greenhouse/fictional/jobs/12345';
+const permission=process.env.DNR_EXPERIMENT_PERMISSION||'declarativeNetRequestWithHostAccess';assert.ok(['declarativeNetRequestWithHostAccess','declarativeNetRequest'].includes(permission));
 const product=JSON.parse(await fs.readFile(path.join(projectRoot,'autofill-extension/manifest.json'),'utf8'));
 const hash=createHash('sha256').update(Buffer.from(product.key,'base64')).digest('hex').slice(0,32);
 const id=[...hash].map(c=>String.fromCharCode(97+parseInt(c,16))).join('');
 const requests=[],checks=[];let server,externalServer,context,worker;
-const evidence={scope:'Fictional MV3 static global POST block with fixed-extension initiator exception; network separation and Origin only, not product integration or session/CSRF validation',checks,ok:false};
+const evidence={scope:'Fictional MV3 static global POST block with fixed-extension initiator exception; network separation and Origin only, not product integration or session/CSRF validation',permission,checks,ok:false};
 function background(){
  chrome.runtime.onConnect.addListener(port=>{if(port.name!=='fictional-runner'||port.sender?.url!==chrome.runtime.getURL('runner.html')){port.disconnect();return;}});
  globalThis.trustedFetch=url=>fetch(url,{method:'POST',credentials:'include',headers:{'content-type':'text/plain'},body:'fictional'}).then(r=>r.status).catch(()=>0);
 }
 await fs.mkdir(ext,{recursive:true});
-await fs.writeFile(path.join(ext,'manifest.json'),JSON.stringify({manifest_version:3,name:'Fictional global deny experiment',version:'0.0.1',key:product.key,permissions:['storage','tabs','declarativeNetRequestWithHostAccess'],host_permissions:[origin+'/*'],background:{service_worker:'background.js'},declarative_net_request:{rule_resources:[{id:'deny',enabled:true,path:'rules.json'}]}}));
+await fs.writeFile(path.join(ext,'manifest.json'),JSON.stringify({manifest_version:3,name:'Fictional global deny experiment',version:'0.0.1',key:product.key,permissions:['storage','tabs',permission],host_permissions:[origin+'/*'],background:{service_worker:'background.js'},declarative_net_request:{rule_resources:[{id:'deny',enabled:true,path:'rules.json'}]}}));
 const condition={regexFilter:'^http://127[.]0[.]0[.]1:17322/greenhouse/fictional/jobs/12345([?].*)?$',resourceTypes:['xmlhttprequest','main_frame','sub_frame','ping','csp_report','other'],requestMethods:['post']};
 await fs.writeFile(path.join(ext,'rules.json'),JSON.stringify([{id:1,priority:1,action:{type:'block'},condition},{id:2,priority:2,action:{type:'allow'},condition:{...condition,initiatorDomains:[id]}}]));
 await fs.writeFile(path.join(ext,'background.js'),'('+background.toString()+')();');await fs.writeFile(path.join(ext,'runner.html'),'<meta charset="utf-8"><title>fictional runner</title>');
 server=http.createServer(async(req,res)=>{
  const u=new URL(req.url,origin);
  if(req.method==='GET'&&u.pathname==='/greenhouse/fictional/jobs/12345'){res.writeHead(200,{'Content-Type':'text/html'}).end('<title>fictional</title>');return;}
- if(req.method==='POST'&&u.pathname==='/greenhouse/fictional/jobs/12345'){const chunks=[];for await(const c of req)chunks.push(c);requests.push({origin:req.headers.origin||null,bytes:Buffer.concat(chunks).length});res.writeHead(req.headers.origin===origin?200:403).end('fictional origin check');return;}
+ if(req.method==='POST'&&u.pathname==='/greenhouse/fictional/jobs/12345'){const chunks=[];for await(const c of req)chunks.push(c);requests.push({origin:req.headers.origin||null,url:u.pathname+u.search,bytes:Buffer.concat(chunks).length});res.writeHead(req.headers.origin===origin?200:403).end('fictional origin check');return;}
  res.writeHead(404).end();
 });
 externalServer=http.createServer((req,res)=>res.writeHead(200,{'Content-Type':'text/html'}).end('<title>fictional external origin</title>'));
@@ -59,4 +60,4 @@ try{
  const before=requests.length;const wave=outsider.evaluate(async url=>{for(let i=0;i<40;i++){fetch(url+'?reload='+i,{method:'POST',mode:'no-cors',body:'fictional'}).catch(()=>{});await new Promise(r=>setTimeout(r,25));}},target);
  await worker.evaluate(()=>{chrome.runtime.reload();}).catch(()=>{});await wave;await outsider.waitForTimeout(700);assert.equal(requests.length,before,'unverified page request escaped during extension reload');checks.push('page requests remain blocked during extension reload');evidence.ok=true;
 }catch(error){evidence.error=String(error.stack||error).slice(0,4000);process.exitCode=1;}
-finally{evidence.applicationRequests=requests;await context?.close();await Promise.all([new Promise(resolve=>server.close(resolve)),new Promise(resolve=>externalServer.close(resolve))]);await fs.mkdir(evidenceRoot,{recursive:true});await fs.writeFile(path.join(evidenceRoot,'greenhouse-global-deny.json'),JSON.stringify(evidence,null,2));await removeTestDirectory(dir);console.log('::notice title=Fictional global deny experiment::'+JSON.stringify(evidence).replaceAll('%','%25').replaceAll('\n','%0A'));if(!evidence.ok)console.error('::error title=Fictional global deny failure::'+String(evidence.error).replaceAll('%','%25').replaceAll('\n','%0A'));}
+finally{evidence.applicationRequests=requests;await context?.close();await Promise.all([new Promise(resolve=>server.close(resolve)),new Promise(resolve=>externalServer.close(resolve))]);await fs.mkdir(evidenceRoot,{recursive:true});await fs.writeFile(path.join(evidenceRoot,permission==='declarativeNetRequest'?'greenhouse-global-deny-full.json':'greenhouse-global-deny.json'),JSON.stringify(evidence,null,2));await removeTestDirectory(dir);console.log('::notice title=Fictional global deny experiment::'+JSON.stringify(evidence).replaceAll('%','%25').replaceAll('\n','%0A'));if(!evidence.ok)console.error('::error title=Fictional global deny failure::'+String(evidence.error).replaceAll('%','%25').replaceAll('\n','%0A'));}

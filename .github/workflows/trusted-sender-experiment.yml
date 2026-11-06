@@ -79,6 +79,18 @@ jobs:
             python3 -c 'from pathlib import Path; s=Path(".runtime/global-deny.log").read_text()[-5000:]; print("::error title=Fictional global deny::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
             exit 1
           fi
+      - name: Probe global default-deny with broader permission
+        if: ${{ !cancelled() }}
+        env:
+          DNR_EXPERIMENT_PERMISSION: declarativeNetRequest
+        run: |
+          if xvfb-run --auto-servernum node local-app/tests/greenhouse-global-deny-browser.mjs > .runtime/global-deny-full.log 2>&1; then
+            cat .runtime/global-deny-full.log
+          else
+            cat .runtime/global-deny-full.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/global-deny-full.log").read_text()[-5000:]; print("::error title=Fictional global deny broader permission::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Preserve fictional experiment evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -88,5 +100,6 @@ jobs:
             /workspace/.runtime/tests/evidence/greenhouse-trusted-sender.json
             /workspace/.runtime/tests/evidence/greenhouse-isolated-origin.json
             /workspace/.runtime/tests/evidence/greenhouse-global-deny.json
+            /workspace/.runtime/tests/evidence/greenhouse-global-deny-full.json
           if-no-files-found: warn
           retention-days: 7
