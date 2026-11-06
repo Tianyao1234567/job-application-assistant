@@ -20,7 +20,9 @@ let server,context,extensionOrigin,hideReceipt=false;
 const evidence={scope:'Temporary real MV3, fictional server and fictional data; not product integration or proof of real-site compatibility',results,ok:false};
 
 function background(){
- let port,proof,spec,pending,sending=false;
+ let port,proof,spec,pending,sending=false,releaseTestHold;
+ // Test-only observation: the production extension is not changed.
+ globalThis.experimentState=()=>({connected:!!port,sending,held:!!releaseTestHold});
  const source='http://127.0.0.1:17322/greenhouse/reference-test/jobs/1234567';
  const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),n=>n.toString(16).padStart(2,'0')).join('');
  const valueKeys=['csrf','email','full_name','job_id','question','resume_url','resume_url_filename','task_id','tenant'];
@@ -48,12 +50,17 @@ function background(){
  }
  async function submitOnce(){
   if(!port||!pending||!spec||!proof)return {ok:false,reason:'not-ready'};
+  const authorizedPort=port;
   const saved=(await chrome.storage.local.get('ledger')).ledger||{};
   if(saved[spec.taskId])return {ok:false,reason:'already-crossed'};
   const current=await read();if(!port||current.documentId!==pending.documentId||current.url!==source||JSON.stringify(current.values)!==JSON.stringify(pending.values))return {ok:false,reason:'changed'};
   // Persist before network dispatch. An aborted response must remain unknown.
   saved[spec.taskId]={status:'unknown',profileId:spec.profileId,profileVersion:spec.profileVersion,resumeVersion:spec.resumeVersion};await chrome.storage.local.set({ledger:saved});
-  if(!port)return {ok:false,reason:'disconnected'};
+  // Bounded fixture-only hook: the test explicitly disconnects the authorized
+  // port after durable boundary write, before dispatch, then releases this hold.
+  if(spec.holdBeforeSend===true)await new Promise(resolve=>{releaseTestHold=resolve;setTimeout(resolve,10000);});
+  releaseTestHold=null;
+  if(port!==authorizedPort)return {ok:false,reason:'disconnected'};
   const taskId=spec.taskId,body={job_application:structuredClone(pending.values)};pending=null;
   try{
    const response=await fetch(source,{method:'POST',credentials:'include',headers:{'content-type':'application/json','x-csrf-token':spec.csrf},body:JSON.stringify(body)});
@@ -83,6 +90,7 @@ function background(){
     }else if(message.op==='prepare')result=await snapshot();
     else if(message.op==='send')result=await submit();
     else if(message.op==='state')result={ok:true,ledger:(await chrome.storage.local.get('ledger')).ledger||{}};
+    else if(message.op==='release-test-hold'){if(!releaseTestHold)throw new Error('no hold');releaseTestHold();result={ok:true};}
     else result={ok:false,reason:'unknown-operation'};
    }catch(error){result={ok:false,reason:String(error.message||error)};}
    try{p.postMessage({id:message.id,...result});}catch{}
@@ -111,7 +119,7 @@ server=http.createServer(async(req,res)=>{
   const app=body?.job_application,expectedKeys=['csrf','email','full_name','job_id','question','resume_url','resume_url_filename','task_id','tenant'];
   // Keep the same page-origin requirement as the existing production replay;
   // the experiment does not forge Origin or relax the session/CSRF checks.
-  const valid=req.headers.origin===origin&&req.headers.cookie?.includes('fictional_session='+session)&&req.headers['x-csrf-token']===csrf&&app&&Object.keys(app).sort().join('|')===expectedKeys.join('|')&&app.csrf===csrf&&app.email==='fictional@example.invalid'&&app.full_name==='Fictional Applicant'&&app.job_id==='1234567'&&app.tenant==='reference-test'&&app.question==='Fictional option'&&app.resume_url===origin+'/greenhouse-upload/object-a'&&app.resume_url_filename==='fictional.txt'&&['task-good','task-unknown'].includes(app.task_id);
+  const valid=req.headers.origin===origin&&req.headers.cookie?.includes('fictional_session='+session)&&req.headers['x-csrf-token']===csrf&&app&&Object.keys(app).sort().join('|')===expectedKeys.join('|')&&app.csrf===csrf&&app.email==='fictional@example.invalid'&&app.full_name==='Fictional Applicant'&&app.job_id==='1234567'&&app.tenant==='reference-test'&&app.question==='Fictional option'&&app.resume_url===origin+'/greenhouse-upload/object-a'&&app.resume_url_filename==='fictional.txt'&&['task-good','task-good-2','task-unknown'].includes(app.task_id);
   if(!valid){res.writeHead(403).end('invalid request');return;}
   receipts.set(app.task_id,{id:'receipt-'+randomBytes(8).toString('hex'),taskId:app.task_id,jobId:app.job_id,account:app.email,referenceSha256:sha(app.resume_url)});res.writeHead(200,{'Content-Type':'application/json'}).end('{"ok":true}');return;
  }
@@ -128,7 +136,7 @@ try{
  await runner.evaluate(()=>{window.connect=()=>{window.p=chrome.runtime.connect({name:'experiment-runner'});window.pending=new Map();window.p.onMessage.addListener(m=>{window.pending.get(m.id)?.(m);window.pending.delete(m.id);});};window.call=(op,extra={})=>new Promise((resolve,reject)=>{const id=crypto.randomUUID(),timer=setTimeout(()=>{window.pending.delete(id);reject(new Error('runner timeout: '+op));},12000);window.pending.set(id,result=>{clearTimeout(timer);resolve(result);});window.p.postMessage({op,id,...extra});});window.connect();});
  const call=(op,extra={})=>runner.evaluate(([op,extra])=>window.call(op,extra),[op,extra]);
  const tabId=await worker.evaluate(async url=>(await chrome.tabs.query({url}))[0]?.id,source);assert.ok(Number.isInteger(tabId));
- const spec={tabId,source,tenant:'reference-test',jobId:'1234567',account:'fictional@example.invalid',name:'Fictional Applicant',question:'Fictional option',taskId:'task-good',profileId:'fictional-profile',profileVersion:1,resumeVersion:1,confirmed:true,csrf,file};
+ const spec={tabId,source,tenant:'reference-test',jobId:'1234567',account:'fictional@example.invalid',name:'Fictional Applicant',question:'Fictional option',taskId:'task-good',profileId:'fictional-profile',profileVersion:1,resumeVersion:1,confirmed:true,csrf,file,holdBeforeSend:true};
  assert.equal(await page.evaluate(()=>window.nativeSubmit()),0);assert.equal(count.length,0);
  await page.evaluate(url=>{navigator.sendBeacon(url+'?beacon=1',new Blob(['fictional'],{type:'text/plain'}));const frame=document.createElement('iframe');frame.name='fictional-post-target';frame.hidden=true;document.body.append(frame);const form=document.createElement('form');form.method='post';form.action=url+'?form=1';form.target=frame.name;document.body.append(form);form.submit();},source);
  await page.waitForTimeout(1200);assert.equal(count.length,0,'page fetch, beacon and native iframe form must all stay blocked');results.push('native page fetch, beacon and iframe form POST blocked');
@@ -147,10 +155,21 @@ try{
  await page.locator('[name=resume_url]').fill(origin+'/greenhouse-upload/object-a');assert.equal((await call('prepare')).ok,true);await runner.evaluate(()=>window.p.disconnect());await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>window.nativeSubmit()),0);
  await page.evaluate(url=>{navigator.sendBeacon(url+'?after-disconnect=1',new Blob(['fictional'],{type:'text/plain'}));const frame=document.createElement('iframe');frame.name='fictional-after-disconnect';frame.hidden=true;document.body.append(frame);const form=document.createElement('form');form.method='post';form.action=url+'?after-disconnect=1';form.target=frame.name;document.body.append(form);form.submit();},source);await page.waitForTimeout(1200);
  assert.equal(count.length,0);await runner.evaluate(()=>window.connect());assert.equal((await call('send')).ok,false);assert.equal(count.length,0);results.push('runner disconnect clears authorization and page fetch, beacon and form remain blocked');
+ assert.equal((await call('prepare')).ok,true);const held=call('send').catch(()=>({ok:false}));
+ let deadline=Date.now()+8000;while(Date.now()<deadline&&!(await worker.evaluate(()=>globalThis.experimentState())).held)await page.waitForTimeout(25);
+ assert.equal((await worker.evaluate(()=>globalThis.experimentState())).held,true);assert.equal((await call('state')).ledger['task-good'].status,'unknown');
+ await runner.evaluate(()=>window.p.disconnect());deadline=Date.now()+8000;while(Date.now()<deadline&&(await worker.evaluate(()=>globalThis.experimentState())).connected)await page.waitForTimeout(25);
+ assert.equal((await worker.evaluate(()=>globalThis.experimentState())).connected,false);await runner.evaluate(()=>window.connect());assert.equal((await call('release-test-hold')).ok,true);
+ deadline=Date.now()+8000;while(Date.now()<deadline&&(await worker.evaluate(()=>globalThis.experimentState())).sending)await page.waitForTimeout(25);
+ assert.equal((await worker.evaluate(()=>globalThis.experimentState())).sending,false);assert.equal(count.length,0);assert.equal((await call('state')).ledger['task-good'].status,'unknown');
+ results.push('fixture hold proves port disconnect after persisted boundary causes zero dispatch and remains unknown');
+ // This deterministic hook does not prove all browser scheduler or process-kill races.
+ await page.locator('[name=task_id]').fill('task-good-2');const good={...spec,taskId:'task-good-2',holdBeforeSend:false};assert.equal((await call('arm',{spec:good})).ok,true);
+ const recapture=call('capture');await Promise.race([page.waitForFunction(()=>[...document.documentElement.attributes].some(a=>a.name.startsWith('data-job-upload-')),{},{timeout:10000}),recapture.then(result=>{throw new Error('capture ended before upload: '+JSON.stringify(result));})]);await page.locator('#resume').setInputFiles({name:file.name,mimeType:'text/plain',buffer:bytes});assert.equal((await recapture).ok,true);
  assert.equal((await call('prepare')).ok,true);const attempts=await Promise.all([call('send'),call('send')]);const sent=attempts.find(item=>item.ok);assert.ok(sent,JSON.stringify(attempts));assert.equal(attempts.filter(item=>item.ok).length,1);assert.match(sent.receipt,/^receipt-/);assert.equal(count.length,1);assert.equal((await call('send')).ok,false);assert.equal(count.length,1);results.push('concurrent requests send once and verify independent receipt');
  // A new task uses the same observed upload, but an unavailable confirmation
  // must remain unknown; reloading the extension must not cause another POST.
- await page.locator('[name=task_id]').fill('task-unknown');const next={...spec,taskId:'task-unknown'};assert.equal((await call('arm',{spec:next})).ok,true);
+ await page.locator('[name=task_id]').fill('task-unknown');const next={...spec,taskId:'task-unknown',holdBeforeSend:false};assert.equal((await call('arm',{spec:next})).ok,true);
  const captureAgain=call('capture');await Promise.race([page.waitForFunction(()=>[...document.documentElement.attributes].some(a=>a.name.startsWith('data-job-upload-')),{},{timeout:10000}),captureAgain.then(result=>{throw new Error('capture ended before upload: '+JSON.stringify(result));})]);await page.locator('#resume').setInputFiles({name:file.name,mimeType:'text/plain',buffer:bytes});assert.equal((await captureAgain).ok,true);
  hideReceipt=true;assert.equal((await call('prepare')).ok,true);const unknown=await call('send');assert.equal(unknown.ok,false);assert.equal(unknown.reason,'unknown');assert.equal(count.length,2);
  assert.equal((await call('state')).ledger['task-unknown'].status,'unknown');await runner.evaluate(()=>chrome.runtime.reload());await runner.waitForTimeout(500);

@@ -4,6 +4,14 @@
 
 ## 当前接续（进行中，尚未交付）
 
+2026-11-06 Manager 续办 `96e64c3` 的新增证据：
+
+- [托管运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 Windows 步骤对 `839f24a` 通过：candidate.8 和 candidate.10 更新后，原待答任务由真实 MV3 各完成一次虚构申请，服务端各收到一次，答案及附件摘要一致，原 unknown 不能重投；该运行整体因既有附件探索步骤失败。后续提交只改测试或交接，最终包仍须按最终源码重新核对。
+- [独立发送实验 42157548290](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157548290)对应 `ba05851`：虚构服务对错误对象、预检后换引用、缺身份/CSRF、未知字段、未确认选项及执行端断线均收到零次申请；正确请求到达一次，但浏览器发送扩展 Origin 而非页面 Origin，严格虚构服务拒绝，故没有可信回执。成功回执与结果丢失后重启不重发的后续步骤未执行。
+- [来源实验 42158126581](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42158126581)对应 `23224ab`：同源页面和 ISOLATED 世界的 Origin、会话、CSRF、initiator 和 tab 相同，默认规则把两者申请请求均阻断；页面 fetch、beacon 和 iframe 表单在虚构服务均为零次。
+- [权限对照 42158636490](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42158636490)对应 `47f769a`：WithHostAccess 规则下外站有两次请求到达；较广的 declarativeNetRequest 规则在扩展运行及 runner 端口断开时挡住测试页面请求，但扩展重载期间有 40 次外站虚构请求到达。扩展发起的请求仍因 Origin 被虚构服务拒绝。临时实验使用更广权限，产品 manifest 未改变；不能视作产品安全门禁。
+- 当前独立可信发送尚未满足正常路径、可信回执和失效时零请求的组合要求；不能解除原生 Greenhouse 暂停、发布新包或请求真实申请。最小后续方向需独立于扩展生命周期的持续默认阻断，以及能够保持真实站点身份、Origin、CSRF 和精确上传对象绑定的受信发送通道；须先验证是否可部署且不扩大到通用代理，再用真实 MV3/虚构服务证明一次发送、零漏发、可信回执与 unknown 重启不重投。此方向尚未实现，不能宣称兼容 Greenhouse。
+
 已读 Manager 续办 `96e64c3`，原任务 `5c8b638` 不变。[托管运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 Windows 步骤对应 `839f24a`：candidate.8/.10 更新后，真实 MV3 均继续同一虚构待答任务，虚构服务各收到一次申请，答案和附件摘要一致，原 unknown 未重投；整个运行因无关附件探索实验失败，不能记为整体通过。独立发送的首次虚构 MV3 实验只证实页面原生 POST 被阻断；上传观察器初始化失败，正确发送与回执未执行。已修正实验初始化，待重跑；产品原生提交暂停未解除。
 
 2026-11-06 已读 Manager 续办 `5afcd67`，继续原任务 `5c8b638`。有效工程分支仍为 `engineer/profile-import-usability`；未合并 PR #5、未发布更新或执行真实投递。
