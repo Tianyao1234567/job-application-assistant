@@ -38,7 +38,6 @@ function background(){
   if(!spec||!proof||!port)return {ok:false,reason:'not-armed'};
   const current=await read(),v=current.values;
   if(current.url!==source||current.documentId!==proof.documentId||!shape(v)||v.csrf!==spec.csrf||v.email!==spec.account||v.full_name!==spec.name||v.job_id!==spec.jobId||v.tenant!==spec.tenant||v.task_id!==spec.taskId||v.question!==spec.question||v.resume_url_filename!==spec.file.name||await digest(v.resume_url)!==proof.referenceSha256)return {ok:false,reason:'mismatch'};
-  const {verifiedUpload,boundApplication}=await import('./greenhouse-receipts.js');
   const bound={...spec,replay:true,submitUrl:source,confirmationUrl:source+'/confirmation',documentId:current.documentId,uploadProof:proof};
   if(!verifiedUpload(bound)||!await boundApplication(bound,{job_application:v}))return {ok:false,reason:'upload-proof'};
   pending={documentId:current.documentId,values:structuredClone(v)};return {ok:true};
@@ -77,7 +76,7 @@ function background(){
      const x=message.spec;if(!x||!Number.isInteger(x.tabId)||x.source!==source||x.tenant!=='reference-test'||x.jobId!=='1234567'||x.account!=='fictional@example.invalid'||x.profileVersion!==1||x.resumeVersion!==1||x.confirmed!==true||!x.taskId||!x.profileId||!x.csrf)throw new Error('invalid authorization');
      spec=structuredClone(x);pending=null;proof=null;result={ok:true};
     }else if(message.op==='capture'){
-     if(!spec)throw new Error('not armed');const {captureUploadReference}=await import('./greenhouse-receipts.js');
+     if(!spec)throw new Error('not armed');
      const frames=await chrome.scripting.executeScript({target:{tabId:spec.tabId},world:'MAIN',func:captureUploadReference,args:[{file:spec.file,replay:true,nonce:nonce()}]});
      const observed=frames[0]?.result;if(!observed?.ok||!frames[0]?.documentId)throw new Error('upload proof unavailable');
      proof={...observed,rule:'greenhouse-upload-object-v1',taskId:spec.taskId,profileId:spec.profileId,tabId:spec.tabId,source,documentId:frames[0].documentId};result={ok:true};
@@ -96,7 +95,8 @@ const manifest={manifest_version:3,name:'Fictional independent sender experiment
 await fs.writeFile(path.join(ext,'manifest.json'),JSON.stringify(manifest));
 await fs.writeFile(path.join(ext,'rules.json'),JSON.stringify([{id:1,priority:1,action:{type:'block'},condition:{regexFilter:'^http://127[.]0[.]0[.]1:17322/greenhouse/reference-test/jobs/1234567([?].*)?$',initiatorDomains:['127.0.0.1'],resourceTypes:['xmlhttprequest','main_frame','sub_frame','other'],requestMethods:['post']}}]));
 await fs.writeFile(path.join(ext,'runner.html'),'<meta charset="utf-8"><title>fictional runner</title>');
-await fs.writeFile(path.join(ext,'background.js'),'('+background.toString()+')();');
+// MV3 service workers require static imports; import() is unavailable there.
+await fs.writeFile(path.join(ext,'background.js'),"import {captureUploadReference,verifiedUpload,boundApplication} from './greenhouse-receipts.js';\n("+background.toString()+')();');
 await fs.copyFile(path.join(projectRoot,'autofill-extension/greenhouse-receipts.js'),path.join(ext,'greenhouse-receipts.js'));
 server=http.createServer(async(req,res)=>{
  const u=new URL(req.url,origin);
@@ -125,7 +125,7 @@ try{
  context=await chromium.launchPersistentContext(path.join(dir,'browser'),browserOptions({headless:false,args:['--disable-extensions-except='+ext,'--load-extension='+ext]}));
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:15000});assert.match(worker.url(),/^chrome-extension:\/\/[a-p]{32}\//);extensionOrigin='chrome-extension://'+new URL(worker.url()).hostname;
  const page=await context.newPage();await page.goto(source);const runner=await context.newPage();await runner.goto(extensionOrigin+'/runner.html');
- await runner.evaluate(()=>{window.connect=()=>{window.p=chrome.runtime.connect({name:'experiment-runner'});window.pending=new Map();window.p.onMessage.addListener(m=>{window.pending.get(m.id)?.(m);window.pending.delete(m.id);});};window.call=(op,extra={})=>new Promise(resolve=>{const id=crypto.randomUUID();window.pending.set(id,resolve);window.p.postMessage({op,id,...extra});});window.connect();});
+ await runner.evaluate(()=>{window.connect=()=>{window.p=chrome.runtime.connect({name:'experiment-runner'});window.pending=new Map();window.p.onMessage.addListener(m=>{window.pending.get(m.id)?.(m);window.pending.delete(m.id);});};window.call=(op,extra={})=>new Promise((resolve,reject)=>{const id=crypto.randomUUID(),timer=setTimeout(()=>{window.pending.delete(id);reject(new Error('runner timeout: '+op));},12000);window.pending.set(id,result=>{clearTimeout(timer);resolve(result);});window.p.postMessage({op,id,...extra});});window.connect();});
  const call=(op,extra={})=>runner.evaluate(([op,extra])=>window.call(op,extra),[op,extra]);
  const tabId=await worker.evaluate(async url=>(await chrome.tabs.query({url}))[0]?.id,source);assert.ok(Number.isInteger(tabId));
  const spec={tabId,source,tenant:'reference-test',jobId:'1234567',account:'fictional@example.invalid',name:'Fictional Applicant',question:'Fictional option',taskId:'task-good',profileId:'fictional-profile',profileVersion:1,resumeVersion:1,confirmed:true,csrf,file};
@@ -133,7 +133,7 @@ try{
  assert.equal((await call('arm',{spec:{...spec,confirmed:false}})).ok,false);assert.equal((await call('send')).ok,false);assert.equal(count.length,0);
  assert.equal((await call('arm',{spec:{...spec,profileId:''}})).ok,false);assert.equal(count.length,0);
  assert.equal((await call('arm',{spec})).ok,true);
- const capture=call('capture');await page.waitForFunction(()=>[...document.documentElement.attributes].some(a=>a.name.startsWith('data-job-upload-')));
+ const capture=call('capture');await Promise.race([page.waitForFunction(()=>[...document.documentElement.attributes].some(a=>a.name.startsWith('data-job-upload-')),{},{timeout:10000}),capture.then(result=>{throw new Error('capture ended before upload: '+JSON.stringify(result));})]);
  await page.locator('#resume').setInputFiles({name:file.name,mimeType:'text/plain',buffer:bytes});assert.equal((await capture).ok,true);await page.waitForFunction(()=>!!document.querySelector('[name=resume_url]').value);
  assert.deepEqual(uploads,[{key:'object-a',sha256:file.sha256}]);
  await page.locator('[name=resume_url]').fill(origin+'/greenhouse-upload/same-name-wrong-object');assert.equal((await call('prepare')).ok,false);assert.equal(count.length,0);
@@ -147,10 +147,10 @@ try{
  // A new task uses the same observed upload, but an unavailable confirmation
  // must remain unknown; reloading the extension must not cause another POST.
  await page.locator('[name=task_id]').fill('task-unknown');const next={...spec,taskId:'task-unknown'};assert.equal((await call('arm',{spec:next})).ok,true);
- const captureAgain=call('capture');await page.waitForFunction(()=>[...document.documentElement.attributes].some(a=>a.name.startsWith('data-job-upload-')));await page.locator('#resume').setInputFiles({name:file.name,mimeType:'text/plain',buffer:bytes});assert.equal((await captureAgain).ok,true);
+ const captureAgain=call('capture');await Promise.race([page.waitForFunction(()=>[...document.documentElement.attributes].some(a=>a.name.startsWith('data-job-upload-')),{},{timeout:10000}),captureAgain.then(result=>{throw new Error('capture ended before upload: '+JSON.stringify(result));})]);await page.locator('#resume').setInputFiles({name:file.name,mimeType:'text/plain',buffer:bytes});assert.equal((await captureAgain).ok,true);
  hideReceipt=true;assert.equal((await call('prepare')).ok,true);const unknown=await call('send');assert.equal(unknown.ok,false);assert.equal(unknown.reason,'unknown');assert.equal(count.length,2);
  assert.equal((await call('state')).ledger['task-unknown'].status,'unknown');await runner.evaluate(()=>chrome.runtime.reload());await runner.waitForTimeout(500);
- await runner.reload();await runner.evaluate(()=>{window.p=chrome.runtime.connect({name:'experiment-runner'});window.pending=new Map();window.p.onMessage.addListener(m=>{window.pending.get(m.id)?.(m);window.pending.delete(m.id);});window.call=(op,extra={})=>new Promise(resolve=>{const id=crypto.randomUUID();window.pending.set(id,resolve);window.p.postMessage({op,id,...extra});});});
+ await runner.reload();await runner.evaluate(()=>{window.p=chrome.runtime.connect({name:'experiment-runner'});window.pending=new Map();window.p.onMessage.addListener(m=>{window.pending.get(m.id)?.(m);window.pending.delete(m.id);});window.call=(op,extra={})=>new Promise((resolve,reject)=>{const id=crypto.randomUUID(),timer=setTimeout(()=>{window.pending.delete(id);reject(new Error('runner timeout: '+op));},12000);window.pending.set(id,result=>{clearTimeout(timer);resolve(result);});window.p.postMessage({op,id,...extra});});});
  const reloaded=await runner.evaluate(()=>window.call('state'));assert.equal(reloaded.ledger['task-unknown'].status,'unknown');assert.equal(count.length,2);assert.equal((await runner.evaluate(()=>window.call('send'))).ok,false);assert.equal(count.length,2);results.push('missing receipt remains unknown across extension reload without resending');
  evidence.ok=true;
 }catch(error){evidence.error=String(error.stack||error).slice(0,4500);process.exitCode=1;}

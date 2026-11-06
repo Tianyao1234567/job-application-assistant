@@ -4,6 +4,8 @@
 
 ## 当前接续（进行中，尚未交付）
 
+已读 Manager 续办 `96e64c3`，原任务 `5c8b638` 不变。[托管运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 Windows 步骤对应 `839f24a`：candidate.8/.10 更新后，真实 MV3 均继续同一虚构待答任务，虚构服务各收到一次申请，答案和附件摘要一致，原 unknown 未重投；整个运行因无关附件探索实验失败，不能记为整体通过。独立发送的首次虚构 MV3 实验只证实页面原生 POST 被阻断；上传观察器初始化失败，正确发送与回执未执行。已修正实验初始化，待重跑；产品原生提交暂停未解除。
+
 2026-11-06 已读 Manager 续办 `5afcd67`，继续原任务 `5c8b638`。有效工程分支仍为 `engineer/profile-import-usability`；未合并 PR #5、未发布更新或执行真实投递。
 
 - [托管运行 42087321711](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42087321711)对应 `403168a`：源码/定点、旧学历及技能修复页面、真实 MV3 虚构补答与跨任务事实复用通过；Windows 虚构 candidate.8/.10 实际更新、扩展身份/数据/附件和 unknown 不重投检查通过，但未覆盖更新后实际资料修复及待答继续。调试器断开时错误请求仍到达；DNR 请求头匹配在随包 Chromium 中不受支持。真实原生 Greenhouse 仍暂停，新包尚未发布。
