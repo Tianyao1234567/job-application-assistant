@@ -1,0 +1,69 @@
+name: Fictional trusted sender experiment
+
+on:
+  push:
+    branches: [engineer/profile-import-usability]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-sender-experiment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fictional-mv3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+      options: --init --ipc=host
+      volumes:
+        - ${{ github.workspace }}:/workspace
+    defaults:
+      run:
+        shell: bash
+        working-directory: /workspace
+    env:
+      TEMP: /workspace/.runtime/tmp
+      TMP: /workspace/.runtime/tmp
+      TMPDIR: /workspace/.runtime/tmp
+      npm_config_cache: /workspace/.runtime/cache
+      PLAYWRIGHT_BROWSERS_PATH: /workspace/.runtime/browsers
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Prepare isolated test directories
+        run: |
+          test /workspace -ef "$GITHUB_WORKSPACE"
+          mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
+      - name: Install locked browser test dependencies
+        working-directory: /workspace/autofill-extension
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify and copy bundled Chromium
+        run: node scripts/cloud-check.mjs container-browser
+      - name: Verify fictional trusted sender with real MV3
+        run: |
+          if xvfb-run --auto-servernum node local-app/tests/greenhouse-trusted-sender-browser.mjs > .runtime/trusted-sender.log 2>&1; then
+            cat .runtime/trusted-sender.log
+          else
+            cat .runtime/trusted-sender.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/trusted-sender.log").read_text()[-5000:]; print("::error title=Fictional trusted sender::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
+      - name: Preserve fictional experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fictional-trusted-sender-evidence
+          path: /workspace/.runtime/tests/evidence/greenhouse-trusted-sender.json
+          if-no-files-found: warn
+          retention-days: 7
