@@ -69,6 +69,16 @@ jobs:
             python3 -c 'from pathlib import Path; s=Path(".runtime/isolated-origin.log").read_text()[-5000:]; print("::error title=Fictional isolated origin::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
             exit 1
           fi
+      - name: Probe global default-deny and extension initiator
+        if: ${{ !cancelled() }}
+        run: |
+          if xvfb-run --auto-servernum node local-app/tests/greenhouse-global-deny-browser.mjs > .runtime/global-deny.log 2>&1; then
+            cat .runtime/global-deny.log
+          else
+            cat .runtime/global-deny.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/global-deny.log").read_text()[-5000:]; print("::error title=Fictional global deny::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: Preserve fictional experiment evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -77,5 +87,6 @@ jobs:
           path: |
             /workspace/.runtime/tests/evidence/greenhouse-trusted-sender.json
             /workspace/.runtime/tests/evidence/greenhouse-isolated-origin.json
+            /workspace/.runtime/tests/evidence/greenhouse-global-deny.json
           if-no-files-found: warn
           retention-days: 7
