@@ -6,6 +6,7 @@
 
 2026-11-06 Manager 续办 `96e64c3` 的新增证据：
 
+- [断线边界实验 42158934708](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42158934708)对应 `a5ca470`：临时 MV3 实验在受控测试钩子下先持久化 unknown，确认原端口断线事件生效后再释放发送，虚构服务收到零次，账本仍为 unknown；不覆盖任意进程强杀或调度竞态。随后正确独立请求发出一次，但扩展 Origin 不符合虚构服务页面 Origin 要求，未取得可信回执；正常成功及发出后丢回执重启不重发步骤未执行。产品原生提交仍暂停。
 - [托管运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 Windows 步骤对 `839f24a` 通过：candidate.8 和 candidate.10 更新后，原待答任务由真实 MV3 各完成一次虚构申请，服务端各收到一次，答案及附件摘要一致，原 unknown 不能重投；该运行整体因既有附件探索步骤失败。后续提交只改测试或交接，最终包仍须按最终源码重新核对。
 - [独立发送实验 42157548290](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157548290)对应 `ba05851`：虚构服务对错误对象、预检后换引用、缺身份/CSRF、未知字段、未确认选项及执行端断线均收到零次申请；正确请求到达一次，但浏览器发送扩展 Origin 而非页面 Origin，严格虚构服务拒绝，故没有可信回执。成功回执与结果丢失后重启不重发的后续步骤未执行。
 - [来源实验 42158126581](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42158126581)对应 `23224ab`：同源页面和 ISOLATED 世界的 Origin、会话、CSRF、initiator 和 tab 相同，默认规则把两者申请请求均阻断；页面 fetch、beacon 和 iframe 表单在虚构服务均为零次。
