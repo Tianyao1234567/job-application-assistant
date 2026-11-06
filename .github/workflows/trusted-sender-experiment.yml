@@ -52,7 +52,7 @@ jobs:
         run: node scripts/cloud-check.mjs container-browser
       - name: Verify fictional trusted sender with real MV3
         run: |
-          if xvfb-run --auto-servernum node local-app/tests/greenhouse-trusted-sender-browser.mjs > .runtime/trusted-sender.log 2>&1; then
+          if timeout --kill-after=10s 150s xvfb-run --auto-servernum node local-app/tests/greenhouse-trusted-sender-browser.mjs > .runtime/trusted-sender.log 2>&1; then
             cat .runtime/trusted-sender.log
           else
             cat .runtime/trusted-sender.log
