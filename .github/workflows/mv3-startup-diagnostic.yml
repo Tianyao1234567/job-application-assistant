@@ -1,0 +1,67 @@
+name: Fictional MV3 answer startup diagnostic
+
+on:
+  push:
+    branches: [engineer/profile-import-usability]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mv3-answer-startup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mv3-answer:
+    if: ${{ contains(github.event.head_commit.message, '[mv3-startup]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+      options: --init --ipc=host
+      volumes:
+        - ${{ github.workspace }}:/workspace
+    defaults:
+      run:
+        shell: bash
+        working-directory: /workspace
+    env:
+      TEMP: /workspace/.runtime/tmp
+      TMP: /workspace/.runtime/tmp
+      TMPDIR: /workspace/.runtime/tmp
+      npm_config_cache: /workspace/.runtime/cache
+      PLAYWRIGHT_BROWSERS_PATH: /workspace/.runtime/browsers
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      CLOUD_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:65cefd09a5e943921ecd3a6e5414c603db2eb161e9eb48f2e2ccc63486dc7dc0
+      GREENHOUSE_BROWSER_MODE: extension
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Prepare isolated paths
+        run: |
+          test /workspace -ef "$GITHUB_WORKSPACE"
+          mkdir -p .runtime/tmp .runtime/cache .runtime/browsers .runtime/tests/evidence
+          git config --global --add safe.directory /workspace
+      - name: Install locked test dependencies
+        working-directory: /workspace/autofill-extension
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install locked runtime dependencies
+        working-directory: /workspace/runtime-deps
+        run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
+      - name: Verify bundled Chromium
+        run: node scripts/cloud-check.mjs container-browser
+      - name: Run actual MV3 fictional answer workflow once
+        run: |
+          if timeout --kill-after=10s 180s xvfb-run --auto-servernum node local-app/tests/greenhouse-answer-ui-browser.mjs > .runtime/mv3-answer.log 2>&1; then
+            cat .runtime/mv3-answer.log
+            python3 -c 'import json; from pathlib import Path; p=Path(".runtime/tests/evidence/greenhouse-answer-mv3-browser.json"); d=json.loads(p.read_text()); print("::notice title=MV3 answer startup diagnostic::"+json.dumps({"environment":d["environment"],"results":d["results"]},ensure_ascii=True).replace("%","%25"))'
+          else
+            cat .runtime/mv3-answer.log
+            python3 -c 'from pathlib import Path; s=Path(".runtime/mv3-answer.log").read_text()[-6000:]; print("::error title=MV3 answer startup diagnostic::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+            exit 1
+          fi

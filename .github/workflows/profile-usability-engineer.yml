@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   focused-checks:
-    if: github.ref == 'refs/heads/engineer/profile-import-usability'
+    if: github.ref == 'refs/heads/engineer/profile-import-usability' && !contains(github.event.head_commit.message, '[mv3-startup]')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     container:

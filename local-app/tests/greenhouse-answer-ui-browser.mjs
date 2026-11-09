@@ -176,6 +176,11 @@ try{
   const extension=path.join(projectRoot,'autofill-extension');
   context=await chromium.launchPersistentContext(path.join(isolated,'browser-profile'),browserOptions({headless:mode!=='extension',...(mode==='extension'?{args:['--disable-extensions-except='+extension,'--load-extension='+extension]}:{})}));
   evidence.environment.browser=context.browser().version();
+  const workerEvents=[];
+  if(mode==='extension'){
+    context.on('serviceworker',worker=>workerEvents.push({event:'created',url:worker.url()}));
+    workerEvents.push(...context.serviceWorkers().map(worker=>({event:'observed',url:worker.url()})));
+  }
   await context.route('**/*',route=>{
     const url=new URL(route.request().url());
     if(url.origin===BASE&&route.request().method()==='POST'&&url.pathname.startsWith('/api/profile/import/'))importRequests.push(url.pathname);
@@ -184,7 +189,23 @@ try{
   });
   context.on('page',page=>page.on('pageerror',error=>pageErrors.push(redact(error.message))));
   if(mode==='extension'){
-    worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:15000});
+    try{worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:15000});}
+    catch(error){
+      // Retain the failure: diagnostics must not restart or silently repair the
+      // extension. The browser profile and all pages here are fictional tests.
+      const diagnostic={browser:evidence.environment.browser,workerEvents,currentWorkers:context.serviceWorkers().map(item=>item.url())};
+      try{
+        const page=await context.newPage();await page.goto('chrome://extensions/');
+        diagnostic.extensions=await page.evaluate(()=>{
+          const manager=document.querySelector('extensions-manager');
+          const list=manager?.shadowRoot?.querySelector('extensions-item-list');
+          return [...(list?.shadowRoot?.querySelectorAll('extensions-item')||[])].map(item=>({id:item.id,text:item.shadowRoot?.innerText?.slice(0,1200)||''}));
+        });
+        await page.close();
+      }catch(diagnosticError){diagnostic.error=String(diagnosticError.message).slice(0,500);}
+      console.error('::error title=MV3 startup diagnostic::'+JSON.stringify(diagnostic).replaceAll('%','%25').replaceAll('\n','%0A'));
+      throw error;
+    }
     assert.match(worker.url(),/^chrome-extension:\/\/[a-p]{32}\//);evidence.environment.extensionId=new URL(worker.url()).hostname;
   }
   dashboard=context.pages()[0]||await context.newPage();
