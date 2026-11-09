@@ -1,8 +1,16 @@
 # Engineer交接（简版）
 
-更新：2026-11-06。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
+更新：2026-11-09。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
 ## 当前接续（进行中，尚未交付）
+
+已读 Manager 续办 `304ac4bc90ed9e2f1def7614810859a1e66a6966`，原任务 `5c8b638` 不变；两版升级后同一待答任务经真实 MV3 在虚构站完成的缺口已关闭，保留 `839f24a` 的 Windows 成功步骤，不重复派工。[Manager 任务](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/PROFILE_USABILITY_CHECKPOINT_003.md)要求先核对协议及受管失效路径，再选一个可部署候选；若不能满足请求语义或可达失效保护，说明不兼容及取舍，不用手工申请或改宽 fixture 冒充通过。
+
+- **公开协议依据与未知**：由[只读取证运行 39749293061](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39749293061)公开的 22 个分片还原当时官方 JS，161149 字节，SHA-256 `378c96ee0ba18cc20667ed84f7822c0d78d833296d843097040c47e2dfba2728`，与既有交付记录一致。当时客户端从 React 状态及岗位 schema 构造 JSON `job_application`、问题及附件字段；可选 CSRF 以动态键放在请求体顶层，可能还有验证相关字段、`request_token` 和 `fingerprint`；页面 `fetch` POST JSON，未显式设置 credentials，使用浏览器默认 same-origin，`response.ok` 后导航 loader 的 `confirmationPath`。这仅证明当时公开客户端行为，不能证明服务器实际接受条件或现行版本。真实服务器对扩展 Origin、CORS、cookie/CSRF、验证值、附件对象的要求，以及能否按申请人和附件只读核对已受理申请，仍未知；没有向企业上传或提交测试。
+- **fixture 差异和候选**：`greenhouse-trusted-sender-browser.mjs` 的固定 `X-CSRF-Token`、Strict cookie、固定表单字段、页面 Origin 限制、可按任务查询并绑定附件摘要的 JSON 回执均为虚构合约，不能归因真实站；扩展 Origin 被该 fixture 拒绝不代表 Greenhouse 会拒绝。候选是对受管申请页面默认阻断原生 POST，由扩展冻结并核验完整请求与上传对象、先持久写 unknown、独立发送一次；但虚构 FormData 不等于真实 React 请求，真实会话和 Origin 语义未知。现有产品网络回执绑定受管 tab 的 POST 2xx 与该 tab 后续确认导航，现有观察器排除扩展 worker 的无 tab 请求；实验自造只读 JSON 回执也没有生产依据。即便另行适配，普通确认页及单独 HTTP 2xx 都不能证明丢响应后申请已受理。候选尚不可集成，不修改 fixture 放宽约束来宣称通过。
+- **受管生命周期**：当前产品 `runner.js` 对真实 Greenhouse 的 preflight 和 submit 均在点击前暂停，现有产品并未走独立发送；runner 断线而扩展仍启用时实验 DNR 拦截结果可保留。正常 `update.cmd` 先停止并复核项目浏览器、后台进程及端口，再执行更新；此前无关页面在扩展重载期间发请求不能直接证明该更新路径漏发。正常停止发起到浏览器实际退出之间的在途竞态、已有申请页在扩展异常停用或浏览器恢复时是否自行发出请求，尚无受管路径证据；不能推断必然安全或必然漏发。`background.js` 的 runner tab 重载不等于整扩展重载。未来解除暂停前，必须覆盖授权后断线、请求派发边界及受管页面/进程实际可达失效。
+- **独立 MV3 启动超时**：[运行 42157151400](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42157151400)的 focused job 在等待 serviceworker 15 秒时超时，原输出没有扩展安装状态或浏览器错误，根因无法从该次记录确定；它不推翻同次 Windows 独立成功步骤。测试与工作流源码 `fa9162bd01cee82fb5836a6cf7d736d0464b84e8` 增加失败时的 worker 事件及扩展安装状态诊断，并只运行相关单项。[单项运行 42552235041](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/42552235041)通过：Chromium 145.0.7632.6 真实 MV3 完成必填/选填持久化、同任务继续和跨任务确认事实复用；这证明该次启动与场景通过，不证明旧超时是偶发或解释其根因。
+- **停止条件和未执行**：正确请求被真实协议接受并取得可信回执、错误附件在完整生产语义下零到达、服务接受后丢回执并重启只读恢复的纵向场景尚未完成。现有被拒请求丢响应及 unknown 重启不重发的虚构证据继续保留，不能替代接受后丢回执。下一步需要可靠的公开协议及可关联申请的只读核对依据，或由 Manager 决定受限的后续范围；无依据时保持原生提交暂停及 unknown 不重投，不发布候选包。
 
 2026-11-06 Manager 续办 `96e64c3` 的新增证据：
 
