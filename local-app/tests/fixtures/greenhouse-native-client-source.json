@@ -1,0 +1,156 @@
+{
+  "format": "greenhouse-public-client-extract-v1",
+  "scope": "Exact source extraction for fictional offline tests; not proof of current production or server acceptance.",
+  "source": {
+    "url": "https://job-boards.cdn.greenhouse.io/assets/entry.client-DnzCgKgt.js",
+    "file": "entry.client-DnzCgKgt.js",
+    "bytes": 161149,
+    "sha256": "378c96ee0ba18cc20667ed84f7822c0d78d833296d843097040c47e2dfba2728",
+    "evidenceURL": "https://github.com/Tianyao1234567/job-application-assistant/actions/runs/39749293061",
+    "reconstruction": "Concatenate base64-decoded data fields from public module annotation indexes 0 through 21, then decompress gzip. Require this complete source SHA-256 before extracting."
+  },
+  "schema": {
+    "path": "docs/greenhouse-mattermost-form.json",
+    "sha256": "aa1dfa436dda6d0259ffed238e158515a97a8b7d80571523bccab679e10237e9",
+    "source": "https://job-boards.greenhouse.io/mattermost/jobs/5381946008",
+    "observedAt": "2026-10-22T08:00:24.177440+00:00"
+  },
+  "fixture": {
+    "file": "greenhouse-native-client.js",
+    "bytes": 4308,
+    "sha256": "17a26bece615b1cf0069d69f793f42ad780575e88d97bd1c332f4bf1fa80fa5a",
+    "exports": {
+      "buildApplication": "Da",
+      "nativeSubmit": "to"
+    }
+  },
+  "offsets": "All offsets are UTF-8 byte offsets, zero-based, end-exclusive.",
+  "segments": [
+    {
+      "name": "kt",
+      "startByte": 89667,
+      "endByteExclusive": 89804,
+      "bytes": 137,
+      "sha256": "1b3142d82a5d83b15e137f8827b11720c08cf38e19ee38547fa0e5d5f20e694c",
+      "fixtureStartByte": 236,
+      "fixtureEndByteExclusive": 373
+    },
+    {
+      "name": "Us",
+      "startByte": 89804,
+      "endByteExclusive": 89971,
+      "bytes": 167,
+      "sha256": "9db18b40f962c76e47eb2e313285e9f906ae0e3d558bb4f39393bcd16e32445e",
+      "fixtureStartByte": 374,
+      "fixtureEndByteExclusive": 541
+    },
+    {
+      "name": "lt",
+      "startByte": 89971,
+      "endByteExclusive": 90003,
+      "bytes": 32,
+      "sha256": "48aa4e8ee55ad28029a2e0e0ca0d9c69d5afff217da793349621c97f97da6b98",
+      "fixtureStartByte": 542,
+      "fixtureEndByteExclusive": 574
+    },
+    {
+      "name": "La",
+      "startByte": 90126,
+      "endByteExclusive": 90547,
+      "bytes": 421,
+      "sha256": "c63f3cccfffa4a60bbe7c310d0da2c28a8fee1726c2d5d10897d811d4d7957c8",
+      "fixtureStartByte": 575,
+      "fixtureEndByteExclusive": 996
+    },
+    {
+      "name": "Ta",
+      "startByte": 90547,
+      "endByteExclusive": 90988,
+      "bytes": 441,
+      "sha256": "9b30a684131ffa2c516427382b84925232de9afe17c313fb7d8b7924379a66db",
+      "fixtureStartByte": 997,
+      "fixtureEndByteExclusive": 1438
+    },
+    {
+      "name": "Ot",
+      "startByte": 90988,
+      "endByteExclusive": 91124,
+      "bytes": 136,
+      "sha256": "c5b9e4dee587e4ab5e6301329141421404f4e7a57d5a63bc2d43309d727df53d",
+      "fixtureStartByte": 1439,
+      "fixtureEndByteExclusive": 1575
+    },
+    {
+      "name": "$s",
+      "startByte": 91124,
+      "endByteExclusive": 91220,
+      "bytes": 96,
+      "sha256": "2b568a70a8c7a94329e51a9972976ab1b7c5a955a67188a30c20e6c9d69f01d5",
+      "fixtureStartByte": 1576,
+      "fixtureEndByteExclusive": 1672
+    },
+    {
+      "name": "Ma",
+      "startByte": 91220,
+      "endByteExclusive": 91845,
+      "bytes": 625,
+      "sha256": "c2a9c988d98e664111307fc67de18279383acd4a001038c733fac175f50ae47e",
+      "fixtureStartByte": 1673,
+      "fixtureEndByteExclusive": 2298
+    },
+    {
+      "name": "Ia",
+      "startByte": 91845,
+      "endByteExclusive": 92297,
+      "bytes": 452,
+      "sha256": "db712f2f6c1f20d767194751e9161809b3649bdffb1c411da61827381dbf99ce",
+      "fixtureStartByte": 2299,
+      "fixtureEndByteExclusive": 2751
+    },
+    {
+      "name": "Fa",
+      "startByte": 92297,
+      "endByteExclusive": 92538,
+      "bytes": 241,
+      "sha256": "d353ddebe6656c0aaaf87a243509c355334a018ff7a4f3ff8c9870b7044428f7",
+      "fixtureStartByte": 2752,
+      "fixtureEndByteExclusive": 2993
+    },
+    {
+      "name": "Ra",
+      "startByte": 92538,
+      "endByteExclusive": 92703,
+      "bytes": 165,
+      "sha256": "cb142f2fef38b9d0e9b304da443b7468d3a77142b96cb62714e13cbdc5ab3f49",
+      "fixtureStartByte": 2994,
+      "fixtureEndByteExclusive": 3159
+    },
+    {
+      "name": "Oa",
+      "startByte": 92703,
+      "endByteExclusive": 92957,
+      "bytes": 254,
+      "sha256": "9a6192f2352c4613beaea6e330fc0e7e220be324c708ad560efecc11b9bd246e",
+      "fixtureStartByte": 3160,
+      "fixtureEndByteExclusive": 3414
+    },
+    {
+      "name": "Da",
+      "startByte": 92957,
+      "endByteExclusive": 93340,
+      "bytes": 383,
+      "sha256": "b1d4fb859a65e4ed12fb5b4b85c508150dab7cef6400dababbeee07801c52fd8",
+      "fixtureStartByte": 3415,
+      "fixtureEndByteExclusive": 3798
+    },
+    {
+      "name": "to",
+      "startByte": 101088,
+      "endByteExclusive": 101544,
+      "bytes": 456,
+      "sha256": "19db1f4b47fe49dbd1d64a4fae9e0caa71ba78e6920751bdfe9a623518e4c2a7",
+      "fixtureStartByte": 3799,
+      "fixtureEndByteExclusive": 4255
+    }
+  ]
+}
