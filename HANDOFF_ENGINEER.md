@@ -1,8 +1,24 @@
 # Engineer交接（简版）
 
-更新：2026-11-09。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
+更新：2026-11-12（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
 ## 当前接续（进行中，尚未交付）
+
+已按用户在本次新云会话转达的 Manager 最新纠正接续原任务 `5c8b638`，晚于文档的纠正优先。核对远端工程起点仍是 `26e206e41294b309aeb4eca13b98108daff20056`，Manager 文档分支为 `304ac4bc90ed9e2f1def7614810859a1e66a6966`；保留原工程分支，无未提交旧工作被覆盖，没有从 main 重做或强推。当前云环境能执行命令和 Git 读写，不再等待旧 `container_service_failed / HTTP 404` 环境。
+
+**本轮离线源码检查点：`51b449efc28ea0f8716e4609a14b1d689fe8ad54`。** [离线验证报告](docs/GREENHOUSE_NATIVE_REQUEST_OFFLINE_001.md)记录完整命令、协议来源、实际结果和限制。
+
+- 历史官方完整 JS 从公开 CI 的 22 个分片重建，161149 字节及 `378c96ee…ba2728` 摘要一致；14 个原始函数/依赖逐字节提取，直接调用官方应用状态/schema 构造及 native fetch 构造，不用固定 FormData 替代。原始完整源及运行输出只在忽略路径；版本、切片范围与摘要已提交。
+- 已完成离线浏览器获取完整 application JSON、动态 CSRF、问题答案、虚构验证值、request_token、fingerprint 及精确附件引用，并对可信预期作内存冻结/摘要/逐项绑定核验。React 状态变更、错对象、额外字段/附件、上下文及版本变化、第二次捕获会被拒绝。不是完整 HTTP 会话身份认证；expected.application、上传证明以及默认模式的 tab/document 是可信虚构输入，schema 摘要不独立证明本人授权。
+- Node24.22.1 / Playwright1.58.2 / 当前已有 Chromium156.0.8078.79：官方源及14片校验、130个语法/JSON文件、新增10项单元，以及包含runner/receipt的30项定点通过；实际离线浏览器场景通过，4次POST意图由harness拦截，虚构服务收到0次，观察到的页面外部请求0、确认导航0。测试断网不能算产品门禁。没有新增托管 CI 成功声明；本次 `[skip ci]` 保存已验证的云端检查点，避免重复旧升级/资料及已失败实验组合。
+- 扩大定点44项中41通过、3失败。`greenhouse-model.test.mjs:73/125/150`在设置资料时触发旧英文退役校验，未进入业务断言；以`git archive 26e206e`独立重现原模型14项11通过、同3失败，临时目录已清理。未改已验收产品逻辑；生产重启unknown的该条旧测试未执行到断言，不能当作通过。
+- 新增可选真实MV3身份读取模式在本环境15秒等待worker超时；worker事件、worker及扩展列表为空，同时读取到受管`ExtensionInstallBlocklist:["*"]`。诊断保存在`.runtime/tests/evidence/greenhouse-native-request-mv3-startup.json`；不绕过策略，不以当前观察解释历史旧MV3超时，也不推翻既有单项成功。
+
+**当前边界及下一步：** 产品runner、manifest、回执和unknown账本未修改；原生Greenhouse提交仍暂停。接下来由Engineer在允许MV3的云环境接通真实tab/document、可信确认应用状态及已有原生XHR精确上传证明，再验证保留受管页native fetch和官方确认语义的最小产品门禁。暂缓worker独立发送和新回执体系；成功须绑定本次实际核验请求、目标站响应及官方确认流程，不能只凭2xx或手动打开感谢页。接受后丢响应允许持久保持unknown，完整重启/重新授权后不重投，**不再要求找到生产申请查询API或unknown必然恢复submitted**。正常接受、接受后丢响应及受管失效门禁场景本轮未执行，不能以离线捕获替代。已通过的资料修复、平台补答、跨任务复用及candidate.8/.10升级后原任务真实MV3虚构完成证据继续复用。
+
+本轮是可审阅的离线阶段检查点，不是最终交付或Manager验收。没有最终更新包，PR #5保持draft，未合并或真实投递；首次真实申请仍须本人确认。下列旧检查点保留历史，其中要求查询API、独立发送及必然恢复结果的后续方向已被以上用户最新纠正覆盖。
+
+## 上一检查点（历史）
 
 已读 Manager 续办 `304ac4bc90ed9e2f1def7614810859a1e66a6966`，原任务 `5c8b638` 不变；两版升级后同一待答任务经真实 MV3 在虚构站完成的缺口已关闭，保留 `839f24a` 的 Windows 成功步骤，不重复派工。[Manager 任务](https://github.com/Tianyao1234567/job-application-assistant/blob/dev/pm9-demo-windows-readiness/docs/PROFILE_USABILITY_CHECKPOINT_003.md)要求先核对协议及受管失效路径，再选一个可部署候选；若不能满足请求语义或可达失效保护，说明不兼容及取舍，不用手工申请或改宽 fixture 冒充通过。
 
