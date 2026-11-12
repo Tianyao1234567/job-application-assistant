@@ -1,0 +1,35 @@
+# 原生 Greenhouse 请求门禁的真实 MV3 检查点
+
+2026-11-12（北京时间）。原任务 `5c8b638`，工程分支 `engineer/profile-import-usability`。已读 Manager `e98571691e681dd29eef6b96f9a065105e83a440` 中的交接和检查点005，产品范围沿用004。本轮产品实现截至 `253718a4b52954492bc5c6d3514b5831e21a7e70`，托管验证源码为 `09956b61d9788d54a334cc5a31887a0c117e762a`。本报告与 `HANDOFF_ENGINEER.md` 同一交接提交，待 Manager 审阅。
+
+## 产品接入
+
+- `runner.js` 从已有后台确认读取岗位、申请人、执行 profile、资料及附件版本。在实际上传时观察页面原生 XHR 的 `FormData`，核对 File 字节摘要、对象键和成功响应。提交前复核实际 Chrome 顶层 frame、tab 和 `documentId`，后续操作通过 `documentIds` 锁定同一文档。
+- `greenhouse-adapter.js` 在隔离世界从已经匹配本人确认资料或原题答案的值重建受限应用状态，再校验原表单、岗位 schema、锁定 File 和 loader。当前支持虚构站的姓名、邮箱、电话、文本原题和单一简历对象，loader 提供虚构的动态 CSRF、request token 和 fingerprint。未获独立确认的字段、附件或协议形状会暂停。
+- `greenhouse-native-request.js` 复用离线冻结校验的完整 JSON 和传输约束。原生调用在同一页面 MAIN world 暂停，完整正文与已确认应用状态逐项核对，简历引用与实际上传证据的对象摘要核对。原始正文、验证码类字段和原始对象 URL 留在内存。
+- 后台持久记录提交边界，扩展先保存原有尝试账本，再获得仅用于捕获的授权。执行端重新核对申请状态，取得最终授权后，原文档只允许同一份冻结正文进入一次原生 fetch。页面收到真实 Response 并沿其 `response.ok` 分支发起确认导航。现有 `webRequest` 回执同时要求同一文档、完整正文摘要、同一请求的状态、原页面观察到的确认导航和标签页实际确认地址。
+- 入口限 `greenhouse-replay-v1` 的本机原生协议路径。真实 Greenhouse 保持暂停。扩展 manifest 与权限沿用现有配置。
+
+## 真实 MV3 结果
+
+GitHub 托管 Ubuntu，Node 24.22.2、Playwright 1.58.2、Chromium 145.0.7632.6，实际加载仓库 MV3。仅使用虚构资料、测试附件及回环站。测试执行了历史原客户端的应用构造和原生 fetch 函数，并让虚构页面根据真实 `response.ok` 导航。测试报告观察到的外部请求为 0。 [最终运行 43184820613](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43184820613/job/131069276095)
+
+| 场景 | 原始申请 POST 到达 | 有效接受 | 确认导航 | 客户端 |
+| --- | ---: | ---: | ---: | --- |
+| 正常 | 1 | 1 | 1 | `submitted`，回执关联实际 tab/document、XHR File 和对象摘要、冻结正文 SHA-256、HTTP 200 和页面确认导航 |
+| 同名错对象 | 0 | 0 | 0 | `unknown`，页面已调用原生提交函数，冻结核验阻止实际发送 |
+| 捕获后撤销授权 | 0 | 0 | 0 | `unknown`，实际后台任务暂停撤销最终授权，保留账本 |
+| 服务持久接受后丢响应 | 重启前 3，重启后 3 | 1 | 0 | `unknown`，完整关闭并以同一隔离 profile 和数据目录重启 Chromium 及后台，重新配对后再次确认/继续被提交边界拒绝，读结果未新增 POST |
+
+丢响应时首个请求已持久写入接受记录，服务随后在写响应头前断开 socket。页面提交处理器只进入一次，浏览器报告一次请求失败，服务记录三个连接上的相同正文摘要 `d60f94dfc7c7d8bd562793c6a50795dda4e4954a383c82604ce9cda759c1eb65`。首个连接为复用，后两个连接为新连接。虚构服务对相同已接受请求只保留一条接受记录，并丢掉重复到达的响应。由同一次页面调用、相同正文、不同连接和 Chromium 实现判断，观察结果符合浏览器网络层重发。真实 Greenhouse 服务端对同一原生请求重发的处理仍待证实。 [Chromium 145 网络事务实现](https://github.com/chromium/chromium/blob/145.0.7632.6/net/http/http_network_transaction.cc#L2038)
+
+## 失败记录与后续
+
+- `95e2555` 的 [43183677739](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43183677739) 加载真实 MV3 后，在填表阶段因测试资料确认了表单没有的城市字段而暂停，四条纵向断言均未执行。调整虚构资料，并使仅捕获授权与最终发送授权分开。
+- `253718a` 的 [43184015580](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43184015580) 前三条通过。接受后丢响应观察到两次 HTTP 到达，原断言按一次到达提前失败，未执行重启。
+- `cb37216` 的 [43184491645](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43184491645) 前三条通过。逐连接记录显示三次同摘要到达，原测试的预设上限使重启仍未执行。最终运行去掉预设次数，以实际计数核对重启前后，并使回环 POST 直接走 Chromium 网络。
+- 本机 Node 24.22.1 首轮测试因沙箱禁止启动 Node 子进程报 `EPERM`。改为 `--test-isolation=none` 后，受影响的冻结、runner 和回执定点 30 项通过，包含旧离线新增 10 项。改动脚本通过语法检查。扩大 44 项组本轮未运行，保留原 41 过及 3 个旧资料初始化失败。历史云镜像的 MV3 禁装及早期启动超时根因维持原记录。本轮托管环境成功启动真实扩展，并在丢响应场景实际重启。
+- 托管验证复用既有启动工作流。首次尝试提交工作流修改时 GitHub 因 CLI 凭据缺少 `workflow` 权限拒绝，原本机提交保留。正常快进推送的版本仅改测试入口，以提交标记选择当前场景。生产安装、资料、附件、浏览器身份和账本保留原样。
+- 当前已验证的受管失效为捕获后实际撤销最终授权。文档替换、扩展强制停用、浏览器强杀和真实站 schema/传输兼容未执行。页面 fetch 门禁的证明范围限已验证的受管调用，无法约束 Chromium 在同一次 fetch 内部重发。已有 CDP detach 漏发、DNR 标记重放和 worker Origin 差异的旧证据继续保留。
+- 下一责任人先由 Manager 审阅这次范围及传输边界。保留原生机制的最小继续路径是核实当前站点原生请求标识是否具有可验证的服务端去重语义，再收窄必要的 schema 和受管失效验证。若无法确认重复 HTTP 到达的影响，保持真实提交暂停，由 Manager 决定后续范围。
+- PR #5 保持 draft，最终包和最终验收待后续，真实企业申请仍暂停。用户无需重导 JSON、重装或试投排障。
