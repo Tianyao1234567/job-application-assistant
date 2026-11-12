@@ -6,7 +6,7 @@
 
 - 本机会话具备 Windows 文件、PowerShell 和 Git 访问能力。已检查并保留指定项目根目录里的现有安装及数据；未启动或更新生产安装，未读取私人资料内容。
 - 独立经理检出位于用户指定项目根目录的 `dev/manager`，经理分支 `dev/pm9-demo-windows-readiness`，本轮起点及 fetch 后远端为 `03f25a65694ad2ba48d31f20bf26211db82948cf`。经理检出原不存在，本轮只新建这一份，未安装工程依赖。
-- 独立工程检出 `dev/engineer` 在核查期间出现。只读核实实际远端正确，分支 `engineer/profile-import-usability`，HEAD 与 fetch 后工程远端均为 `b2494037f02154b59b61791c1f0c09d394468307`；观察时工作树干净、未见 Git 锁。该快照不证明工程会话空闲或停工，按可能活跃的既有写入者保留；Manager 不切换其分支、不修改其文件、不另派并行实现者。不能声称 Engineer 已读本次文档。
+- 独立工程检出 `dev/engineer` 在核查期间出现。只读核实实际远端正确，分支 `engineer/profile-import-usability`，HEAD 与 fetch 后工程远端均为 `b2494037f02154b59b61791c1f0c09d394468307`；初次快照工作树干净、未见 Git 锁；经理文档同步后复查已出现7个未提交文件（4个修改、3个新增），涉及runner、回执、冻结模块、原生门禁及浏览器测试，HEAD仍未变化。上述状态只证明本地已有未提交工程工作，不证明已交付、测试通过或已读经理文档；保留既有写入者。Manager不切换其分支、不修改其文件、不另派并行实现者，等待Engineer提交对应源码/报告后审查。
 - 本轮先 fetch，再从经理检出的远端引用读取工程交接及报告。不同分支不会通过 pull 自动合并；不为读文件合并分支，不从旧 main 重新开发、不回退旧 SHA、不强推、不索要新 token。无需等待旧云容器恢复。
 - 私人路径接续只保存在项目根目录的 `.local/HANDOFF_MANAGER_LOCAL.md`，该目录位于两个源码检出之外。仓库内 Manager 仅维护自己的交接、任务与验收文档；`HANDOFF_ENGINEER.md` 仍由 Engineer 维护。
 
