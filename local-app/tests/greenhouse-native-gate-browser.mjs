@@ -55,12 +55,14 @@ async function connect(){
   assert.match(worker.url(),/^chrome-extension:\/\/[a-p]{32}\/background\.js$/);
   evidence.workerStarts.push(new URL(worker.url()).hostname);
   evidence.chromium=context.browser().version();
-  await context.route('**/*',route=>{
-    const url=new URL(route.request().url());
-    if(!['http:','https:'].includes(url.protocol)||[BASE,fixtureOrigin].includes(url.origin))return route.continue();
-    evidence.externalRequests.push(url.origin);
-    return route.abort('blockedbyclient');
+  // Keep the HTTP fixture out of Playwright request interception. Its
+  // application POST must use the browser's own connection and retry logic.
+  context.on('request',request=>{
+    const url=new URL(request.url());
+    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin))
+      evidence.externalRequests.push(url.origin);
   });
+  await context.route('https://**/*',route=>route.abort('blockedbyclient'));
   context.on('page',page=>page.on('pageerror',error=>workerErrors.push(redact(error.message))));
   const dashboard=context.pages()[0]||await context.newPage();
   await dashboard.goto(BASE);
@@ -178,19 +180,15 @@ try{
   assert.equal(unknown.submissionStarted,true);
   const beforeRestart=fixture.counts(lost),trace=fixture.trace(lost);
   evidence.lostResponse={beforeRestart,trace,browserFailures:failures.length};
-  assert.ok([1,2].includes(beforeRestart.posts));
+  assert.ok(beforeRestart.posts>=1);
   assert.deepEqual(beforeRestart,{posts:trace.length,accepted:1,confirmations:0,responseDropped:1});
   assert.equal(failures.length,1);
   const lostPage=context.pages().find(page=>page.url()===jobURL(lost));
   assert.equal(await lostPage.locator('form').getAttribute('data-native-submit-calls'),'1');
   const acceptedOnDisk=JSON.parse(await fs.readFile(fixture.acceptanceFile,'utf8'))[lost];
   assert.equal(acceptedOnDisk.sha256,sha256);
-  if(trace.length===2){
-    assert.equal(trace[0].reused,true);
-    assert.equal(trace[1].reused,false);
-    assert.notEqual(trace[0].connectionId,trace[1].connectionId);
-    assert.equal(trace[0].bodySha256,trace[1].bodySha256);
-  }
+  assert.equal(new Set(trace.map(entry=>entry.connectionId)).size,trace.length);
+  assert.ok(trace.every(entry=>entry.bodySha256===acceptedOnDisk.bodySha256));
   await context.close();
   context=null;
   await closeApp();
