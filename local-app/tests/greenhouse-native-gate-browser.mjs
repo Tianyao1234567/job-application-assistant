@@ -149,7 +149,7 @@ try{
   const denied=await run(wrong);
   assert.equal(denied.status,'unknown');
   const deniedPage=context.pages().find(page=>page.url()===jobURL(wrong));
-  assert.equal(await deniedPage.locator('form').getAttribute('data-native-submit-called'),'true');
+  assert.equal(await deniedPage.locator('form').getAttribute('data-native-submit-calls'),'1');
   assert.deepEqual(fixture.counts(wrong),{posts:0,accepted:0,confirmations:0,responseDropped:0});
   record('same-name different object rejected before native fetch release',wrong,denied);
 
@@ -176,10 +176,21 @@ try{
   const unknown=await run(lost);
   assert.equal(unknown.status,'unknown');
   assert.equal(unknown.submissionStarted,true);
-  assert.deepEqual(fixture.counts(lost),{posts:1,accepted:1,confirmations:0,responseDropped:1});
+  const beforeRestart=fixture.counts(lost),trace=fixture.trace(lost);
+  evidence.lostResponse={beforeRestart,trace,browserFailures:failures.length};
+  assert.ok([1,2].includes(beforeRestart.posts));
+  assert.deepEqual(beforeRestart,{posts:trace.length,accepted:1,confirmations:0,responseDropped:1});
   assert.equal(failures.length,1);
+  const lostPage=context.pages().find(page=>page.url()===jobURL(lost));
+  assert.equal(await lostPage.locator('form').getAttribute('data-native-submit-calls'),'1');
   const acceptedOnDisk=JSON.parse(await fs.readFile(fixture.acceptanceFile,'utf8'))[lost];
   assert.equal(acceptedOnDisk.sha256,sha256);
+  if(trace.length===2){
+    assert.equal(trace[0].reused,true);
+    assert.equal(trace[1].reused,false);
+    assert.notEqual(trace[0].connectionId,trace[1].connectionId);
+    assert.equal(trace[0].bodySha256,trace[1].bodySha256);
+  }
   await context.close();
   context=null;
   await closeApp();
@@ -194,7 +205,8 @@ try{
   await action('verify',{taskId:unknown.id});
   await waitFor('verification stays unknown',state,value=>task(value,lost).steps.at(-1)?.label==='核对接收结果');
   assert.equal(task(await state(),lost).status,'unknown');
-  assert.deepEqual(fixture.counts(lost),{posts:1,accepted:1,confirmations:0,responseDropped:1});
+  assert.deepEqual(fixture.counts(lost),beforeRestart);
+  evidence.lostResponse.afterRestart=fixture.counts(lost);
   record('accepted before socket loss, full product/browser restart and reauthorization forbid resend',lost,unknown);
   assert.deepEqual(evidence.externalRequests,[]);
   assert.deepEqual(workerErrors,[]);

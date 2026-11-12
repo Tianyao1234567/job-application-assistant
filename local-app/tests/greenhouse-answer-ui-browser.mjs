@@ -18,7 +18,7 @@ if(process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_WORKFLOW==='Fictional
     await import('./greenhouse-native-gate-browser.mjs');
     const report=JSON.parse(await fs.readFile(path.join(evidenceRoot,'greenhouse-native-gate-mv3.json'),'utf8'));
     const summary={environment:{mode:report.mode,node:report.node,browser:report.chromium},results:report.checks,
-      fixture:report.fixture,error:report.error,receiptDiagnostics:report.receiptDiagnostics};
+      fixture:report.fixture,lostResponse:report.lostResponse,error:report.error,receiptDiagnostics:report.receiptDiagnostics};
     console.log('Native gate evidence '+JSON.stringify(summary));
     await fs.writeFile(path.join(evidenceRoot,'greenhouse-answer-mv3-browser.json'),JSON.stringify(summary,null,2));
     process.exit(process.exitCode??0);

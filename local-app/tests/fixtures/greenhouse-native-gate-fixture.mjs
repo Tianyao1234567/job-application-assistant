@@ -47,7 +47,7 @@ function applicationPage(id){
     '  xhr.send(body);',
     '});',
     'form.addEventListener("submit",async event=>{',
-    '  event.preventDefault();form.dataset.nativeSubmitCalled="true";',
+    '  event.preventDefault();form.dataset.nativeSubmitCalls=String(Number(form.dataset.nativeSubmitCalls||0)+1);',
     '  const values=Object.fromEntries([...form.elements].filter(input=>input.name).map(input=>[input.name,input.value]));',
     '  const application=buildApplication(loader.jobPost,{...values,resume},[],{},[],[],new URLSearchParams(location.search));',
     '  try{const response=await nativeSubmit({application,submitPath:loader.submitPath,csrfToken:loader.csrfToken,',
@@ -80,6 +80,8 @@ export async function startNativeFixture(directory,resume){
   const client=await fs.readFile(new URL('./greenhouse-native-client.js',import.meta.url));
   const uploads=new Map([['other-fictional-object',{name:resume.name,sha256:digest(Buffer.alloc(resume.bytes.length,88)),size:resume.bytes.length}]]);
   const state=Object.fromEntries(fixtureJobs.map(id=>[id,{posts:0,accepted:0,confirmations:0,responseDropped:0}]));
+  const connections=new WeakMap(),traces=Object.fromEntries(fixtureJobs.map(id=>[id,[]]));
+  let nextConnection=0;
   const accepted={},acceptanceFile=path.join(directory,'accepted.json');
   const respond=(response,status,body='',headers={})=>{
     response.writeHead(status,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store',...headers});
@@ -87,6 +89,9 @@ export async function startNativeFixture(directory,resume){
   };
   const server=http.createServer(async(request,response)=>{
     try{
+      if(!connections.has(request.socket))connections.set(request.socket,{id:++nextConnection,requests:0});
+      const connection=connections.get(request.socket);
+      const reused=connection.requests++>0;
       const url=new URL(request.url,fixtureOrigin);
       if(url.pathname==='/native-fixture-client.js'&&request.method==='GET')
         return respond(response,200,client,{'Content-Type':'text/javascript'});
@@ -118,12 +123,12 @@ export async function startNativeFixture(directory,resume){
       }
       if(suffix||request.method!=='POST')return respond(response,405);
       counts.posts++;
-      assert.equal(counts.posts,1);
       assert.equal(request.headers.origin,fixtureOrigin);
       assert.equal(request.headers.cookie,cookie);
       assert.equal(request.headers['content-type'],'application/json');
       const bytes=await read(request),body=JSON.parse(bytes),key=uploadKey(id),file=uploads.get(key);
       assert.ok(file);
+      traces[id].push({connectionId:connection.id,reused,bodySha256:digest(bytes)});
       assert.deepEqual(body,{
         job_application:{first_name:fixtureAnswers.first_name,last_name:fixtureAnswers.last_name,email:fixtureAccount,phone,
           answers_attributes:{123:{question_id:'123',priority:0,text_value:fixtureAnswers.question_123}},
@@ -131,6 +136,14 @@ export async function startNativeFixture(directory,resume){
           resume_url:reference(key),resume_url_filename:file.name,mapped_url_token:null,appcast_click_id:null,time_zone:'UTC'},
         [csrf.key]:csrf.value,request_token:requestToken,fingerprint
       });
+      // Keep raw arrivals visible. On this fixture an identical retry after
+      // acceptance cannot create a second record, and the reply is still lost.
+      if(accepted[id]){
+        assert.equal(id,fixtureJobs[3]);
+        assert.equal(accepted[id].bodySha256,digest(bytes));
+        request.socket.destroy();
+        return;
+      }
       accepted[id]={...file,referenceSha256:digest(reference(key)),bodySha256:digest(bytes)};
       const temporary=acceptanceFile+'.tmp';
       await fs.writeFile(temporary,JSON.stringify(accepted),{flag:'wx'});
@@ -149,5 +162,6 @@ export async function startNativeFixture(directory,resume){
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(17322,'127.0.0.1',resolve);});
   return {acceptanceFile,counts:id=>({...state[id]}),accepted:id=>({...accepted[id]}),
+    trace:id=>structuredClone(traces[id]),
     close:()=>new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()))};
 }
