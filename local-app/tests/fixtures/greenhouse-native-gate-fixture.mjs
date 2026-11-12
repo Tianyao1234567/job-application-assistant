@@ -7,6 +7,8 @@ import path from 'node:path';
 export const fixtureOrigin='http://127.0.0.1:17322',fixtureTenant='native-gate',fixtureCompany='Fictional Native Company';
 export const fixtureAccount='fictional@example.invalid';
 export const fixtureJobs=['12345671','12345672','12345673','12345674'];
+export const fixtureFaultJobs={replaced:'12345675',disabled:'12345676'};
+const allJobs=[...fixtureJobs,...Object.values(fixtureFaultJobs)];
 export const fixtureAnswers={first_name:'Fictional',last_name:'Applicant',question_123:'I confirm the fictional role motivation.'};
 const base='/greenhouse/'+fixtureTenant;
 export const jobURL=id=>fixtureOrigin+base+'/jobs/'+id;
@@ -53,7 +55,7 @@ function applicationPage(id){
     '  try{const response=await nativeSubmit({application,submitPath:loader.submitPath,csrfToken:loader.csrfToken,',
     '    fingerprint:loader.fingerprint,jobApplicationRequestToken:loader.jobApplicationRequestToken});',
     '    if(response.ok)location.assign(loader.confirmationPath);',
-    '  }catch{}',
+    '  }catch{form.dataset.nativeSubmitOutcome="rejected";}',
     '});'
   ].join('\n');
   return page('Fictional native vacancy','<h1>Fictional native vacancy</h1><p class="job-location">Fictional Test City</p>'+
@@ -79,8 +81,8 @@ async function read(request){
 export async function startNativeFixture(directory,resume){
   const client=await fs.readFile(new URL('./greenhouse-native-client.js',import.meta.url));
   const uploads=new Map([['other-fictional-object',{name:resume.name,sha256:digest(Buffer.alloc(resume.bytes.length,88)),size:resume.bytes.length}]]);
-  const state=Object.fromEntries(fixtureJobs.map(id=>[id,{posts:0,accepted:0,confirmations:0,responseDropped:0}]));
-  const connections=new WeakMap(),traces=Object.fromEntries(fixtureJobs.map(id=>[id,[]]));
+  const state=Object.fromEntries(allJobs.map(id=>[id,{posts:0,accepted:0,confirmations:0,responseDropped:0}]));
+  const connections=new WeakMap(),traces=Object.fromEntries(allJobs.map(id=>[id,[]]));
   let nextConnection=0;
   const accepted={},acceptanceFile=path.join(directory,'accepted.json');
   const respond=(response,status,body='',headers={})=>{
@@ -102,7 +104,7 @@ export async function startNativeFixture(directory,resume){
         assert.equal(form.getAll('key').length,1);
         assert.equal(form.getAll('file').length,1);
         const key=form.get('key'),file=form.get('file');
-        assert.ok(fixtureJobs.some(id=>key===uploadKey(id)));
+        assert.ok(allJobs.some(id=>key===uploadKey(id)));
         assert.ok(file instanceof File);
         const bytes=Buffer.from(await file.arrayBuffer());
         assert.equal(file.name,resume.name);
