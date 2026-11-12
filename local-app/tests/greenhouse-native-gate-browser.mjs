@@ -72,6 +72,7 @@ async function connect(){
 async function configure(){
   const profile=JSON.parse(await fs.readFile(path.join(projectRoot,'autofill-extension/profile.example.json'),'utf8'));
   profile.personal.email.zh=profile.personal.email.en=fixtureAccount;
+  profile.personal.location.confirmed=false;
   const current=await state();
   await api('/profile',{data:profile,mode:'demo',confirmed:true,baseVersion:current.profile.version});
   await api('/resume',{name:resume.name,mime:'text/plain',base64:resume.bytes.toString('base64'),mode:'demo'});
@@ -156,7 +157,8 @@ try{
   app.store.authorize=body=>{
     const command=app.store.command;
     if(command?.op==='submit'&&app.store.task(command.taskId).jobId===revokedJob&&++revocations===2){
-      app.store.action({action:'task-pause',taskId:command.taskId});
+      const pause=app.store.action({action:'task-pause',taskId:command.taskId});
+      assert.equal(pause.pauseOutcome,'authorization-revoked');
       revoked=true;
     }
     return authorize(body);

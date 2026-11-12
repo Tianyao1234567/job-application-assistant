@@ -21,8 +21,8 @@ async function api(route,body) {
   return response.json();
 }
 const identity=()=>({clientId,profileId:bridge.profileId,extensionId:chrome.runtime.id});
-async function authorize(command) {
-  try {if((await api('authorize',{clientId,commandId:command.id})).allowed===true)return;}catch{}
+async function authorize(command,captureOnly=false) {
+  try {if((await api('authorize',{clientId,commandId:command.id,...(captureOnly?{captureOnly:true}:{})})).allowed===true)return;}catch{}
   throw new Stop('paused','执行已暂停或连接中断；未继续修改页面。');
 }
 function expected(command) {
@@ -258,12 +258,15 @@ async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
   if(!installed?.ok)return fail('manual','未能保护原生申请入口，未点击提交。');
   try{
     if(!await recordGreenhouseAttempt(command,ledgerKey))return fail('unknown','已记录提交尝试，仅允许核对。');
-    await authorize(command);
+    await authorize(command,true);
     if(!(await control('ready'))?.ok)return fail('unknown','受管申请文档不可用，未点击提交。');
     const clicked=await nativeScript(target,'ISOLATED',
       (context,token)=>JobGreenhouse.commit(context,token,true),expect,prepared.token);
     if(!clicked?.ok)return clicked||fail('unknown','页面操作无返回，未放行请求。');
-    const frozen=await capture.freeze(await control('capture'),spec);
+    const request=await control('capture');
+    let frozen;
+    try{frozen=await capture.freeze(request,spec);}
+    catch{return fail('unknown','原生请求未通过已确认内容及附件核对，未放行。');}
     const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',
       spec:{taskId:spec.taskId,profileId:spec.profileId,tabId:spec.tabId,documentId:spec.documentId,
         source:spec.source,tenant:spec.tenant,jobId:spec.jobId,account:spec.account,replay:true,file,uploadProof,

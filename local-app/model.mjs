@@ -545,7 +545,7 @@ export class Store {
     delete site.login;
     return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.submitConfirmed===true:this.confirmedTask(task),confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true&&answer.stale!==true).map(answer=>clone(answer)),confirmedProfileEntries:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>['personal.email','personal.phone','personal.location'].includes(e.key)&&e.confirmed&&e.value.trim()).map(e=>({key:e.key,value:e.key==='personal.email'?site.expectedAccount:e.value,confirmed:true})),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
   }
-  authorize({clientId,commandId}){
+  authorize({clientId,commandId,captureOnly=false}){
     this.expireCommand();
     const c=this.command;if(!c||c.id!==commandId||c.clientId!==clientId||!sameClient(c,this.connection))return {allowed:false};
     if(c.op==='verify')return {allowed:!!c.taskId&&this.canVerifyTask(this.task(c.taskId))&&(!isGreenhouse(this.site(c.siteId))||this.task(c.taskId).executionProfileId===this.connection.profileId)};
@@ -554,6 +554,7 @@ export class Store {
     const local=t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo';
     const greenhouse=isGreenhouse(site)&&this.confirmedTask(t)&&t.mode===site.mode;
     const allowed=(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&(local||greenhouse);
+    if(captureOnly===true)return {allowed:allowed&&c.op==='submit'&&greenhouseReplay(site)};
     if(allowed&&c.op==='submit'){t.submitAuthorizedAt=this.now();this.save();}
     return {allowed};
   }
