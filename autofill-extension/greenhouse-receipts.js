@@ -96,6 +96,7 @@ export async function boundApplication(spec,body) {
 }
 export function networkReceipt(session) {
   const {spec,request}=session||{};
+  if(spec?.nativeRequestSha256&&(!session.nativeResponse||session.nativeResponse.status!==request?.status||request?.nativeRequestSha256!==spec.nativeRequestSha256))return null;
   if(request?.fileBinding==='native-upload-reference'&&(!verifiedUpload(spec)||request.referenceSha256!==spec.uploadProof.referenceSha256))return null;
   if(request?.fileBinding&&!['request-bytes','native-upload-reference'].includes(request.fileBinding))return null;
   if(!receiptScope(spec)||!request?.bound||!Number.isInteger(request.status)||!Number.isFinite(request.startedAt)||request.status<200||request.status>=300||request.error||session.ambiguous||!session.confirmedAt||session.confirmedAt<request.startedAt)return null;
@@ -107,13 +108,14 @@ export function registerGreenhouseReceipts(chrome) {
   const key='greenhouseReceiptSessions';let serial=Promise.resolve();
   const update=fn=>{serial=serial.catch(()=>{}).then(async()=>{const data=(await chrome.storage.local.get(key))[key]||{};const value=await fn(data);await chrome.storage.local.set({[key]:data});return value;});return serial;};
   chrome.runtime.onMessage.addListener((message,sender,respond)=>{
-    if(!['greenhouse-receipt-arm','greenhouse-receipt-read'].includes(message?.type))return;
+    if(!['greenhouse-receipt-arm','greenhouse-receipt-read','greenhouse-receipt-native-response'].includes(message?.type))return;
     if(sender.id!==chrome.runtime.id||sender.url!==chrome.runtime.getURL('runner/index.html')){respond({ok:false});return;}
     (async()=>{
       const {runnerTabId}=await chrome.storage.local.get('runnerTabId');
       if(sender.tab?.id!==runnerTabId)return {ok:false};
       if(message.type==='greenhouse-receipt-arm'){
         const spec=message.spec;if(!receiptScope(spec)||spec.uploadedResumeConfirmed===true&&!verifiedUpload(spec))return {ok:false};
+        if(spec.nativeRequestSha256&&(!spec.replay||!verifiedUpload(spec)||!/^[a-f0-9]{64}$/.test(spec.nativeRequestSha256)))return {ok:false};
         return update(sessions=>{
           const old=sessions[spec.taskId];
           if(old&&JSON.stringify(old.spec)!==JSON.stringify(spec))return {ok:false};
@@ -122,6 +124,15 @@ export function registerGreenhouseReceipts(chrome) {
       }
       return update(sessions=>{
         const session=sessions[message.taskId];
+        if(message.type==='greenhouse-receipt-native-response'){
+          const spec=session?.spec;
+          if(!spec?.nativeRequestSha256||spec.profileId!==message.profileId||
+            spec.nativeRequestSha256!==message.nativeRequestSha256||message.responseUrl!==spec.submitUrl||
+            !Number.isInteger(message.status)||message.status<200||message.status>=300||
+            message.confirmationObserved!==true)return {ok:false};
+          session.nativeResponse={status:message.status};
+          return {ok:true};
+        }
         return {ok:true,receipt:session?.spec.profileId===message.profileId?networkReceipt(session):null};
       });
     })().then(respond,()=>respond({ok:false}));return true;
@@ -133,6 +144,7 @@ export function registerGreenhouseReceipts(chrome) {
       for(const session of Object.values(sessions)){
         const spec=session.spec;
         if(details.tabId!==spec.tabId||details.url!==spec.submitUrl||details.timeStamp<session.armedAt||Date.now()-session.armedAt>900000)continue;
+        if(spec.nativeRequestSha256&&(details.documentId!==spec.documentId||details.frameId!==0||details.initiator!==new URL(spec.source).origin))continue;
         if(session.request&&session.request.id!==details.requestId){session.ambiguous=true;continue;}
         session.request={id:details.requestId,startedAt:details.timeStamp,bound:false};
         const chunks=details.requestBody?.raw||[];let size=0;
@@ -140,6 +152,10 @@ export function registerGreenhouseReceipts(chrome) {
         if(!size||size>12582912)continue;
         const bytes=new Uint8Array(size);let offset=0;
         for(const chunk of chunks){if(!chunk.bytes)continue;bytes.set(new Uint8Array(chunk.bytes),offset);offset+=chunk.bytes.byteLength;}
+        if(spec.nativeRequestSha256){
+          session.request.nativeRequestSha256=await hex(bytes);
+          if(session.request.nativeRequestSha256!==spec.nativeRequestSha256)continue;
+        }
         try{const body=JSON.parse(new TextDecoder().decode(bytes));session.request.bound=await boundApplication(spec,body);session.request.fileBinding=body.job_application?.resume_url?'native-upload-reference':'request-bytes';if(body.job_application?.resume_url)session.request.referenceSha256=await hex(new TextEncoder().encode(body.job_application.resume_url));}catch{}
       }
     });
@@ -156,6 +172,7 @@ export function registerGreenhouseReceipts(chrome) {
     const value=change.url||(change.status==='complete'?tab.url:null);if(!value)return;
     update(sessions=>{for(const session of Object.values(sessions)){
       if(session.spec.tabId!==tabId||!session.request)continue;
+      if(session.spec.nativeRequestSha256&&value!==session.spec.confirmationUrl)continue;
       try{const url=new URL(value),expected=new URL(session.spec.confirmationUrl);if(url.origin===expected.origin&&url.pathname===expected.pathname)session.confirmedAt=Date.now();}catch{}
     }});
   });

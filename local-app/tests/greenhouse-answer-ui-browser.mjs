@@ -9,6 +9,22 @@ import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoo
 import {createApp} from '../server.mjs';
 import {startGreenhouseFixture,GREENHOUSE_REPLAY} from '../greenhouse-fixture.mjs';
 
+// The existing hosted startup job runs this entry point. Select a separate
+// fictional suite only when its pushed commit explicitly requests it.
+if(process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_WORKFLOW==='Fictional MV3 answer startup diagnostic'){
+  const {execFileSync}=await import('node:child_process');
+  const subject=execFileSync('git',['log','-1','--format=%s'],{cwd:projectRoot,encoding:'utf8'});
+  if(subject.includes('[native-gate]')){
+    await import('./greenhouse-native-gate-browser.mjs');
+    const report=JSON.parse(await fs.readFile(path.join(evidenceRoot,'greenhouse-native-gate-mv3.json'),'utf8'));
+    const summary={environment:{mode:report.mode,node:report.node,browser:report.chromium},results:report.checks,
+      fixture:report.fixture,error:report.error,receiptDiagnostics:report.receiptDiagnostics};
+    console.log('Native gate evidence '+JSON.stringify(summary));
+    await fs.writeFile(path.join(evidenceRoot,'greenhouse-answer-mv3-browser.json'),JSON.stringify(summary,null,2));
+    process.exit(process.exitCode??0);
+  }
+}
+
 const require=createRequire(new URL('../../autofill-extension/package.json',import.meta.url));
 const {chromium}=require('playwright');
 const BASE='http://127.0.0.1:17321',FIXTURE='http://127.0.0.1:17322';

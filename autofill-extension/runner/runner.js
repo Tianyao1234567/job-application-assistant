@@ -1,5 +1,7 @@
 import {definitions} from '../shared/schema.js';
 import {captureUploadReference,verifiedUpload} from '../greenhouse-receipts.js';
+import {installNativeGate,controlNativeGate} from './greenhouse-native-gate.js';
+import {createNativeCapture,sha256} from './greenhouse-native-request.js';
 
 const BASE='http://127.0.0.1:17321', FIXTURE='http://127.0.0.1:17322';
 const status=document.getElementById('status');
@@ -205,11 +207,96 @@ function greenhouseEntries(entries) {
 async function greenReceipt(command) {
   try{const reply=await chrome.runtime.sendMessage({type:'greenhouse-receipt-read',taskId:command.task.id,profileId:bridge.profileId});return reply?.ok?reply.receipt:null;}catch{return null;}
 }
+async function recordGreenhouseAttempt(command,ledgerKey) {
+  // A denied authorization or missing response never clears the durable entry.
+  const {localSubmissionAttempts={}}=await chrome.storage.local.get('localSubmissionAttempts');
+  if(localSubmissionAttempts[ledgerKey])return false;
+  localSubmissionAttempts[ledgerKey]={commandId:command.id,taskId:command.task.id,profileId:bridge.profileId,at:Date.now()};
+  await chrome.storage.local.set({localSubmissionAttempts});
+  return true;
+}
+
+async function nativeScript(target,world,func,...args) {
+  const [result]=await chrome.scripting.executeScript({target,world,func,args});
+  if(result?.frameId!==0||result.documentId!==target.documentIds[0])
+    throw new Stop('structure','原生申请文档已变化；未放行提交。');
+  return result.result;
+}
+
+async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
+  const {confirmation}=command.task,file=greenhouseFileIdentity(payload.file);
+  const protocol=checked.submissionProtocol;
+  if(!expect.replay||!file||checked.layout!==payload.layout||
+    !confirmation?.submitConfirmed||confirmation.profileId!==bridge.profileId||
+    confirmation.jobId!==expect.jobId||confirmation.url!==command.task.url||
+    confirmation.company!==expect.company||confirmation.expectedAccount!==expect.expectedAccount||
+    confirmation.resumeSha256!==file.sha256||typeof confirmation.confirmedAt!=='string'||
+    !Number.isInteger(confirmation.profileVersion)||confirmation.profileVersion<1||
+    !Number.isInteger(confirmation.resumeVersion)||confirmation.resumeVersion<1)
+    return fail('manual','缺少同一岗位、申请人、资料和附件版本的明确确认。');
+  const uploadProof=await uploadProofFor(command,tab,file);
+  if(!uploadProof)return fail('manual','缺少同一文档的原生精确附件证明，未放行提交。');
+  const target={tabId:tab.id,documentIds:[uploadProof.documentId]};
+  const readState=(captured=false)=>nativeScript(target,'ISOLATED',
+    (context,layout,file,captured)=>JobGreenhouse.nativeState(context,layout,file,captured),expect,payload.layout,file,captured);
+  const state=await readState();
+  if(!state?.ok)return state||fail('manual','原生申请状态尚未确认。');
+  if(JSON.stringify(state.protocol)!==JSON.stringify(protocol))return fail('structure','原生提交目标已变化。');
+  if(command.op==='preflight')return {ok:true,tabId:tab.id,url:tab.url};
+  const prepared=await nativeScript(target,'ISOLATED',
+    (context,layout,file)=>JobGreenhouse.prepare('submit',context,[layout,file]),expect,payload.layout,file);
+  if(!prepared?.ok||!prepared.token)return prepared||fail('manual','提交预检未完成。');
+  const spec={taskId:command.task.id,profileId:bridge.profileId,tabId:tab.id,documentId:uploadProof.documentId,
+    source:command.task.url,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,
+    replay:true,file,uploadProof,authorizationId:command.id,profileVersion:confirmation.profileVersion,
+    resumeVersion:confirmation.resumeVersion,stateVersion:await sha256(JSON.stringify(state)),
+    schemaSha256:await sha256(JSON.stringify(state.schema)),...protocol};
+  const capture=createNativeCapture({spec,expected:state.expected,scope:'managed-replay',bindReferenceByDigest:true});
+  const key=crypto.randomUUID();
+  const control=(action,value=null)=>nativeScript(target,'MAIN',controlNativeGate,key,action,value);
+  const installed=await nativeScript(target,'MAIN',installNativeGate,{key,source:spec.source,...protocol});
+  if(!installed?.ok)return fail('manual','未能保护原生申请入口，未点击提交。');
+  try{
+    if(!await recordGreenhouseAttempt(command,ledgerKey))return fail('unknown','已记录提交尝试，仅允许核对。');
+    await authorize(command);
+    if(!(await control('ready'))?.ok)return fail('unknown','受管申请文档不可用，未点击提交。');
+    const clicked=await nativeScript(target,'ISOLATED',
+      (context,token)=>JobGreenhouse.commit(context,token,true),expect,prepared.token);
+    if(!clicked?.ok)return clicked||fail('unknown','页面操作无返回，未放行请求。');
+    const frozen=await capture.freeze(await control('capture'),spec);
+    const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',
+      spec:{taskId:spec.taskId,profileId:spec.profileId,tabId:spec.tabId,documentId:spec.documentId,
+        source:spec.source,tenant:spec.tenant,jobId:spec.jobId,account:spec.account,replay:true,file,uploadProof,
+        uploadedResumeConfirmed:true,nativeRequestSha256:frozen.bodySha256,...protocol}});
+    if(!watched?.ok)return fail('unknown','原生请求的网络核验尚未就绪，未放行请求。');
+    const fresh=await readState(true);
+    if(!fresh?.ok||await sha256(JSON.stringify(fresh))!==spec.stateVersion)
+      return fail('unknown','最终放行前已确认状态发生变化，未放行请求。');
+    await authorize(command);
+    const response=await control('release',{requestId:frozen.request.requestId,body:frozen.request.body});
+    if(response?.ok){
+      await chrome.runtime.sendMessage({type:'greenhouse-receipt-native-response',taskId:spec.taskId,
+        profileId:spec.profileId,nativeRequestSha256:frozen.bodySha256,status:response.status,
+        responseUrl:response.responseUrl,confirmationObserved:response.confirmationObserved});
+      for(let index=0;index<12;index++){
+        const receipt=await greenReceipt(command);
+        if(receipt)return {ok:true,receipt,tabId:tab.id};
+        await delay(250);
+      }
+    }
+  }catch{
+    // Raw requests, security values and attachment URLs are never logged.
+  }finally{
+    await control('cancel').catch(()=>{});
+  }
+  return {...fail('unknown','已保存提交尝试，尚无可靠关联的确认结果；只允许核对。'),tabId:tab.id};
+}
+
 async function executeGreenhouse(command,expect,payload) {
   let tab=await getTab(command,expect);
   const base=expect.origin+(expect.replay?'/greenhouse/':'/')+expect.tenant;
   const ledgerKey=[expect.adapter,expect.origin,expect.tenant,expect.jobId,expect.expectedAccount].join(':');
-  const previous=(await chrome.storage.local.get('localSubmissionAttempts')).localSubmissionAttempts||{};
+  const {localSubmissionAttempts:previous={},greenhouseUploadProofs={}}=await chrome.storage.local.get(['localSubmissionAttempts','greenhouseUploadProofs']);
   if(command.op==='discover'){
     tab=await navigate(command,expect,command.site.listUrl,'jobs',tab);return read(tab,expect,'discover');
   }
@@ -296,12 +383,9 @@ async function executeGreenhouse(command,expect,payload) {
     // same task before crossing the submit boundary, so it is recorded and
     // answered rather than treated as a completed form.
     if(inspected.questions?.length)return fail('questions_changed','申请表出现尚未确认的问题，将重新检查当前任务。');
-    // The native Greenhouse form keeps the outgoing attachment reference in
-    // application state. The upload proof certifies an earlier object only;
-    // network observation after a click cannot prevent a different object
-    // being sent. Do not cross the submission boundary without a pre-click
-    // binding of the actual outgoing attachment.
-    if(!expect.replay||inspected.submissionProtocol)return fail('manual','当前页面的最终附件引用无法在提交前核实；已暂停，未提交申请。');
+    if(!expect.replay)return fail('manual','真实 Greenhouse 原生提交保持暂停。');
+    if(inspected.submissionProtocol)return nativeGreenhouse(command,expect,tab,inspected,payload,ledgerKey);
+    if(inspected.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
     if((!expect.replay||inspected.uploadedResumeConfirmed)&&!await uploadProofFor(command,tab,payload.file))return fail('manual','缺少绑定本任务、执行资料及源文件的精确上传对象证据，已暂停，未提交申请。');
     await inject(tab,expect);
     const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,greenhouseFileIdentity(payload.file)]);
@@ -310,21 +394,15 @@ async function executeGreenhouse(command,expect,payload) {
   if(command.op==='submit'){
     const checked=await read(tab,expect,'inspect');
     if(!checked.ok||checked.receipt)return checked;
-    if(!expect.replay||checked.submissionProtocol)return fail('manual','当前页面的最终附件引用无法在提交前核实；未点击提交。');
+    if(!expect.replay)return fail('manual','真实 Greenhouse 原生提交保持暂停。');
+    if(checked.submissionProtocol)return nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey);
+    if(checked.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
     if(checked.layout!==payload.layout)return fail('structure','提交前 Greenhouse 表单已变化。');
     const uploadProof=await uploadProofFor(command,tab,payload.file);
     if((!expect.replay||checked.uploadedResumeConfirmed)&&!uploadProof)return fail('manual','本次附件精确对象尚未核实，未进入提交边界；请核对原任务。');
     const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,greenhouseFileIdentity(payload.file)]);
     if(!prepared.ok||!prepared.token)return prepared;
-    if(checked.submissionProtocol){
-      const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',spec:{taskId:command.task.id,profileId:bridge.profileId,tabId:tab.id,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,file:payload.file,uploadProof,documentId:uploadProof?.documentId,uploadedResumeConfirmed:checked.uploadedResumeConfirmed===true,source:command.task.url,replay:expect.replay,...checked.submissionProtocol}});
-      if(!watched?.ok)return fail('manual','本次提交的网络核验尚未就绪，未点击申请。');
-    }
-    // Store before any click; even a safe denial or lost response never clears it.
-    const {localSubmissionAttempts={}}=await chrome.storage.local.get('localSubmissionAttempts');
-    if(localSubmissionAttempts[ledgerKey])return fail('unknown','已记录提交尝试，仅允许核对。');
-    localSubmissionAttempts[ledgerKey]={commandId:command.id,taskId:command.task.id,profileId:bridge.profileId,at:Date.now()};
-    await chrome.storage.local.set({localSubmissionAttempts});
+    if(!await recordGreenhouseAttempt(command,ledgerKey))return fail('unknown','已记录提交尝试，仅允许核对。');
     await authorize(command);
     let clicked;
     try{clicked=await commitMutation(tab,expect,prepared.token);}catch{}

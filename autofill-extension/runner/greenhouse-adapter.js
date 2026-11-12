@@ -82,19 +82,26 @@
     }catch{}
     return [];
   }
-  function submissionProtocol(expected) {
+  function applicationLoader(expected) {
     try{
       for(const script of document.querySelectorAll('script')){
         const source=script.textContent||'';if(source.length>1500000)continue;
         const match=/^\s*window\.__remixContext\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(source);if(!match)continue;
         const loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
         if(loader?.urlToken!==expected.tenant||String(loader.jobPostId)!==expected.jobId||loader.jobPost?.public_url!==expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId)continue;
-        const submit=new URL(loader.submitPath,location.href),confirmation=new URL(loader.confirmationPath,location.href),base=(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId;
-        if(submit.pathname!==base||submit.username||submit.password||!(submit.origin===expected.origin||!expected.replay&&submit.origin==='https://boards.greenhouse.io')||confirmation.origin!==expected.origin||confirmation.pathname!==base+'/confirmation')continue;
-        return {submitUrl:submit.href,confirmationUrl:confirmation.href,rule:'greenhouse-response-ok-v1'};
+        return loader;
       }
     }catch{}
     return null;
+  }
+  function submissionProtocol(expected) {
+    const loader=applicationLoader(expected);
+    if(!loader)return null;
+    try{
+      const submit=new URL(loader.submitPath,location.href),confirmation=new URL(loader.confirmationPath,location.href),base=(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId;
+      if(submit.pathname!==base||submit.username||submit.password||!(submit.origin===expected.origin||!expected.replay&&submit.origin==='https://boards.greenhouse.io')||confirmation.origin!==expected.origin||confirmation.pathname!==base+'/confirmation')return null;
+      return {submitUrl:submit.href,confirmationUrl:confirmation.href,rule:'greenhouse-response-ok-v1'};
+    }catch{return null;}
   }
   function selectedChoice(node) {
     const group=node.closest?.('.select');
@@ -250,7 +257,7 @@
       const jobMetadata={tenant:expected.tenant,jobId:expected.jobId,url:current.source,title,company:expected.company,location:text(document.querySelector('.job__location,.job-location,[data-job-location]')).slice(0,200)};
       const fields=await Promise.all(result.records.map(record=>question(expected,record)));
       const questions=fields.filter((field,index)=>field.type!=='file'&&!profileFact(expected,field,result.records[index],true)&&!ownedAnswer(expected,field,result.records[index]));
-      return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
+      return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
   function fieldTarget(current,expected,key,value,explicit=false) {
@@ -351,6 +358,73 @@
       return {ok:true,fileName:file.file.name,fileSize:file.file.size,sha256:locked.sha256,layout};
     }catch{return fail('manual','原附件无法核实，请本人检查。');}
   };
+  // This narrow reconstruction uses only values the isolated adapter has
+  // matched to pinned profile facts or exact questions. Extra schema shapes
+  // require independent confirmation before they can enter this lane.
+  api.nativeState=async(expected,layout,locked,captured)=>{
+    try{
+      if(expected.replay!==true)return fail('manual','原生真实提交保持暂停。');
+      const current=checked(expected,layout);if(!current.ok)return current;
+      const values=captureValues(current),loader=applicationLoader(expected);
+      const job=loader?.jobPost,schema=job?.questions;
+      if(!schema?.length||schema.length>60||job.eeoc_sections?.length||job.demographic_questions?.questions?.length)
+        return fail('manual','当前原生申请结构缺少独立确认来源。');
+      const answers={},seen=new Set();
+      const application={first_name:'',last_name:'',email:'',answers_attributes:answers,
+        demographic_answers:[],data_compliance:{},attachments:{},from_job_board_renderer:true,employments:[]};
+      const profileFields=new Set(['first_name','last_name','preferred_name','email','phone']);
+      let priority=0;
+      for(const question of schema){
+        const field=question.fields?.[0],key=field?.name;
+        const record=current.records.find(item=>item.field.key===key);
+        if(question.fields?.length!==1||!record||seen.has(key))
+          return fail('structure','原生岗位字段和已确认页面结构不一致。');
+        seen.add(key);
+        if(key==='resume'){
+          if(field.type!=='input_file'||record.field.type!=='file')return fail('structure','原生附件类型不符。');
+          continue;
+        }
+        if(!['input_text','textarea'].includes(field.type)||record.field.customControl||
+          !['text','email','tel','textarea'].includes(record.node.type))
+          return fail('manual','原生字段类型尚无独立确认来源。');
+        const observed=await questionForNative(expected,record);
+        if(!observed.ok)return observed;
+        if(profileFields.has(key)){
+          if(observed.value)application[key]=observed.value;
+        }else{
+          const id=/^question_(\d{1,30})$/.exec(key)?.[1];
+          if(!id)return fail('manual','原生字段尚未支持完整绑定。');
+          answers[id]={question_id:id,priority:priority++,text_value:observed.value};
+        }
+      }
+      if(!['first_name','last_name','email','resume'].every(key=>seen.has(key))||!application.first_name||
+        !application.last_name||application.email.trim().toLowerCase()!==expected.expectedAccount.toLowerCase()||
+        current.records.some(({field})=>!seen.has(field.key)))
+        return fail('manual','申请人、附件或完整字段范围未绑定。');
+      if(!captured){
+        const target=submissionTarget(expected,current);
+        if(!target.ok||target.receipt)return target;
+      }
+      const protocol=submissionProtocol(expected);
+      if(!protocol)return fail('structure','未识别原生提交和确认入口。');
+      const file=await lockedFile(current,locked);if(!file.ok)return file;
+      const fresh=checked(expected,layout);
+      if(!fresh.ok||fresh.form!==current.form||!sameValues(values,fresh)||file.node.files[0]!==file.file||
+        JSON.stringify(applicationLoader(expected))!==JSON.stringify(loader))
+        return fail('structure','核对期间申请内容、岗位结构或附件已变化。');
+      const url=new URL(location.href);
+      Object.assign(application,{resume_url_filename:file.file.name,mapped_url_token:url.searchParams.get('t')||url.searchParams.get('gh_src'),
+        appcast_click_id:url.searchParams.get('ccuid'),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone});
+      return {ok:true,schema,protocol,expected:{application,csrfToken:loader.csrfToken,requestToken:loader.jobApplicationRequestToken,
+        fingerprint:loader.fingerprint,verification:{kind:'none'}}};
+    }catch{return fail('manual','未能冻结已确认申请内容。');}
+  };
+  async function questionForNative(expected,record) {
+    const observed=await question(expected,record);
+    if(!profileFact(expected,observed,record)&&!ownedAnswer(expected,observed,record))
+      return fail('manual','原生请求包含未经确认的字段。');
+    return {ok:true,value:record.node.value};
+  }
   api.validateSubmit=async(expected,layout,locked)=>{
     try{
       const current=checked(expected,layout);if(!current.ok)return current;
@@ -432,7 +506,7 @@
     }
     return fail('unknown','未取得与本岗位、申请人及附件对应的可靠回执，禁止重复提交。');
   }
-  api.commit=(expected,token)=>{
+  api.commit=(expected,token,nativeGate=false)=>{
     const prepared=pending.get(token);pending.delete(token);
     if(!prepared||!sameExpected(expected,prepared.expected)||Date.now()-prepared.at>30000)return fail('structure','操作预检已过期或用途已变化，请重新检查。');
     try{
@@ -486,7 +560,7 @@
       const final=submissionTarget(expected,fresh);if(!final.ok||final.receipt)return final;
       if(fresh.form!==prepared.form||final.node!==prepared.node||!sameValues(prepared.values,fresh)||prepared.fileNode.files.length!==1||prepared.fileNode.files[0]!==prepared.verifiedFile)return fail('manual','提交预检或授权期间申请内容、表单、入口或附件已变化。');
       fresh.form.dataset.greenhouseSubmissionAttempt='started';
-      final.node.click();return waitReceipt(expected);
+      final.node.click();return nativeGate?{ok:true}:waitReceipt(expected);
     }catch{return fail(prepared.method==='submit'?'unknown':'manual','操作结果未能可靠核验，请本人检查；不会自动重复提交。');}
   };
 })();
