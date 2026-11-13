@@ -1,12 +1,25 @@
 # Manager交接（简版）
 
-更新：2026-11-13（北京时间）。新会话第一句：**先读HANDOFF_MANAGER.md，接续Manager。**
+更新：2026-11-14（北京时间）。新会话第一句：**先读HANDOFF_MANAGER.md，接续Manager。**
 
 - **分工：** 本会话是Manager，负责需求、派工、交付审查和验收，独立维护本文件。Engineer负责实现、验证、打包及`HANDOFF_ENGINEER.md`；`HANDOFF.md`仅导航。另一个GPT仅教用户操作，不是新Manager。
 - **仓库：** `Tianyao1234567/job-application-assistant`。Manager文档分支`dev/pm9-demo-windows-readiness`；当前工程实现分支`engineer/profile-import-usability`。PR #5保持draft，不合并、不强推，不覆盖其他写入者。
 - **核心目标：** 实际缺项→平台记录原题→本人直接回答确认→持久保存→同任务继续→适用事实复用。普通补答无需JSON、工程师或另一GPT中转。JSON仅用于首次导入、大改、批量维护或内部交换。
 
-## 当前执行：009接收流程及升级成果，修正一项确认用途后完成候选
+## 当前执行：010关闭确认用途返工，candidate.12已发布，继续真实页面补答
+
+2026-11-14，Engineer已读经理 `e96ee18f175cb87420e656992db84903205b82e4` 及009。验证/打包源码 `950e9e2fe375868e0e576de7f34fb92a8d70dd02`，工程HEAD与远端 `a76e79d01f33aa1277c503a2b27b8f8392b0bc7f`，检查时工作树干净；两SHA间仅工程交接/报告变化。Manager未改工程代码或生产安装。
+
+**按[验收与明确派工010](docs/PROFILE_USABILITY_CHECKPOINT_010.md)关闭009返工并发布candidate.12预发布更新。** 已审源码/断言、实际MV3和Windows日志，且从公开链接再次下载一致。真实确认为inspect；旧真实确认降为unverified；unknown仍只核对。只读真实模式MV3使用回环HTTPS虚构服务，不能称实际企业网站验证。虚构正常1/1/1、错附件0、丢响应重启/配对后2→2且unknown；Windows candidate.8/.10升级确认降权及数据/身份/账本保留通过。
+
+[公开下载update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.12-consent-review/update.cmd)：338815字节，SHA-256 `d23015c9b44cc45a07fd41539de5db74473adf2e1fc0036e5d70647a136290d4`。发布tag指向950e9e2，非draft的prerelease、不标Latest。candidate.11仍draft，旧包保留，PR #5仍draft未合并。用户可按发布页停止→原目录update.cmd→UPDATE_COMPLETE→原启动方式更新，无需重装或重导JSON；开发不要求用户先更新或试投。
+
+**下一责任人为Engineer：按010接通实际招聘页面原题进入平台补答。** 已定位真实inspect保存questions后直接preflight暂停、没有进入平台待答的断点。选一个当前可访问的真实Greenhouse公开页，在隔离浏览器只读采集真实题目/选项并接现有APP；本地回答保存、重启后同任务继续检查并复用答案，保持真实填写/上传/提交暂停且不占账本/额度。不得用本轮域名回环测试替代生产只读采题证据，不能仅交调查报告。沿共同adapter修控件/来源缺口，首交付后继续必要集成，不重做已过功能。
+
+原任务5c8b638、004范围、005本机约定和008工程连续推进保持。真实动态兼容/企业成功及重复受理仍未证实，完整项目未最终验收；不把生产去重合约设为所有开发前置，不改成人工官网提交。36项为Engineer本轮定点报告，旧44未重跑仍41过/3失败。首次实际申请仍须本人确认。提交010不代表对方已读或开工；以下保留历史，当前状态以本节为准。
+
+
+## 2026-11-13审查009（历史）：候选返工已由010关闭
 
 2026-11-13，Engineer已明确读取经理 `299d56d06590eac6efedf8d299320419b375c9f1` 和008。验证与候选源码 `4c990e86ab0c7112c81231799109fca6d79adf2d`；核实工程HEAD/远端为交接 `4573d1361b54e5180619be017395fa7fbf355dfb`，检查时工作树干净。验证后仅更新工程交接/报告，无产品或测试漂移。Manager只在独立经理检出维护文档，不接管实现。
 
