@@ -8,18 +8,22 @@ import {createRequire} from 'node:module';
 import path from 'node:path';
 import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoot} from '../../autofill-extension/tests/runtime.mjs';
 import {createApp} from '../server.mjs';
+import {flowAnswers} from './fixtures/greenhouse-native-full-form.mjs';
 import {fixtureOrigin,fixtureTenant,fixtureCompany,fixtureAccount,fixtureAnswers,fixtureJobs,fixtureFaultJobs,jobURL,startNativeFixture} from './fixtures/greenhouse-native-gate-fixture.mjs';
 
 const require=createRequire(new URL('../../autofill-extension/package.json',import.meta.url));
 const {chromium}=require('playwright');
 const BASE='http://127.0.0.1:17321';
 const lifecycle=process.env.GREENHOUSE_NATIVE_GATE_LIFECYCLE==='1';
+const full=process.env.GREENHOUSE_NATIVE_FULL_FLOW==='1';
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
 const sha256=createHash('sha256').update(resume.bytes).digest('hex');
 const evidence={mode:'actual-product-MV3',node:process.version,checks:[],externalRequests:[],workerStarts:[]};
 const workerErrors=[];
+let dashboard;
+if(full)evidence.flow=[];
 let context,app,fixture,key,worker,revocations=0,revoked=false;
 const extension=path.join(projectRoot,'autofill-extension');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -67,7 +71,7 @@ async function connect(){
   });
   await context.route('https://**/*',route=>route.abort('blockedbyclient'));
   context.on('page',page=>page.on('pageerror',error=>workerErrors.push(redact(error.message))));
-  const dashboard=context.pages()[0]||await context.newPage();
+  dashboard=context.pages()[0]||await context.newPage();
   await dashboard.goto(BASE);
   key=await dashboard.locator('meta[name="local-key"]').getAttribute('content');
   assert.ok(key);
@@ -77,7 +81,8 @@ async function connect(){
 async function configure(){
   const profile=JSON.parse(await fs.readFile(path.join(projectRoot,'autofill-extension/profile.example.json'),'utf8'));
   profile.personal.email.zh=profile.personal.email.en=fixtureAccount;
-  profile.personal.location.confirmed=false;
+  profile.personal.location.confirmed=full;
+  if(full)profile.personal.location.zh=profile.personal.location.en='Fictional Test City';
   const current=await state();
   await api('/profile',{data:profile,mode:'demo',confirmed:true,baseVersion:current.profile.version});
   await api('/resume',{name:resume.name,mime:'text/plain',base64:resume.bytes.toString('base64'),mode:'demo'});
@@ -114,6 +119,74 @@ async function run(id,afterAnswers){
   }
   assert.fail('Repeated question '+id);
 }
+async function runFullForm(id){
+  const url=jobURL(id);
+  await dashboard.goto(BASE+'/#queue');
+  await dashboard.getByLabel('岗位链接',{exact:true}).fill(url);
+  await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
+  const added=await waitFor('job added from the dashboard',state,value=>!!task(value,id));
+  const original=task(added,id);
+  await dashboard.getByRole('button',{name:'确认岗位、资料与提交',exact:true}).first().click();
+  const approval=dashboard.getByRole('form',{name:/确认投递/});
+  for(const box of await approval.getByRole('checkbox').all())await box.check();
+  await approval.getByRole('button',{name:'确认本次申请并继续',exact:true}).click();
+  await waitFor('job confirmed through the dashboard',state,value=>!task(value,id).needsConfirmation);
+  const dialog=dashboard.locator('dialog[open]');
+  if(await dialog.count())await dashboard.keyboard.press('Escape');
+  await dashboard.goto(BASE+'/#overview');
+  if(!(await state()).running){
+    const start=dashboard.getByRole('button',{name:/^(开始投递|继续投递)$/});
+    if(await start.count())await start.click();
+    else await action('resume');
+  }
+  const discovered=await waitFor('full form questions or specific hold',state,value=>
+    ['waiting_answer','waiting_user','failed','unknown'].includes(task(value,id)?.status));
+  const current=task(discovered,id);
+  evidence.flow.push({id,stage:'inspected',status:current.status,issue:current.issue?.detail,questions:current.answerBatch?.questions?.map(q=>q.key)});
+  assert.equal(current.status,'waiting_answer',JSON.stringify(current.issue));
+  assert.equal(current.id,original.id);
+  assert.ok(!current.answerBatch.questions.some(q=>['phone','email','candidate-location','resume_text'].includes(q.key)));
+  await dashboard.goto(BASE+'/#issues');
+  const form=dashboard.getByRole('form',{name:'集中补充答案：'+current.title});
+  await form.waitFor();
+  await dashboard.reload();
+  await form.waitFor();
+  for(const q of current.answerBatch.questions){
+    await form.getByText(q.text,{exact:true}).waitFor();
+    if(!q.required&&!Object.hasOwn(flowAnswers,q.key)){
+      await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
+      await form.getByLabel(q.text+'：本次留空',{exact:true}).check();
+      continue;
+    }
+    assert.ok(Object.hasOwn(flowAnswers,q.key),'Unmapped question: '+q.key);
+    const control=form.getByLabel(q.text+'：答案',{exact:true});
+    if(q.options.length){
+      assert.deepEqual(await control.locator('option').allTextContents(),['请选择已核实的原文选项',...q.options.map(option=>option.text)]);
+      await control.selectOption({label:flowAnswers[q.key]});
+    }else await control.fill(flowAnswers[q.key]);
+    await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
+  }
+  await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
+  const after=await waitFor('same application completes or reports a hold',state,value=>
+    ['submitted','unknown','failed','waiting_user'].includes(task(value,id)?.status));
+  const item=task(after,id);
+  assert.equal(item.id,original.id);
+  const saved=JSON.parse(await fs.readFile(path.join(directory,'data','state.json'),'utf8'));
+  const savedTask=task(saved,id);
+  assert.equal(savedTask.id,original.id);
+  for(const question of current.answerBatch.questions){
+    const answer=savedTask.answers[question.scope];
+    assert.equal(answer.confirmed,true);
+    assert.equal(answer.value,flowAnswers[question.key]??'');
+    if(!Object.hasOwn(flowAnswers,question.key))assert.equal(answer.leaveBlank,true);
+  }
+  await dashboard.reload();
+  const result=await waitFor('same result after dashboard refresh',state,value=>task(value,id)?.status===item.status);
+  assert.equal(task(result,id).id,original.id);
+  evidence.flow.push({id,stage:'saved-and-continued',status:item.status,issue:item.issue?.detail,steps:item.steps.slice(-6).map(step=>step.label)});
+  return item;
+}
+
 const storage=keys=>worker.evaluate(keys=>chrome.storage.local.get(keys),keys);
 function record(name,id,item){
   const counts=fixture.counts(id);
@@ -122,7 +195,7 @@ function record(name,id,item){
 }
 async function startBackend(){
   const dataDir=path.join(directory,'data');
-  if(!lifecycle)return createApp({dataDir,startFixture:false,testMode:true,testKey});
+  if(!lifecycle&&!full)return createApp({dataDir,startFixture:false,testMode:true,testKey});
   const child=fork(fileURLToPath(new URL('./fixtures/greenhouse-native-gate-backend.mjs',import.meta.url)),[dataDir,testKey],
     {cwd:projectRoot,stdio:['ignore','inherit','inherit','ipc']});
   const handle={child,events:[],exit:null};
@@ -141,7 +214,7 @@ async function backendEvent(type,jobId){
   },Boolean,10000);
 }
 async function closeApp(){
-  if(!lifecycle){
+  if(!lifecycle&&!full){
     const closing=app.close();
     app.server.closeAllConnections();
     await closing;
@@ -238,13 +311,13 @@ async function verifyFaults(){
 }
 
 try{
-  fixture=await startNativeFixture(directory,resume);
+  fixture=await startNativeFixture(directory,resume,{full});
   app=await startBackend();
   const profileId=await connect();
   await configure();
   const [normal,wrong,revokedJob,lost]=fixtureJobs;
   if(!lifecycle){
-    const submitted=await run(normal);
+    const submitted=await (full?runFullForm(normal):run(normal));
     assert.equal(submitted.status,'submitted',JSON.stringify(submitted.steps.slice(-6)));
     assert.equal(submitted.result.sha256,sha256);
     assert.match(submitted.result.receiptId,/^gh-network:/);
@@ -263,13 +336,14 @@ try{
     assert.equal(JSON.stringify(stored).includes(fixtureAccount+'-fictional-csrf'),false);
     record('one accepted native request, exact XHR File and official response/confirmation',normal,submitted);
 
-    const denied=await run(wrong);
+    const denied=await (full?runFullForm(wrong):run(wrong));
     assert.equal(denied.status,'unknown');
     const deniedPage=context.pages().find(page=>page.url()===jobURL(wrong));
     assert.equal(await deniedPage.locator('form').getAttribute('data-native-submit-calls'),'1');
     assert.deepEqual(fixture.counts(wrong),{posts:0,accepted:0,confirmations:0,responseDropped:0});
     record('same-name different object rejected before native fetch release',wrong,denied);
 
+    if(!full){
     const authorize=app.store.authorize.bind(app.store);
     app.store.authorize=body=>{
       const command=app.store.command;
@@ -285,6 +359,7 @@ try{
     assert.equal(revoked,true,'the second authorize request must reach the normal backend');
     assert.deepEqual(fixture.counts(revokedJob),{posts:0,accepted:0,confirmations:0,responseDropped:0});
     record('revoked after native request capture and before release',revokedJob,paused);
+    }
   }
 
 
@@ -292,7 +367,7 @@ try{
   context.on('requestfailed',request=>{
     if(request.method()==='POST'&&request.url()===jobURL(lost))failures.push(request.failure()?.errorText);
   });
-  const unknown=await run(lost);
+  const unknown=await (full?runFullForm(lost):run(lost));
   assert.equal(unknown.status,'unknown');
   assert.equal(unknown.submissionStarted,true);
   const beforeRestart=fixture.counts(lost),trace=fixture.trace(lost);
@@ -310,7 +385,7 @@ try{
   context=null;
   const beforeBackend=app.ready;
   const exit=await closeApp();
-  if(lifecycle){
+  if(lifecycle||full){
     await assert.rejects(fetch(BASE,{signal:AbortSignal.timeout(2000)}),error=>error.cause?.code==='ECONNREFUSED');
     const saved=JSON.parse(await fs.readFile(path.join(directory,'data','state.json'),'utf8'));
     const savedTask=task(saved,lost);
@@ -320,7 +395,7 @@ try{
     evidence.backend={before:beforeBackend,exit,listenerClosed:true,sameDataDir:true,stateReadFromDisk:true};
   }
   app=await startBackend();
-  if(lifecycle){
+  if(lifecycle||full){
     assert.notEqual(app.ready.pid,beforeBackend.pid);
     assert.notEqual(app.ready.bootId,beforeBackend.bootId);
     evidence.backend.after=app.ready;
@@ -337,7 +412,7 @@ try{
   assert.equal(task(await state(),lost).status,'unknown');
   assert.deepEqual(fixture.counts(lost),beforeRestart);
   evidence.lostResponse.afterRestart=fixture.counts(lost);
-  record(lifecycle?'accepted response lost, independent backend/browser restart and reauthorization forbid resubmit':
+  record(lifecycle||full?'accepted response lost, independent backend/browser restart and reauthorization forbid resubmit':
     'accepted response lost, same-process backend instance rebuilt and browser restarted without resubmit',lost,unknown);
   if(lifecycle){
     evidence.faults={};
