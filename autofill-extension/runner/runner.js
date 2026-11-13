@@ -250,7 +250,7 @@ async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
     source:command.task.url,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,
     replay:true,file,uploadProof,authorizationId:command.id,profileVersion:confirmation.profileVersion,
     resumeVersion:confirmation.resumeVersion,stateVersion:await sha256(JSON.stringify(state)),
-    schemaSha256:await sha256(JSON.stringify(state.schema)),...protocol};
+    schemaSha256:await sha256(JSON.stringify(state.schema)),...(state.clientSha256?{clientSha256:state.clientSha256}:{}),...protocol};
   const capture=createNativeCapture({spec,expected:state.expected,scope:'managed-replay',bindReferenceByDigest:true});
   const key=crypto.randomUUID();
   const control=(action,value=null)=>nativeScript(target,'MAIN',controlNativeGate,key,action,value);

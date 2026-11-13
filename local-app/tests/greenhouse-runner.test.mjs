@@ -102,9 +102,10 @@ test('Greenhouse recovery checks replay receipts separately and preserves the li
 
 test('missing or stale exact upload proof pauses before preflight and before the durable submit boundary',async()=>{
  for(const change of [h=>delete h.storage.greenhouseUploadProofs,h=>h.storage.greenhouseUploadProofs.task.documentId='different-document',h=>h.storage.greenhouseUploadProofs.task.sha256='c'.repeat(64),h=>h.storage.greenhouseUploadProofs.task.profileId='different-profile']){
-  const h=harness({replay:false});change(h);
-  const preflight=await h.run('preflight');assert.equal(preflight.ok,!replay);
-  const result=await h.run('submit');assert.equal(result.ok,false);assert.equal(result.kind,'manual');
+  const h=harness();h.storage.greenhouseUploadProofs={task:h.uploadProof};h.submissionProtocol={submitUrl:'fictional-native-submit'};change(h);
+  for(const op of ['preflight','submit']){
+    const result=await h.run(op);assert.equal(result.ok,false);assert.equal(result.kind,'manual');
+  }
   assert.equal(h.clicks,0);assert.equal(h.writes,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
  }
 });

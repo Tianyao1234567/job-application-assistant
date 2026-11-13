@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
-import {archivedSchema,fullFields,fullValues,assertFullApplication} from './greenhouse-native-full-form.mjs';
+import {archivedSchema,archivedClientSha,fullFields,fullValues,assertFullApplication} from './greenhouse-native-full-form.mjs';
 
 export const fixtureOrigin='http://127.0.0.1:17322',fixtureTenant='native-gate',fixtureCompany='Fictional Native Company';
 export const fixtureAccount='fictional@example.invalid';
@@ -30,7 +30,7 @@ function applicationPage(id,full){
   const url=jobURL(id),submit=new URL(url).pathname,confirmation=submit+'/confirmation';
   const jobPost={public_url:url,questions:full?archivedSchema.questions:questions,...(full?{fingerprint}: {})};
   const loader={urlToken:fixtureTenant,jobPostId:id,submitPath:submit,confirmationPath:confirmation,jobPost,
-    csrfToken:csrf,jobApplicationRequestToken:requestToken,...(full?{}:{fingerprint})};
+    csrfToken:csrf,jobApplicationRequestToken:requestToken,...(full?{clientSha256:archivedClientSha}:{fingerprint})};
   const remix={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':loader}}};
   const script=[
     'import {buildApplication,nativeSubmit} from "/native-fixture-client.js";',
@@ -60,7 +60,7 @@ function applicationPage(id,full){
     '  }catch{form.dataset.nativeSubmitOutcome="rejected";}',
     '});'
   ].join('\n');
-  return page('Fictional native vacancy','<h1>Fictional native vacancy</h1><p class="job-location">Fictional Test City</p>'+
+  return page('Fictional native vacancy '+id,'<h1>Fictional native vacancy '+id+'</h1><p class="job-location">Fictional Test City</p>'+
     '<form data-greenhouse-replay data-tenant="'+fixtureTenant+'" data-job-id="'+id+'" method="post" action="'+submit+'">'+
     (full?fullFields():input('first_name','text')+input('last_name','text')+input('email','email')+input('phone','tel')+
     '<fieldset class="file-upload"><legend id="upload-label-resume">Resume/CV*</legend><label for="resume">Attach</label>'+

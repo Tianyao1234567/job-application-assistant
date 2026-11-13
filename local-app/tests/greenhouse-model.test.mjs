@@ -25,7 +25,7 @@ function setup(t,{production=false}={}){
   }
   const origin=production?'https://job-boards.greenhouse.io':FIXTURE,prefix=production?'':'/greenhouse',activeTenant=production?'mattermost':tenant,activeCompany=production?'Mattermost':company,board=origin+prefix+'/'+activeTenant;
   const site={id:'greenhouse-fixture',name:activeCompany,company:activeCompany,adapter:production?'greenhouse-v1':'greenhouse-replay-v1',origin,tenant:activeTenant,expectedAccount:store.state.profile.data.personal.email.zh,mode:production?'real':'demo',enabled:true,skipped:false,listUrl:board,loginUrl:board};
-  store.setSettings({settings:{...store.state.settings,mode:site.mode},sites:[site]});store.heartbeat(client);
+  store.setSettings({settings:{...store.state.settings,mode:site.mode,keywords:['Synthetic'],cities:['Synthetic city']},sites:[site]});store.heartbeat(client);
   const task=store.manual(board+'/jobs/'+jobId).task;
   const take=()=>store.poll(client).command,send=(command,result)=>store.result({clientId:client.clientId,commandId:command.id,result});
   const confirm=(extra={})=>store.action({action:'task-confirm',taskId:task.id,jobId,profileVersion:store.state.profile.version,resumeVersion:store.state.resume.version,profileId:client.profileId,submitConfirmed:true,...extra});
@@ -74,13 +74,17 @@ test('first task confirmation binds exact job, current versions, applicant and e
 });
 test('Greenhouse fills only the confirmed applicant email variant when profile languages differ',t=>{
   const env=setup(t),profile=structuredClone(env.store.state.profile.data);
-  profile.personal.email.en=profile.personal.email.zh;profile.personal.email.zh='different-fictional-applicant@example.invalid';
+  const oldAccount=profile.personal.email.zh,newAccount='different-fictional-applicant@example.invalid';
+  profile.personal.email={...profile.personal.email,zh:newAccount,en:null};
+  env.store.setProfile({data:profile,mode:'demo',confirmed:true,baseVersion:env.store.state.profile.version,retireEnglish:['personal.email']});
+  // Pin the site to the alternate language using a freshly confirmed fictional profile.
+  profile.personal.email.en=oldAccount;
   env.store.setProfile({data:profile,mode:'demo',confirmed:true});begin(env);
   const inspect=env.take();env.send(inspect,{ok:true,layout:'email-layout',questions:[],login:env.login});
   const fill=env.take(),email=fill.payload.entries.find(entry=>entry.key==='personal.email');
   assert.equal(fill.op,'fill');assert.equal(email.value,env.site.expectedAccount);assert.equal(email.lang,'en');assert.equal(email.confirmed,true);
   assert.equal(env.store.authorize({clientId:client.clientId,commandId:fill.id}).allowed,true);
-  env.task.profileSnapshot.data.personal.email={...profile.personal.email,en:'changed-fictional-applicant@example.invalid'};
+  env.store.task(env.task.id).profileSnapshot.data.personal.email={...profile.personal.email,en:'changed-fictional-applicant@example.invalid'};
   assert.equal(env.store.authorize({clientId:client.clientId,commandId:fill.id}).allowed,false);
 });
 test('pause persists exact original question, options and versions, then resumes the same task',t=>{

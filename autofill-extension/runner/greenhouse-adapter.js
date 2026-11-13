@@ -3,6 +3,8 @@
 (() => {
   const api=globalThis.JobGreenhouse={};
   const pending=new Map();
+  const archivedQuestionsSha='eec1b7f3b49199d206e5a8897125507d898e93c5cf8a6600022ed653a71df9c4';
+  const archivedClientSha='378c96ee0ba18cc20667ed84f7822c0d78d833296d843097040c47e2dfba2728';
   const uploaded=globalThis.__jobGreenhouseFiles ||= new WeakMap();
   const fail=(kind,message)=>({ok:false,kind,message});
   const norm=value=>String(value||'').normalize('NFKC').trim().replace(/\s+/g,' ');
@@ -392,6 +394,9 @@
       const job=loader?.jobPost,schema=job?.questions;
       if(!schema?.length||schema.length>60||job.eeoc_sections?.length||job.demographic_questions?.questions?.length)
         return fail('manual','当前原生申请结构缺少独立确认来源。');
+      const versioned=schema.some(question=>question.fields?.some(field=>field.name==='candidate_location'));
+      if(versioned&&(loader.clientSha256!==archivedClientSha||await sha(JSON.stringify(schema))!==archivedQuestionsSha))
+        return fail('manual','申请表与已验证的归档版本不符，无法核对原生请求。');
       const answers={},seen=new Set();
       const application={first_name:'',last_name:'',email:'',answers_attributes:answers,
         demographic_answers:[],data_compliance:{},attachments:{},from_job_board_renderer:true,employments:[]};
@@ -463,7 +468,7 @@
       const url=new URL(location.href);
       Object.assign(application,{resume_url_filename:file.file.name,mapped_url_token:url.searchParams.get('t')||url.searchParams.get('gh_src'),
         appcast_click_id:url.searchParams.get('ccuid'),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone});
-      return {ok:true,schema,protocol,expected:{application,csrfToken:loader.csrfToken,requestToken:loader.jobApplicationRequestToken,
+      return {ok:true,schema,protocol,...(versioned?{clientSha256:archivedClientSha}:{}),expected:{application,csrfToken:loader.csrfToken,requestToken:loader.jobApplicationRequestToken,
         fingerprint:job.fingerprint??loader.fingerprint,verification:{kind:'none'}}};
     }catch{return fail('manual','未能冻结已确认申请内容。');}
   };

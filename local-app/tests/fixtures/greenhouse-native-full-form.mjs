@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 
 export const archivedSchema=JSON.parse(await fs.readFile(new URL('../../../docs/greenhouse-mattermost-form.json',import.meta.url),'utf8'));
+const sources=JSON.parse(await fs.readFile(new URL('./greenhouse-native-client-source.json',import.meta.url),'utf8'));
+export const archivedClientSha=sources.source.sha256;
+const client=await fs.readFile(new URL('./greenhouse-native-client.js',import.meta.url));
+assert.equal(createHash('sha256').update(client).digest('hex'),sources.fixture.sha256);
 export const location={location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'};
 export const flowAnswers={first_name:'Fictional',last_name:'Applicant',
   question_18195688008:'Fictional event',question_18195689008:'Fictional application motivation',

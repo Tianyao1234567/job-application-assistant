@@ -136,8 +136,7 @@ async function runFullForm(id){
   await dashboard.goto(BASE+'/#overview');
   if(!(await state()).running){
     const start=dashboard.getByRole('button',{name:/^(开始投递|继续投递)$/});
-    if(await start.count())await start.click();
-    else await action('resume');
+    await start.click();
   }
   evidence.flow.push({id,stage:'added-and-confirmed',taskId:original.id});
   const discovered=await waitFor('full form questions or specific hold',state,value=>
@@ -181,7 +180,14 @@ async function runFullForm(id){
     assert.equal(answer.value,flowAnswers[question.key]??'');
     if(!Object.hasOwn(flowAnswers,question.key))assert.equal(answer.leaveBlank,true);
   }
+  await dashboard.goto(BASE+'/#queue');
   await dashboard.reload();
+  await dashboard.getByRole('row').filter({hasText:current.title}).getByRole('button',{name:'查看详情',exact:true}).click();
+  const details=dashboard.getByRole('dialog');
+  await details.getByText(item.status==='submitted'?'已核实提交':'结果待核实',{exact:true}).first().waitFor();
+  if(item.status==='submitted')await details.getByText('提交结果依据',{exact:true}).waitFor();
+  else await details.getByText('只核对，不重新提交',{exact:true}).waitFor();
+  await dashboard.keyboard.press('Escape');
   const result=await waitFor('same result after dashboard refresh',state,value=>task(value,id)?.status===item.status);
   assert.equal(task(result,id).id,original.id);
   evidence.flow.push({id,stage:'saved-and-continued',status:item.status,issue:item.issue?.detail,steps:item.steps.slice(-6).map(step=>step.label)});
