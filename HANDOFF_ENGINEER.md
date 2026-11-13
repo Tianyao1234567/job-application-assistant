@@ -1,8 +1,18 @@
 # Engineer交接（简版）
 
-更新：2026-11-13（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
+更新：2026-11-14（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 009 区分真实页面检查与虚构投递确认
+## 010 实际 Greenhouse 页面接入集中补答
+
+已 fetch 并读取 Manager `628b7b5a05c407bd30dd497938d465231a35b87a` 的交接与 010。原任务 `5c8b638`，工程起点 `a76e79d01f33aa1277c503a2b27b8f8392b0bc7f`，验证源码 `2bbfca4767ea6a7240b0927f54ee7f899e8619b7`。009 已关闭，candidate.12 是已发布的预发布包。 [阶段报告](docs/GREENHOUSE_PUBLIC_ANSWER_FLOW_010.md)
+
+真实检查现在将可补答的原题、选项、必填依据、来源和版本送入既有待处理表单。已确认且匹配的资料或答案会复用。简历和求职信的文件/手输替代关系可见。电话国家区号、动态地点、条件式自我识别选项仍待核实并列出具体原因。真实任务持续只读，不派发填写、上传或提交。公开页标题翻译占位时，从同岗位公开数据及可见标题交叉核对身份。
+
+本机受影响定点 84 项通过。托管实际 MV3 直接访问公开 Mattermost 岗位两次 HTTP 200，保存 11 项含 4 项明确留空，独立后台和隔离浏览器重启并重新配对后沿同一任务检查，未重复索答，未跨提交边界或占用额度。隔离回放正常 1/1/1、错附件零到达、丢响应重启 2→2 且 `unknown`。公开页脚本报错与早期失败详见报告。 [真实页面](https://job-boards.greenhouse.io/mattermost/jobs/5381946008) · [托管作业](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43472248105/job/132046859424)
+
+本轮交源码及证据，未构建新候选。下一责任人为 Manager 审阅 010，Engineer 继续跟进具体动态控件的可靠来源与受影响集成。真实企业投递仍暂停，PR #5 保持 draft。 [candidate.12 预发布](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/v0.2.0-candidate.12-consent-review)
+
+## 009 区分真实页面检查与虚构投递确认（历史）
 
 已读取 Manager `e96ee18f175cb87420e656992db84903205b82e4` 的交接及 009，延续原任务 `5c8b638`。工程接续点为 `4573d1361b54e5180619be017395fa7fbf355dfb`，验证及候选源码为 `950e9e2fe375868e0e576de7f34fb92a8d70dd02`。 [阶段报告](docs/GREENHOUSE_CONFIRMATION_PURPOSE_009.md)
 
