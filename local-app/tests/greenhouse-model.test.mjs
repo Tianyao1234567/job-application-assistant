@@ -172,8 +172,7 @@ test('paused production only inspects and preflights, including a previously que
   }
   env.store.command=lease;
   env.send(inspect,{ok:true,layout:'observed-layout',questions:[],login:env.login});
-  const check=env.take();assert.equal(check.op,'preflight');
-  env.send(check,{ok:true});assert.equal(env.task.status,'waiting_user');assert.equal(env.task.phase,'preflight');
+  assert.equal(env.task.status,'waiting_user');assert.equal(env.task.phase,'inspect');
   assert.equal(env.task.submissionStarted,undefined);assert.equal(env.task.submitAuthorizedAt,undefined);
   assert.equal(env.store.dailyUsed(),0);assert.equal(env.take(),null);
   const restored=new Store(env.paths,{now:env.clock});assert.equal(restored.task(env.task.id).status,'waiting_user');
@@ -181,6 +180,40 @@ test('paused production only inspects and preflights, including a previously que
   assert.equal(restored.confirmedTask(restored.task(env.task.id),'inspect'),true);
   assert.equal(restored.confirmedTask(restored.task(env.task.id),'submit'),false);
   assert.equal(restored.canResumeTask(restored.task(env.task.id)),true);
+});
+
+test('read-only batch saves exact choices and blanks despite unresolved controls and resumes the same task',t=>{
+  const env=setup(t,{production:true});begin(env);
+  const choice=question(env,'language',{type:'select-one',options:[{text:'Observed answer',disabled:false}]});
+  const optional=question(env,'optional',{required:false});
+  const unknown=question(env,'candidate-location',{type:'text',customControl:true,required:true,optionsComplete:false});
+  const attachment={...question(env,'resume',{type:'file',text:'Resume/CV / Attach'}),purpose:'attachment',attachmentRequirementKnown:true,manualTextAlternative:true};
+  const report=command=>({ok:true,layout:'original layout',login:env.login,questions:[unknown,choice,optional],question:unknown,fields:[attachment]});
+  const inspect=env.take();assert.equal(inspect.op,'inspect');env.send(inspect,report(inspect));
+  const batch=env.store.snapshot().tasks[0].answerBatch;
+  assert.deepEqual(batch.questions.map(q=>q.key),['language','optional']);
+  assert.equal(env.task.questions[0].unresolved,true);
+  assert.equal(env.task.inspectionAttachments[0].manualTextAlternative,true);
+  const answers=[{scope:choice.scope,version:choice.version,answer:'Observed answer',save:'task'},
+    {scope:optional.scope,version:optional.version,leaveBlank:true,save:'task'}];
+  const action={action:'answers',taskId:env.task.id,batchVersion:batch.version,answers};
+  assert.throws(()=>env.store.action({...action,answers:[{...answers[0],answer:'Guess'},answers[1]]}),/选项/);
+  assert.equal(env.store.action(action).saved,2);
+  const restarted=new Store(env.paths,{now:env.clock}),same=restarted.task(env.task.id);
+  assert.equal(same.answers[choice.scope].value,'Observed answer');
+  assert.equal(same.answers[optional.scope].leaveBlank,true);
+  const again=restarted.poll(client).command;
+  assert.equal(again.op,'inspect');assert.equal(again.task.id,env.task.id);
+  restarted.result({clientId:client.clientId,commandId:again.id,result:report(again)});
+  assert.equal(same.status,'waiting_user');assert.match(same.issue.title,/答案已保存/);
+  assert.equal(restarted.snapshot().tasks[0].answerBatch,undefined);
+  assert.equal(restarted.state.tasks.length,1);assert.equal(restarted.dailyUsed(),0);
+  assert.equal(restarted.hasSubmissionBoundary(same),false);assert.equal(restarted.poll(client).command,null);
+  restarted.action({action:'task-resume',taskId:same.id});
+  const refresh=restarted.poll(client).command;
+  const changed=question(env,'language',{type:'select-one',options:[{text:'Different observed answer',disabled:false}]});
+  restarted.result({clientId:client.clientId,commandId:refresh.id,result:{...report(refresh),questions:[unknown,changed,optional]}});
+  assert.deepEqual(restarted.snapshot().tasks[0].answerBatch.questions.map(q=>q.scope),[changed.scope]);
 });
 
 test('legacy real confirmation does not grant either new permission and preserves historical unknown',t=>{

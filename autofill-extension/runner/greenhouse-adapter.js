@@ -70,19 +70,11 @@
   }
   // Read only the scoped public loader schema, never execute page scripts or
   // use preloaded confirmation prose as evidence of an application.
-  function publicQuestions() {
-    try {
-      for(const script of [...document.querySelectorAll('script')]){
-        const source=script.textContent||'';
-        if(source.length>1500000||!source.trim().startsWith('window.__remixContext'))continue;
-        const match=/^\s*window\.__remixContext\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(source);if(!match)continue;
-        const loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
-        const job=loader?.jobPost,url=new URL(location.href);
-        if(!job||String(loader.jobPostId)!==url.pathname.split('/').at(-1)||loader.urlToken!==url.pathname.split('/').at(-3)||job.public_url!==url.origin+url.pathname||!Array.isArray(job.questions)||job.questions.length>60)continue;
-        return job.questions;
-      }
-    }catch{}
-    return [];
+  function publicQuestions(expected) {
+    const job=applicationLoader(expected)?.jobPost;
+    if(!Array.isArray(job?.questions)||job.questions.length>60)return [];
+    const voluntary=Array.isArray(job.eeoc_sections)?job.eeoc_sections.flatMap(section=>Array.isArray(section?.questions)?section.questions:[]):[];
+    return job.questions.length+voluntary.length<=60?[...job.questions,...voluntary]:job.questions;
   }
   function applicationLoader(expected) {
     try{
@@ -142,10 +134,10 @@
   }
 
   function controlValue(record) {return record.field.customControl?selectedChoice(record.node):record.node.value;}
-  function collect(form) {
+  function collect(form,expected) {
     const nodes=[...form.querySelectorAll('input,textarea,select')].filter(node=>node.type!=='hidden'&&!node.disabled&&!node.readOnly&&(!secret.test([node.id,node.name,node.type,labels(node)].join(' ')))&&(visible(node)||node.type==='file'));
     if(nodes.length>60)throw new Error('FIELD_BUDGET');
-    const records=[],keys=new Set(),schema=publicQuestions();
+    const records=[],keys=new Set(),schema=publicQuestions(expected);
     for(const node of nodes){
       if(['submit','button','reset','image'].includes(node.type))continue;
       // React Select's unnamed required proxy belongs to its one labelled control.
@@ -163,7 +155,9 @@
         if(node.options.length>300)throw new Error('OPTION_BUDGET');
         options=[...node.options].map(option=>({text:text(option),disabled:!!option.disabled||!!option.parentElement?.disabled}));
         optionKeys=[...node.options].map(option=>String(option.value));
-      }else if(customControl&&definition?.type==='multi_value_single_select'&&Array.isArray(definition.values)&&definition.values.length<=300){
+      }else if(customControl&&definition?.type==='multi_value_single_select'&&Array.isArray(definition.values)&&definition.values.length>0&&definition.values.length<=300&&
+        definition.values.every(option=>typeof option?.label==='string'&&option.label.trim()&&['string','number'].includes(typeof option.value))&&
+        new Set(definition.values.map(option=>option.label)).size===definition.values.length&&new Set(definition.values.map(option=>String(option.value))).size===definition.values.length){
         options=definition.values.map(option=>({text:String(option.label),disabled:false}));optionKeys=definition.values.map(option=>String(option.value));optionsComplete=true;
       }else if(customControl){
         // An unopened or virtualized custom control is not a known option set.
@@ -194,7 +188,7 @@
   function checked(expected,layout,requireApplicant=true) {
     const current=context(expected,true);if(!current.ok)return current;
     if(requireApplicant&&current.login.status!=='ready')return {...fail('manual','请先确认本次岗位、申请资料、附件及提交用途。'),login:current.login};
-    try{const records=collect(current.form),actual=formLayout(current.form,records);return layout===undefined||actual===layout?{...current,records,layout:actual}:fail('structure','申请表原问题、选项、必填依据或结构已变化，请重新检查。');}
+    try{const records=collect(current.form,expected),actual=formLayout(current.form,records);return layout===undefined||actual===layout?{...current,records,layout:actual}:fail('structure','申请表原问题、选项、必填依据或结构已变化，请重新检查。');}
     catch{return fail('structure','Greenhouse 字段标识或结构尚未核实，已停止操作。');}
   }
   async function question(expected,record) {
@@ -279,8 +273,14 @@
       const title=text(document.querySelector('h1'));
       if(!title||title.length>300)return fail('structure','岗位标题尚未可靠识别。');
       const jobMetadata={tenant:expected.tenant,jobId:expected.jobId,url:current.source,title,company:expected.company,location:text(document.querySelector('.job__location,.job-location,[data-job-location]')).slice(0,200)};
-      const fields=await Promise.all(result.records.map(record=>question(expected,record)));
-      const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&!ownedAnswer(expected,field,result.records[index]));
+      const schema=expected.replay?[]:publicQuestions(expected);
+      const fields=await Promise.all(result.records.map(async record=>{
+        const field=await question(expected,record);
+        if(field.type!=='file')return field;
+        const grouped=schema.some(q=>attachmentAlternative(field.key+'_text',field.groupTitle,q));
+        return grouped?{...field,manualTextAlternative:true}:field;
+      }));
+      const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&(expected.replay!==true||!ownedAnswer(expected,field,result.records[index])));
       return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
@@ -589,7 +589,7 @@
         const node=target.node;
         if(node!==prepared.node||node.files.length!==prepared.originalFiles.length||prepared.originalFiles.some((file,index)=>node.files[index]!==file))return fail('manual','保留本人接管后修改的附件，未覆盖已有文件。');
         const group=node.closest?.('.file-upload');
-        if(group?.querySelector?.('[id="upload-label-resume"]'))uploaded.set(current.form,{record:target,index:current.records.indexOf(current.records.find(r=>r.node===node)),group,file:prepared.originalFiles[0]||prepared.transfer.files[0],title:text(group.querySelector('[id="upload-label-resume"]')),schema:JSON.stringify(publicQuestions().filter(q=>q.fields?.some(f=>f.name==='resume')))});
+        if(group?.querySelector?.('[id="upload-label-resume"]'))uploaded.set(current.form,{record:target,index:current.records.indexOf(current.records.find(r=>r.node===node)),group,file:prepared.originalFiles[0]||prepared.transfer.files[0],title:text(group.querySelector('[id="upload-label-resume"]')),schema:JSON.stringify(publicQuestions(expected).filter(q=>q.fields?.some(f=>f.name==='resume')))});
         if(!prepared.originalFiles.length){node.files=prepared.transfer.files;node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new Event('change',{bubbles:true}));}
         const verified=prepared.originalFiles[0]||prepared.transfer.files[0];
         if(node.files.length!==1||node.files[0]!==verified||node.files[0].name!==prepared.file.name||node.files[0].size!==prepared.file.size)return fail('manual','网站未接受已确认附件或附件被替换。');

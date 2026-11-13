@@ -385,6 +385,19 @@ function taskActions(task) {
   if (task.status==='waiting_answer') actions.push(button('去补充答案',()=>{dialog.close();location.hash='issues';},'primary'));
   return el('div',{class:'actions'},actions);
 }
+function inspectionNotes(task) {
+  if(task.confirmation?.purpose!=='inspect')return null;
+  const blockers=(task.questions||[]).filter(q=>q.unresolved);
+  const reasons={
+    country:'电话区号使用独立的国家列表，尚未核实完整选项及国家代码。',
+    'candidate-location':'原页按搜索生成地点，仍缺所选地点与坐标的可靠绑定。',
+    hispanic_ethnicity:'此选项由页面生成，且可能显示后续种族问题，尚未核实完整选项。'
+  };
+  if(!task.inspectionAttachments?.length&&!blockers.length)return null;
+  return el('div',{},
+    ...(task.inspectionAttachments||[]).map(file=>p(`${file.text} · ${file.requirementKnown?(file.required?'必填':'选填'):'必填要求待核实'}${file.manualTextAlternative?' · 原页也支持手动输入文本':''}`,'details-note')),
+    ...blockers.map(q=>p(`${q.text} · ${q.required?'必填':'选填'} · ${reasons[q.key]||(q.customControl?'尚未核实此控件的完整选项。':'当前控件暂不支持在平台补答。')}`,'details-note')));
+}
 function showTask(id) {taskDialogId=id;renderTaskDialog();if(!dialog.open)dialog.showModal();}
 function renderTaskDialog() {
   if (!taskDialogId) return;
@@ -398,6 +411,7 @@ function renderTaskDialog() {
       task.status==='unknown'?banner('只核对，不重新提交','没有找到回执也不代表可以重投。登录恢复、重连和重启都不会自动再次提交。','danger'):null,
       task.needsConfirmation ? taskConfirmationForm(task) : task.confirmation ? p(`确认记录（${task.confirmation.purpose==='inspect'?'检查页面':task.mode==='demo'&&(task.confirmation.purpose==='submit'||task.confirmation.purpose===undefined&&task.confirmation.submitConfirmed===true)?'提交一次虚构申请':'原记录用途未核实'}）：${fmtDate(task.confirmation.confirmedAt)} · 资料 v${task.confirmation.profileVersion} · 简历 v${task.confirmation.resumeVersion} · 仅当前岗位与执行配置`,'details-note') : null,
       task.result?card('提交结果依据',el('div',{},meta('站点回执',task.result.receiptId),meta('附件',`${task.result.fileName} · ${task.result.fileSize} 字节`),meta('附件 SHA-256',el('span',{class:'hash-text',text:task.result.sha256})),p(task.result.evidence,'details-note'))):null,
+      inspectionNotes(task),
       taskActions(task),
       el('h3',{class:'dialog-section-title',text:'实际执行记录'}),task.steps.length?el('ol',{class:'timeline'},task.steps.map(step=>el('li',{},el('strong',{text:step.label}),p(step.detail),el('time',{datetime:step.at,text:fmtDate(step.at)})))):p('尚无执行记录。'),
       el('h3',{class:'dialog-section-title',text:'页面与任务标识'}),meta('原始岗位页面',task.url),meta('当前执行页面',task.currentUrl||'尚未打开'),meta('任务标识',task.id),meta('去重依据',task.dedupeKey),p('原页面可能含有申请资料，请在专用投递浏览器内查看；本页不会读取其他浏览器的登录。','details-note'))
@@ -482,11 +496,12 @@ function legacyAnswerForm(issue,task) {
 function answerForm(issue,task) {
   if(!task.answerBatch)return legacyAnswerForm(issue,task);
   const batch=task.answerBatch,form=el('form',{'aria-label':`集中补充答案：${task.title}`}),rows=[];
-  form.append(p(`当前已收集 ${batch.questions.length} 项待处理问题。已有适用资料不再提问；一次核对后保存。`,'details-note'));
+  form.append(p(`当前有 ${batch.questions.length} 项可补答。已有适用资料不再提问。`,'details-note'));
+  const notes=inspectionNotes(task);if(notes)form.append(notes);
   for(const q of batch.questions){
     const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.importedDraft?.value??q.currentValue??q.priorAnswer?.value??'');
     input.node.setAttribute('aria-label',q.text+'：答案');
-    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null,q.priorAnswer?p('此前回答已保留；资料发生变化，请核对后确认本次答案。','warning'):null);
+    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null,q.required?p('必填','subtle'):null,task.mode==='real'&&q.version?p('原题版本 '+q.version,'subtle'):null,q.priorAnswer?p('此前回答已保留；资料发生变化，请核对后确认本次答案。','warning'):null);
     if(q.importedDraft)group.append(banner('来自已匹配资料文件的待核对答案','仅为此任务原问题预填草稿；请连同其余缺项核对后保存，不会自动执行申请。'),q.importedDraft.source_text?p('原始依据：'+q.importedDraft.source_text,'subtle'):null);
     if(input.blocked){group.append(input.node);form.append(group);continue;}
     const stable=q.profileKey,existing=q.existingFact?.zh||q.existingFact?.en||'';
@@ -530,7 +545,7 @@ function renderIssues() {
     if(task?.needsConfirmation)body=taskConfirmationForm(task);
     else if(issue.kind==='answer'&&task?.status==='waiting_answer')body=answerForm(issue,task);
     else if(['login','account'].includes(issue.kind)&&site)body=el('div',{},p('请在实际执行的同一投递浏览器中处理，然后重新检查。页面打开或自行勾选完成不会被当作已登录。'),siteControls(site));
-    else body=el('div',{},issue.question?el('div',{class:'question-block',text:issue.question.text}):null,task?taskActions(task):null,issue.kind==='adapter'?link('查看网站接入状态','#sites','button'):null);
+    else body=el('div',{},issue.question?el('div',{class:'question-block',text:issue.question.text}):null,task?inspectionNotes(task):null,task?taskActions(task):null,issue.kind==='adapter'?link('查看网站接入状态','#sites','button'):null);
     return el('section',{class:'card issue-card'},el('div',{class:'card-header'},el('div',{},el('h3',{text:issue.title}),p([site?.name,task?.title].filter(Boolean).join(' · '),'subtitle')),badge(issue.kind==='unknown'?'只核对结果':'等待你处理',issue.kind==='unknown'?'bad':'warning')),el('div',{class:'card-body'},p(issue.detail),body,task?button('查看任务完整记录',()=>showTask(task.id),'text'):null,el('p',{class:'subtle',text:`发现于 ${fmtDate(issue.createdAt)}`})));
   }),answerMemoryCard());
 }

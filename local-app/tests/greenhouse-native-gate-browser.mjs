@@ -18,6 +18,7 @@ const BASE='http://127.0.0.1:17321';
 const lifecycle=process.env.GREENHOUSE_NATIVE_GATE_LIFECYCLE==='1';
 const full=process.env.GREENHOUSE_NATIVE_FULL_FLOW==='1';
 const purposes=process.env.GREENHOUSE_CONFIRMATION_PURPOSE==='1';
+const publicInspection=process.env.GREENHOUSE_PUBLIC_INSPECTION==='1';
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
@@ -59,7 +60,7 @@ const realPage='<!doctype html><title>Fictional inspection at Mattermost</title>
   '<label for="email">Email*</label><input id="email" type="email" required>'+
   '<fieldset><legend>Resume/CV*</legend><label for="resume">Attach</label><input id="resume" type="file" required></fieldset>'+
   '<button type="submit">Submit application</button></form>';
-let backendData='data';
+let backendData='data',publicNavigation;
 const realPageMethods=[];
 let inspectionServer,inspectionCertificate;
 async function startInspectionSite(){
@@ -81,22 +82,27 @@ async function startInspectionSite(){
   });
 }
 
-async function runReadOnlyConfirmation(){
-  await startInspectionSite();
-  backendData='data-inspection';
-  app=await startBackend();
-  const profileId=await connect();
+async function configureInspection(){
   const profile=JSON.parse(await fs.readFile(path.join(projectRoot,'autofill-extension/profile.example.json'),'utf8'));
   for(const item of Object.values(profile.personal)){
     item.source='Fictional isolated test record';
     if(item.zh)item.zh=item.zh.replace(/虚构|测试|example\.invalid/g,'Fictional');
   }
   profile.personal.email.zh=profile.personal.email.en=realAccount;
+  profile.personal.firstName={zh:'Sample',en:null,source:'Isolated browser check',confirmed:true};
+  profile.personal.lastName={zh:'Applicant',en:null,source:'Isolated browser check',confirmed:true};
   await api('/profile',{data:profile,mode:'real',confirmed:true,baseVersion:(await state()).profile.version});
   await api('/resume',{name:'synthetic-inspection.txt',mime:'text/plain',base64:resume.bytes.toString('base64'),mode:'real'});
   await api('/settings',{settings:{mode:'real',scheduleEnabled:false,time:'09:00',dailyLimit:3,keywords:['Fictional'],cities:['Fictional'],visual:true},
     sites:[{id:'real-inspection',name:'Fictional inspection',company:'Mattermost',adapter:'greenhouse-v1',origin:realOrigin,
       tenant:'mattermost',expectedAccount:realAccount,mode:'real',enabled:true}]});
+}
+async function runReadOnlyConfirmation(){
+  await startInspectionSite();
+  backendData='data-inspection';
+  app=await startBackend();
+  const profileId=await connect();
+  await configureInspection();
   await dashboard.goto(BASE+'/#queue');
   await dashboard.getByLabel('岗位链接',{exact:true}).fill(realJobUrl);
   await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
@@ -160,6 +166,129 @@ async function runReadOnlyConfirmation(){
   backendData='data';
 }
 
+async function runPublicInspection(){
+  const url=realOrigin+'/mattermost/jobs/5381946008',id='5381946008';
+  const audit={url,readAt:new Date().toISOString(),pageResponses:[],modules:[],requests:[],blockedWrites:[]};
+  publicNavigation=audit;
+  evidence.publicInspection=audit;
+  backendData='data-public';
+  app=await startBackend();
+  const profileId=await connect();
+  await configureInspection();
+  await dashboard.goto(BASE+'/#queue');
+  await dashboard.getByLabel('岗位链接',{exact:true}).fill(url);
+  await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
+  const added=task(await waitFor('public job added',state,value=>!!task(value,id)),id);
+  await dashboard.getByRole('row').filter({hasText:added.title}).getByRole('button',{name:'查看详情',exact:true}).click();
+  const approval=dashboard.getByRole('form',{name:/确认页面检查/});
+  await approval.waitFor();
+  for(const box of await approval.getByRole('checkbox').all())await box.check();
+  await approval.getByRole('button',{name:'确认检查原申请页',exact:true}).click();
+  await waitFor('public inspection consent',state,value=>task(value,id)?.confirmation?.purpose==='inspect');
+  await action('resume');
+  const found=await waitFor('public questions or inspection hold',state,value=>{
+    const item=task(value,id);
+    return ['waiting_answer','waiting_user','failed'].includes(item?.status)&&item.issue?.kind!=='confirmation';
+  });
+  const current=task(found,id);
+  audit.status=current.status;
+  audit.issue=current.issue?.detail;
+  audit.questions=current.questions?.map(q=>({key:q.key,required:q.required,unresolved:q.unresolved,optionCount:q.options.length}));
+  assert.equal(current.status,'waiting_answer',JSON.stringify(audit));
+  assert.equal(current.id,added.id);
+  assert.equal(current.confirmation.purpose,'inspect');
+  assert.ok(audit.pageResponses.some(response=>response.status===200&&response.url===url));
+  assert.ok(audit.modules.some(asset=>asset.includes('entry.client-')));
+  const batch=current.answerBatch.questions;
+  const authorization=batch.find(q=>q.key==='question_18195692008');
+  assert.match(authorization.text,/authorized to work in Japan/);
+  assert.equal(authorization.required,true);
+  assert.deepEqual(authorization.options.map(option=>option.text),['Yes','No']);
+  assert.ok(!batch.some(q=>['email','phone','first_name','last_name'].includes(q.key)));
+  assert.ok(current.questions.some(q=>q.key==='candidate-location'&&q.unresolved));
+  assert.ok(current.inspectionAttachments.some(q=>q.key==='resume'&&q.required&&q.manualTextAlternative));
+  assert.ok(current.inspectionAttachments.some(q=>q.key==='cover_letter'&&!q.required&&q.manualTextAlternative));
+
+  await dashboard.goto(BASE+'/#issues');
+  const form=dashboard.getByRole('form',{name:'集中补充答案：'+current.title});
+  await form.waitFor();
+  assert.ok(await form.getByText('原题版本 '+authorization.version,{exact:true}).isVisible());
+  assert.ok(await form.getByText(/地点与坐标的可靠绑定/).isVisible());
+  assert.equal(await form.getByRole('link',{name:'查看原岗位问题来源'}).first().getAttribute('href'),url);
+  const answers=new Map();
+  for(const q of batch){
+    const input=form.getByLabel(q.text+'：答案',{exact:true});
+    if(q.options.length)assert.deepEqual(await input.locator('option').allTextContents(),
+      ['请选择已核实的原文选项',...q.options.map(option=>option.text)]);
+    await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
+    const value=q.required?(q.options.find(option=>!option.disabled&&option.text)?.text||'Synthetic answer saved locally'):'';
+    if(!q.required)await form.getByLabel(q.text+'：本次留空',{exact:true}).check();
+    else if(q.options.length)await input.selectOption({label:value});
+    else await input.fill(value);
+    answers.set(q.scope,{value,leaveBlank:!q.required});
+  }
+  // Stop scheduling before save so that the independent process has to
+  // recover the saved answers before any follow-up inspection is issued.
+  await action('pause');
+  await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
+  await waitFor('batch saved while inspection paused',state,value=>task(value,id)?.status==='queued'&&value.manualPaused);
+  const persisted=async()=>task(JSON.parse(await fs.readFile(path.join(directory,backendData,'state.json'),'utf8')),id);
+  const saved=await persisted();
+  for(const [scope,answer] of answers){
+    assert.equal(saved.answers[scope].value,answer.value);
+    assert.equal(saved.answers[scope].confirmed,true);
+    assert.equal(saved.answers[scope].leaveBlank===true,answer.leaveBlank);
+  }
+  const verifyEmpty=async()=>{
+    const page=context.pages().find(page=>page.url()===url);
+    assert.ok(page);
+    assert.deepEqual(await page.locator('#first_name,#last_name,#email,#phone,#question_18195688008,#question_18195692008').evaluateAll(nodes=>nodes.map(node=>node.value)),
+      ['','','','','','']);
+    assert.equal(await page.locator('#resume').evaluate(input=>input.files.length),0);
+    assert.equal(await page.locator('form .select__single-value').count(),0);
+  };
+  await verifyEmpty();
+  const pid=app.ready.pid;
+  await context.close();context=null;
+  await closeApp();
+  app=await startBackend();
+  assert.notEqual(app.ready.pid,pid);
+  assert.equal(await connect(),profileId);
+  assert.deepEqual((await persisted()).answers,saved.answers);
+  await context.pages().find(page=>page.url()===url)?.close();
+  await action('resume');
+  const after=await waitFor('same public job after independent restart',state,value=>
+    task(value,id)?.issue?.title==='答案已保存，真实投递暂未开放');
+  const finished=task(after,id);
+  assert.equal(finished.id,added.id);assert.equal(after.tasks.length,1);
+  assert.equal(finished.needsConfirmation,false);
+  assert.equal(finished.answerBatch,undefined);
+  assert.equal(finished.submissionStarted,undefined);
+  assert.equal(Object.hasOwn(finished,'submitDay'),false);
+  assert.equal(finished.result,undefined);
+  assert.deepEqual(after.stats.real,{submitted:0,today:0});
+  assert.deepEqual((await persisted()).answers,saved.answers);
+  await dashboard.goto(BASE+'/#issues');
+  await dashboard.getByRole('heading',{name:'答案已保存，真实投递暂未开放',exact:true}).waitFor();
+  assert.equal(await dashboard.getByRole('form',{name:/集中补充答案/}).count(),0);
+  await verifyEmpty();
+  const records=await storage(['localSubmissionAttempts','greenhouseUploadProofs']);
+  assert.ok(!Object.values(records.localSubmissionAttempts||{}).some(attempt=>attempt.taskId===added.id));
+  assert.equal(records.greenhouseUploadProofs?.[added.id],undefined);
+  assert.deepEqual(audit.blockedWrites.filter(write=>[realOrigin,'https://boards.greenhouse.io'].includes(write.origin)),[]);
+  assert.ok(audit.requests.length>=2&&audit.requests.every(method=>method==='GET'));
+  Object.assign(audit,{sameTask:true,independentRestart:true,saved:answers.size,
+    explicitBlanks:[...answers.values()].filter(answer=>answer.leaveBlank).length,
+    exampleChoice:{key:authorization.key,labels:authorization.options.map(option=>option.text),required:true,version:authorization.version},
+    attachments:finished.inspectionAttachments.map(({key,required,manualTextAlternative})=>({key,required,manualTextAlternative})),
+    status:finished.status,submissionBoundary:false,dailySlot:false,employerInputsEmpty:true,ledgerEntries:0});
+  console.log('PASS public HTTPS application -> real APP batch save -> independent restart -> same read-only task');
+  await context.close();context=null;
+  await closeApp();
+  publicNavigation=null;
+  backendData='data';
+}
+
 async function connect(){
   const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension,
     ...(inspectionServer?['--host-resolver-rules=MAP job-boards.greenhouse.io 127.0.0.1:4443','--no-proxy-server',
@@ -179,12 +308,27 @@ async function connect(){
   // application POST must use the browser's own connection and retry logic.
   context.on('request',request=>{
     const url=new URL(request.url());
-    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!(purposes&&backendData==='data-inspection'&&url.href===realJobUrl))
+    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!publicNavigation&&!(purposes&&backendData==='data-inspection'&&url.href===realJobUrl))
       evidence.externalRequests.push(url.origin);
   });
   // Let the loopback TLS page use Chrome's actual navigation and permissions.
   // Everything else on HTTPS is blocked from this isolated browser.
-  await context.route(url=>url.protocol==='https:'&&!(inspectionServer&&url.origin===realOrigin),route=>route.abort('blockedbyclient'));
+  if(publicNavigation){
+    const audit=publicNavigation;
+    const allowedOrigins=new Set([realOrigin,'https://boards.greenhouse.io','https://job-boards.cdn.greenhouse.io',
+      'https://s8-recruiting.cdn.greenhouse.io','https://fonts.googleapis.com','https://fonts.gstatic.com']);
+    await context.route(url=>['http:','https:'].includes(url.protocol)&&url.origin!==BASE,route=>{
+      const request=route.request(),url=new URL(request.url()),method=request.method();
+      if(url.href===audit.url)audit.requests.push(method);
+      if(method!=='GET'){audit.blockedWrites.push({method,origin:url.origin});return route.abort('blockedbyclient');}
+      return allowedOrigins.has(url.origin)?route.continue():route.abort('blockedbyclient');
+    });
+    context.on('response',response=>{
+      const url=new URL(response.url());
+      if(response.request().resourceType()==='document'&&url.origin===realOrigin)audit.pageResponses.push({url:url.origin+url.pathname,status:response.status()});
+      if(url.origin==='https://job-boards.cdn.greenhouse.io'&&url.pathname.endsWith('.js')&&response.ok()&&!audit.modules.includes(url.pathname))audit.modules.push(url.pathname);
+    });
+  }else await context.route(url=>url.protocol==='https:'&&!(inspectionServer&&url.origin===realOrigin),route=>route.abort('blockedbyclient'));
   context.on('page',page=>page.on('pageerror',error=>workerErrors.push(redact(error.message))));
   dashboard=context.pages()[0]||await context.newPage();
   await dashboard.goto(BASE);
@@ -319,7 +463,7 @@ function record(name,id,item){
 }
 async function startBackend(){
   const dataDir=path.join(directory,backendData);
-  if(!lifecycle&&!full)return createApp({dataDir,startFixture:false,testMode:true,testKey});
+  if(!lifecycle&&!full&&!publicNavigation)return createApp({dataDir,startFixture:false,testMode:true,testKey});
   const child=fork(fileURLToPath(new URL('./fixtures/greenhouse-native-gate-backend.mjs',import.meta.url)),[dataDir,testKey],
     {cwd:projectRoot,stdio:['ignore','inherit','inherit','ipc']});
   const handle={child,events:[],exit:null};
@@ -338,7 +482,7 @@ async function backendEvent(type,jobId){
   },Boolean,10000);
 }
 async function closeApp(){
-  if(!lifecycle&&!full){
+  if(!lifecycle&&!full&&!publicNavigation){
     const closing=app.close();
     app.server.closeAllConnections();
     await closing;
@@ -435,6 +579,7 @@ async function verifyFaults(){
 }
 
 try{
+  if(publicInspection)await runPublicInspection();
   if(purposes)await runReadOnlyConfirmation();
   fixture=await startNativeFixture(directory,resume,{full});
   app=await startBackend();

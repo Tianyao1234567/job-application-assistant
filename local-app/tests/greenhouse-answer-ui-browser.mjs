@@ -18,10 +18,11 @@ if(process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_WORKFLOW==='Fictional
     if(subject.includes('[native-gate-lifecycle]'))process.env.GREENHOUSE_NATIVE_GATE_LIFECYCLE='1';
     if(subject.includes('[native-full-flow]'))process.env.GREENHOUSE_NATIVE_FULL_FLOW='1';
     if(subject.includes('[confirmation-purpose]'))process.env.GREENHOUSE_CONFIRMATION_PURPOSE='1';
+    if(subject.includes('[public-inspection]'))process.env.GREENHOUSE_PUBLIC_INSPECTION='1';
     await import('./greenhouse-native-gate-browser.mjs');
     const report=JSON.parse(await fs.readFile(path.join(evidenceRoot,'greenhouse-native-gate-mv3.json'),'utf8'));
     const summary={environment:{mode:report.mode,node:report.node,browser:report.chromium},results:report.checks,
-      fixture:report.fixture,lostResponse:report.lostResponse,backend:report.backend,faults:report.faults,flow:report.flow,inspection:report.inspection,
+      fixture:report.fixture,lostResponse:report.lostResponse,backend:report.backend,faults:report.faults,flow:report.flow,inspection:report.inspection,publicInspection:report.publicInspection,
       error:report.error,receiptDiagnostics:report.receiptDiagnostics};
     console.log('Native gate evidence '+JSON.stringify(summary));
     await fs.writeFile(path.join(evidenceRoot,'greenhouse-answer-mv3-browser.json'),JSON.stringify(summary,null,2));
