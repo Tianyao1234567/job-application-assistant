@@ -2,7 +2,17 @@
 
 更新：2026-11-13（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 008 投递流程修复及候选交付
+## 009 区分真实页面检查与虚构投递确认
+
+已读取 Manager `e96ee18f175cb87420e656992db84903205b82e4` 的交接及 009，延续原任务 `5c8b638`。工程接续点为 `4573d1361b54e5180619be017395fa7fbf355dfb`，验证及候选源码为 `950e9e2fe375868e0e576de7f34fb92a8d70dd02`。 [阶段报告](docs/GREENHOUSE_CONFIRMATION_PURPOSE_009.md)
+
+真实 Greenhouse 的界面、后端授权和扩展执行均按明确用途处理。真实确认仅保存为 `inspect`，写入授权请求会被拒绝。旧真实确认标为用途未核实，原任务、答案、附件、浏览器身份和账本保留。原 `unknown` 任务只允许核对。虚构站按明确的 `submit` 用途走原提交保护。
+
+本机定点 36 项通过。最终托管实际 MV3 证实检查授权在后台和浏览器重启后仍只读，独立测试端收到两次 GET，未占用提交额度。虚构正常 1/1/1，错附件零到达，接受后丢响应重启及重新配对后仍为 2→2 且 `unknown`。托管 Windows 从 candidate.8 和 candidate.10 实际升级通过。两条较早的 MV3 作业在隔离测试准备和页面接入处失败，经过测试修正后由最终托管验证覆盖。 [真实 MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43419251688/job/131864816756) · [Windows 升级](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43419251690/job/131864816511)
+
+candidate.12 的单文件 `update.cmd` 已放入独立审查草稿。实下载 338815 字节，SHA-256 `d23015c9b44cc45a07fd41539de5db74473adf2e1fc0036e5d70647a136290d4`。candidate.11 草稿保留。下一责任人为 Manager 审查发布。真实企业提交继续暂停，PR #5 保持 draft。 [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-01ee0c2b6354654671be)
+
+## 008 投递流程修复及候选交付（历史）
 
 已读取 Manager `299d56d06590eac6efedf8d299320419b375c9f1` 的交接和 008。原任务 `5c8b638`。候选及验证源码 `4c990e86ab0c7112c81231799109fca6d79adf2d`。真实界面完成加岗位、本人确认、显示 11 个原题缺项和选项、批量保存与明确留空、同任务继续、附件核对及回执。已修复归档完整表单映射、暂停时预检跨提交边界和升级包缺模块。真实站目前只读检查。 [阶段报告](docs/GREENHOUSE_FLOW_CANDIDATE_008.md)
 
