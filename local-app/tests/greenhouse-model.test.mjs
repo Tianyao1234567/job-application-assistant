@@ -153,7 +153,7 @@ test('only exact synthetic replay receipt can mark replay submitted; unknown out
   env.store.action({action:'pause'});env.store.action({action:'verify',taskId:env.task.id});const verify=env.take();assert.equal(verify.op,'verify');env.send(verify,{ok:true,receipt:receipt(env),login:env.login});
   assert.equal(env.task.status,'submitted');assert.match(env.task.result.evidence,/合成回执/);assert.match(env.task.result.evidence,/不是生产/);
 });
-test('paused production only inspects and preflights, including a previously queued submit phase',t=>{
+test('paused production only inspects, including a previously queued submit phase',t=>{
   const env=setup(t,{production:true});
   for(const patch of [{purpose:'submit'},{purpose:undefined,submitConfirmed:true},{purpose:'inspect',submitConfirmed:true}])
     assert.throws(()=>env.confirm(patch),/仅允许确认检查页面/);
@@ -188,8 +188,8 @@ test('read-only batch saves exact choices and blanks despite unresolved controls
   const optional=question(env,'optional',{required:false});
   const unknown=question(env,'candidate-location',{type:'text',customControl:true,required:true,optionsComplete:false});
   const attachment={...question(env,'resume',{type:'file',text:'Resume/CV / Attach'}),purpose:'attachment',attachmentRequirementKnown:true,manualTextAlternative:true};
-  const report=command=>({ok:true,layout:'original layout',login:env.login,questions:[unknown,choice,optional],question:unknown,fields:[attachment]});
-  const inspect=env.take();assert.equal(inspect.op,'inspect');env.send(inspect,report(inspect));
+  const report=()=>({ok:true,layout:'original layout',login:env.login,questions:[unknown,choice,optional],question:unknown,fields:[attachment]});
+  const inspect=env.take();assert.equal(inspect.op,'inspect');env.send(inspect,report());
   const batch=env.store.snapshot().tasks[0].answerBatch;
   assert.deepEqual(batch.questions.map(q=>q.key),['language','optional']);
   assert.equal(env.task.questions[0].unresolved,true);
@@ -204,7 +204,7 @@ test('read-only batch saves exact choices and blanks despite unresolved controls
   assert.equal(same.answers[optional.scope].leaveBlank,true);
   const again=restarted.poll(client).command;
   assert.equal(again.op,'inspect');assert.equal(again.task.id,env.task.id);
-  restarted.result({clientId:client.clientId,commandId:again.id,result:report(again)});
+  restarted.result({clientId:client.clientId,commandId:again.id,result:report()});
   assert.equal(same.status,'waiting_user');assert.match(same.issue.title,/答案已保存/);
   assert.equal(restarted.snapshot().tasks[0].answerBatch,undefined);
   assert.equal(restarted.state.tasks.length,1);assert.equal(restarted.dailyUsed(),0);
@@ -212,7 +212,7 @@ test('read-only batch saves exact choices and blanks despite unresolved controls
   restarted.action({action:'task-resume',taskId:same.id});
   const refresh=restarted.poll(client).command;
   const changed=question(env,'language',{type:'select-one',options:[{text:'Different observed answer',disabled:false}]});
-  restarted.result({clientId:client.clientId,commandId:refresh.id,result:{...report(refresh),questions:[unknown,changed,optional]}});
+  restarted.result({clientId:client.clientId,commandId:refresh.id,result:{...report(),questions:[unknown,changed,optional]}});
   assert.deepEqual(restarted.snapshot().tasks[0].answerBatch.questions.map(q=>q.scope),[changed.scope]);
 });
 

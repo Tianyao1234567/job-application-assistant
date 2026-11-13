@@ -168,7 +168,7 @@ async function runReadOnlyConfirmation(){
 
 async function runPublicInspection(){
   const url=realOrigin+'/mattermost/jobs/5381946008',id='5381946008';
-  const audit={url,readAt:new Date().toISOString(),pageResponses:[],modules:[],requests:[],blockedWrites:[],boardWrites:[]};
+  const audit={url,readAt:new Date().toISOString(),pageResponses:[],modules:[],requests:[],blockedWrites:[],boardWrites:[],sitePageErrors:[]};
   publicNavigation=audit;
   evidence.publicInspection=audit;
   backendData='data-public';
@@ -285,7 +285,7 @@ async function runPublicInspection(){
     explicitBlanks:[...answers.values()].filter(answer=>answer.leaveBlank).length,
     exampleChoice:{key:authorization.key,labels:authorization.options.map(option=>option.text),required:true,version:authorization.version},
     attachments:finished.inspectionAttachments.map(({key,required,manualTextAlternative})=>({key,required,manualTextAlternative})),
-    status:finished.status,submissionBoundary:false,dailySlot:false,employerInputsEmpty:true,ledgerEntries:0});
+    status:finished.status,issue:finished.issue.title,submissionBoundary:false,dailySlot:false,employerInputsEmpty:true,ledgerEntries:0});
   console.log('PASS public HTTPS application -> real APP batch save -> independent restart -> same read-only task');
   await context.close();context=null;
   await closeApp();
@@ -356,7 +356,11 @@ async function connect(){
       if(url.origin==='https://job-boards.cdn.greenhouse.io'&&url.pathname.endsWith('.js')&&response.ok()&&!audit.modules.includes(url.pathname))audit.modules.push(url.pathname);
     });
   }else await context.route(url=>url.protocol==='https:'&&!(inspectionServer&&url.origin===realOrigin),route=>route.abort('blockedbyclient'));
-  context.on('page',page=>page.on('pageerror',error=>workerErrors.push(redact(error.message))));
+  context.on('page',page=>page.on('pageerror',error=>{
+    const message=redact(error.message);
+    if(publicNavigation&&page.url()===publicNavigation.url)publicNavigation.sitePageErrors.push(message);
+    else workerErrors.push(message);
+  }));
   dashboard=context.pages()[0]||await context.newPage();
   await dashboard.goto(BASE);
   key=await dashboard.locator('meta[name="local-key"]').getAttribute('content');
