@@ -517,6 +517,7 @@ export class Store {
       const t=this.state.tasks.find(t=>['queued','running'].includes(t.status)&&this.state.sites.some(s=>s.id===t.siteId&&s.enabled&&!s.skipped&&supportedSite(s)&&s.mode===this.state.settings.mode));
       if(t){const site=this.site(t.siteId);
         if(isGreenhouse(site)&&!this.confirmedTask(t)){this.holdConfirmation(t);this.save();return {command:null};}
+        if(isGreenhouse(site)&&!greenhouseReplay(site)&&t.phase!=='preflight')t.phase='inspect';
         if(!isGreenhouse(site)&&(site.login?.status!=='ready'||site.login.profileId!==client.profileId))c={id:uid(),op:'check',siteId:site.id,payload:{},control:true};
         else{
           if(!t.profileSnapshot){t.profileSnapshot=clone(this.state.profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=this.state.profile.version;t.resumeVersion=this.state.resume.version;this.step(t,'锁定本次资料版本',`资料 v${t.profileVersion} · 简历 v${t.resumeVersion}`);}
@@ -548,6 +549,10 @@ export class Store {
   authorize({clientId,commandId,captureOnly=false}){
     this.expireCommand();
     const c=this.command;if(!c||c.id!==commandId||c.clientId!==clientId||!sameClient(c,this.connection))return {allowed:false};
+    if(c.taskId&&c.op!=='inspect'&&c.op!=='preflight'&&c.op!=='verify'){
+      const site=this.site(c.siteId);
+      if(isGreenhouse(site)&&!greenhouseReplay(site))return {allowed:false};
+    }
     if(c.op==='verify')return {allowed:!!c.taskId&&this.canVerifyTask(this.task(c.taskId))&&(!isGreenhouse(this.site(c.siteId))||this.task(c.taskId).executionProfileId===this.connection.profileId)};
     if(!c.taskId){const site=this.site(c.siteId);return {allowed:c.op==='open'||c.op==='check'||(!this.state.paused&&site.enabled&&!site.skipped&&site.mode===this.state.settings.mode)};}
     const t=this.task(c.taskId),site=this.site(t.siteId);
@@ -644,6 +649,7 @@ export class Store {
           t.layout=r.layout;t.questions=questions;t.question=questions[0]||null;t.phase='fill';delete t.answer;
           const unresolved=questions.find(q=>q.unresolved);
           if(unresolved){t.question=unresolved;t.status='waiting_user';t.phase='inspect';this.issue(t,'structure','需要核实实际自定义选项',unresolved.text+'；选项集合尚未完整观察，不接受猜测答案。',unresolved);this.step(t,'自定义选项待核实','原题、已观察选项、来源与版本已保存在当前任务。');this.save();return {ok:true};}
+          if(!greenhouseReplay(site))t.phase='preflight';
           this.step(t,'已读取 Greenhouse 申请表','固定公司、租户、岗位及已确认申请身份；逐题保存原文、选项、用途与来源。');
           this.save();return {ok:true};
         }
@@ -658,7 +664,13 @@ export class Store {
           else if(t.question&&!t.answer){t.status='waiting_answer';this.issue(t,'answer','需要补充一个答案',t.question.text,t.question);this.step(t,'等待补充答案',t.question.text);}
           else t.phase=t.question?'answer':'preflight';}
       }else if(c.op==='answer'){if(r.layout)t.layout=r.layout;if(isGreenhouse(site)){t.questions=(t.questions||[]).filter(q=>q.scope!==t.question?.scope);this.selectGreenhouseQuestion(t);}else t.phase='preflight';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
-      else if(c.op==='preflight'){t.phase='submit';this.step(t,'提交预检通过','登录、结构、附件和必填项通过；下一步先保存提交边界');}
+      else if(c.op==='preflight'){
+        if(isGreenhouse(site)&&!greenhouseReplay(site)){
+          t.status='waiting_user';t.phase='preflight';
+          this.issue(t,'manual','真实投递暂未开放','已读取原申请表。真实站当前仅检查页面，未填写、上传或提交；已保留原任务和确认资料。');
+          this.step(t,'页面检查完成，真实提交暂停','未消耗提交额度，恢复时重新检查原申请。');
+        }else{t.phase='submit';this.step(t,'提交预检通过','登录、结构、附件和必填项通过；下一步先保存提交边界');}
+      }
       else if(c.op==='submit'){t.status='unknown';t.phase='verify';this.issue(t,'unknown','提交结果待核实','没有可靠回执，系统不会自动再次提交');}
     }
     this.save();return {ok:true};

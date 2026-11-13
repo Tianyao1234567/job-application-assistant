@@ -23,7 +23,8 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
     async prepare(method,expected,args){h.prepared.push({method,expected,args});if(prepareGate){prepareGate.enter();await prepareGate.ready;}return {ok:true,token:method};},
     commit(expected,token){if(token==='submit')h.clicks++;else h.writes++;return {ok:token!=='submit',attempted:token==='submit',filled:1};}
   }};
-  if(!replay)h.storage.greenhouseUploadProofs={task:{rule:'greenhouse-upload-object-v1',taskId:'task',profileId:'fictional-profile',tabId:7,source:tabs.get(7).url,fileName:file.name,fileSize:file.size,sha256:file.sha256,status:204,documentId:'document-fixture',referenceSha256:'b'.repeat(64)}};
+  h.storage.greenhouseUploadProofs={task:{rule:'greenhouse-upload-object-v1',taskId:'task',profileId:'fictional-profile',tabId:7,source:tabs.get(7).url,fileName:file.name,fileSize:file.size,sha256:file.sha256,status:204,documentId:'document-fixture',referenceSha256:'b'.repeat(64)}};
+  if(replay){h.uploadProof=h.storage.greenhouseUploadProofs.task;delete h.storage.greenhouseUploadProofs;}
   page.location={get href(){return tabs.get(7).url;}};
   const context=vm.createContext({URL,Date,AbortSignal,definitions:{},captureUploadReference,verifiedUpload,crypto:webcrypto,console,
     document:{getElementById:()=>({textContent:''})},setTimeout:callback=>{queueMicrotask(callback);return 1;},
@@ -102,7 +103,8 @@ test('Greenhouse recovery checks replay receipts separately and preserves the li
 test('missing or stale exact upload proof pauses before preflight and before the durable submit boundary',async()=>{
  for(const change of [h=>delete h.storage.greenhouseUploadProofs,h=>h.storage.greenhouseUploadProofs.task.documentId='different-document',h=>h.storage.greenhouseUploadProofs.task.sha256='c'.repeat(64),h=>h.storage.greenhouseUploadProofs.task.profileId='different-profile']){
   const h=harness({replay:false});change(h);
-  for(const op of ['preflight','submit']){const result=await h.run(op);assert.equal(result.ok,false);assert.equal(result.kind,'manual');}
+  const preflight=await h.run('preflight');assert.equal(preflight.ok,!replay);
+  const result=await h.run('submit');assert.equal(result.ok,false);assert.equal(result.kind,'manual');
   assert.equal(h.clicks,0);assert.equal(h.writes,0);assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
  }
 });
@@ -110,7 +112,8 @@ test('native submission remains paused even with earlier upload proof, before an
  for(const replay of [false,true]){
   const h=harness({replay});if(replay)h.submissionProtocol={submitUrl:'fictional-native-submit'};
   const before=structuredClone(h.storage.greenhouseUploadProofs||{});
-  for(const op of ['preflight','submit']){const result=await h.run(op);assert.equal(result.ok,false);assert.equal(result.kind,'manual');}
+  const preflight=await h.run('preflight');assert.equal(preflight.ok,!replay);
+  const result=await h.run('submit');assert.equal(result.ok,false);assert.equal(result.kind,'manual');
   assert.equal(h.clicks,0);assert.equal(h.writes,0);assert.equal(h.authorizations,0);
   assert.equal(Object.keys(h.storage.localSubmissionAttempts).length,0);
   assert.deepEqual(h.storage.greenhouseUploadProofs||{},before);
@@ -133,7 +136,7 @@ test('replay submission checks receive attachment identity without resume bytes'
  assert.equal(h.clicks,1);
 });
 test('resuming an already uploaded file reuses only bound proof and never starts another upload',async()=>{
- const h=harness({replay:false});h.fields=[{key:'resume',alreadyPopulated:true}];
+ const h=harness();h.storage.greenhouseUploadProofs={task:h.uploadProof};h.submissionProtocol={submitUrl:'fictional-native-submit'};h.fields=[{key:'resume',alreadyPopulated:true}];
  const proof=structuredClone(h.storage.greenhouseUploadProofs.task),result=await h.run('upload');
  assert.equal(result.ok,true);assert.equal(h.verifiedUpload.actualFile.sha256,file.sha256);assert.equal(h.writes,0);
  assert.equal(h.verifiedUpload.actualFile.name,file.name);assert.equal(h.verifiedUpload.actualFile.size,file.size);

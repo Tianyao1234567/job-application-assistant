@@ -13,9 +13,11 @@ function setup(t,{production=false}={}){
   const directory=path.join(ROOT,'.runtime','tests');fs.mkdirSync(directory,{recursive:true});
   const data=fs.mkdtempSync(path.join(directory,'greenhouse-model-'));t.after(()=>fs.rmSync(data,{force:true,recursive:true}));
   let now=Date.parse('2026-10-22T01:00:00Z');
-  const paths={data},store=new Store(paths,{now:()=>now});store.demo();
+  let paths={data},store=new Store(paths,{now:()=>now});store.demo();
   if(production){
     const profile=structuredClone(store.state.profile.data);
+    paths={data:path.join(data,'real')};fs.mkdirSync(paths.data);
+    store=new Store(paths,{now:()=>now});
     for(const value of Object.values(profile.personal)){value.source='Synthetic local-only unit record';if(value.zh)value.zh=value.zh.replace(/虚构|测试|example\.invalid/g,'synthetic');}
     profile.personal.name.zh='Synthetic Applicant';profile.personal.email.zh='applicant@example.test';
     store.setProfile({data:profile,mode:'real',confirmed:true});
@@ -147,10 +149,15 @@ test('only exact synthetic replay receipt can mark replay submitted; unknown out
   env.store.action({action:'pause'});env.store.action({action:'verify',taskId:env.task.id});const verify=env.take();assert.equal(verify.op,'verify');env.send(verify,{ok:true,receipt:receipt(env),login:env.login});
   assert.equal(env.task.status,'submitted');assert.match(env.task.result.evidence,/合成回执/);assert.match(env.task.result.evidence,/不是生产/);
 });
-test('production submit path requires explicit confirmation and remains unknown without verified production receipt',t=>{
-  const env=setup(t,{production:true});begin(env);const command=submit(env);
-  assert.equal(env.store.authorize({clientId:client.clientId,commandId:command.id}).allowed,true);
-  env.send(command,{ok:true,receipt:receipt(env),login:env.login});assert.equal(env.task.status,'unknown');assert.equal(env.task.submissionStarted,true);assert.equal(env.take(),null);
-  const restored=new Store(env.paths,{now:env.clock});assert.equal(restored.task(env.task.id).status,'unknown');assert.equal(restored.task(env.task.id).submissionStarted,true);
-  assert.throws(()=>restored.action({action:'task-resume',taskId:env.task.id}),/只能核对/);
+test('paused production only inspects and preflights, including a previously queued submit phase',t=>{
+  const env=setup(t,{production:true});begin(env);
+  env.task.phase='submit';
+  const inspect=env.take();assert.equal(inspect.op,'inspect');
+  env.send(inspect,{ok:true,layout:'observed-layout',questions:[],login:env.login});
+  const check=env.take();assert.equal(check.op,'preflight');
+  env.send(check,{ok:true});assert.equal(env.task.status,'waiting_user');assert.equal(env.task.phase,'preflight');
+  assert.equal(env.task.submissionStarted,undefined);assert.equal(env.task.submitAuthorizedAt,undefined);
+  assert.equal(env.store.dailyUsed(),0);assert.equal(env.take(),null);
+  const restored=new Store(env.paths,{now:env.clock});assert.equal(restored.task(env.task.id).status,'waiting_user');
+  assert.equal(restored.canResumeTask(restored.task(env.task.id)),true);
 });

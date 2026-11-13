@@ -120,6 +120,25 @@
     }
     return label;
   }
+  function attachmentAlternative(key,group,business) {
+    const file=key==='resume_text'?'resume':key==='cover_letter_text'?'cover_letter':null;
+    if(!file||business?.fields?.length!==2)return false;
+    return business.fields[0].name===file&&business.fields[0].type==='input_file'&&
+      business.fields[1].name===key&&business.fields[1].type==='textarea'&&
+      norm(business.label)===norm(group.replace(/\*\s*$/,''));
+  }
+  function exactLocation(record) {
+    // A plain text label cannot prove geographic coordinates. This restricted
+    // path only supports the observed renderer contract in a matching replay.
+    const controls=record.node.closest('[data-job-location-values]');
+    const location=controlValue(record),latitude=controls?.dataset.latitude,longitude=controls?.dataset.longitude,
+      country=controls?.dataset.countryShortName;
+    if(!controls||controls.dataset.location!==location||!location||!latitude||!longitude||
+      !/^-?\d+(?:\.\d+)?$/.test(latitude)||Math.abs(Number(latitude))>90||
+      !/^-?\d+(?:\.\d+)?$/.test(longitude)||Math.abs(Number(longitude))>180||!/^[A-Z]{2}$/.test(country||''))return null;
+    return {location,latitude,longitude,country_short_name:country};
+  }
+
   function controlValue(record) {return record.field.customControl?selectedChoice(record.node):record.node.value;}
   function collect(form) {
     const nodes=[...form.querySelectorAll('input,textarea,select')].filter(node=>node.type!=='hidden'&&!node.disabled&&!node.readOnly&&(!secret.test([node.id,node.name,node.type,labels(node)].join(' ')))&&(visible(node)||node.type==='file'));
@@ -131,7 +150,10 @@
       if(!node.id&&!node.name&&node.required&&node.closest?.('.select')?.querySelector?.('[role="combobox"][id]'))continue;
       const key=node.id||node.name;
       if(!key||key.length>160||keys.has(key))throw new Error('AMBIGUOUS_FIELD');keys.add(key);
-      const label=labels(node),group=groupLabel(node),business=schema.find(question=>question.fields?.some(field=>field.name===key)&&norm(question.label)===norm((node.type==='file'?group:label).replace(/\*\s*$/,''))),definition=business?.fields.find(field=>field.name===key);
+      const label=labels(node),group=groupLabel(node),schemaKey=key==='candidate-location'?'candidate_location':key;
+      const business=schema.find(question=>question.fields?.some(field=>field.name===schemaKey)&&
+        [label,group].some(value=>norm(question.label)===norm(value.replace(/\*\s*$/,'')))),definition=business?.fields.find(field=>field.name===schemaKey);
+      const alternate=attachmentAlternative(key,group,business);
       if(!label||label.length>2000||group.length>2000)throw new Error('QUESTION_LABEL');
       const customControl=node.getAttribute('role')==='combobox'||node.getAttribute('aria-haspopup')==='listbox'||!!node.closest('[role="combobox"]');
       let options=[],optionKeys=[],optionsComplete=node.tagName==='SELECT';
@@ -149,7 +171,7 @@
       }
       if(options.some(option=>option.text.length>1000))throw new Error('OPTION_BUDGET');
       const requiredEvidence={native:node.required===true,aria:node.getAttribute('aria-required')==='true',labelAsterisk:/\*/.test(label),groupAsterisk:/\*/.test(group),schema:business?.required===true};
-      const field={key,text:node.type==='file'&&group?group+' / '+label:label,type:node.type||node.tagName.toLowerCase(),tag:node.tagName,required:Object.values(requiredEvidence).some(Boolean),requiredEvidence,options,optionsComplete,customControl,accept:node.accept||'',groupTitle:group,attachmentRequirementKnown:node.type!=='file'||!!group&&/resume|cv|cover letter/i.test(group)&&(typeof business?.required==='boolean'||Object.values(requiredEvidence).some(Boolean)||/optional/i.test(group)),alreadyPopulated:node.type==='file'?node.files.length>0:customControl?!!selectedChoice(node):['checkbox','radio'].includes(node.type)?node.checked===true:!!node.value?.trim()};
+      const field={key,text:node.type==='file'&&group?group+' / '+label:label,type:node.type||node.tagName.toLowerCase(),tag:node.tagName,required:!alternate&&Object.values(requiredEvidence).some(Boolean),requiredEvidence,...(alternate?{attachmentAlternative:true}:{}),options,optionsComplete,customControl,accept:node.accept||'',groupTitle:group,attachmentRequirementKnown:node.type!=='file'||!!group&&/resume|cv|cover letter/i.test(group)&&(typeof business?.required==='boolean'||Object.values(requiredEvidence).some(Boolean)||/optional/i.test(group)),alreadyPopulated:node.type==='file'?node.files.length>0:customControl?!!selectedChoice(node):['checkbox','radio'].includes(node.type)?node.checked===true:!!node.value?.trim()};
       field.purpose=purpose(field);
       const {alreadyPopulated,...structure}=field;
       records.push({node,field,raw:JSON.stringify({...structure,name:node.name||'',optionKeys})});
@@ -206,7 +228,7 @@
   async function confirmedQuestions(expected,current) {
     for(const record of current.records){
       const q=await question(expected,record);
-      if(q.type!=='file'&&!profileFact(expected,q,record)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
+      if(q.type!=='file'&&!(q.attachmentAlternative&&!q.alreadyPopulated)&&!profileFact(expected,q,record)&&!ownedAnswer(expected,q,record))return fail('manual','仍有原问题或网页已有答案未经本次明确确认，请核对后继续。');
     }
     return {ok:true};
   }
@@ -256,7 +278,7 @@
       if(!title||title.length>300)return fail('structure','岗位标题尚未可靠识别。');
       const jobMetadata={tenant:expected.tenant,jobId:expected.jobId,url:current.source,title,company:expected.company,location:text(document.querySelector('.job__location,.job-location,[data-job-location]')).slice(0,200)};
       const fields=await Promise.all(result.records.map(record=>question(expected,record)));
-      const questions=fields.filter((field,index)=>field.type!=='file'&&!profileFact(expected,field,result.records[index],true)&&!ownedAnswer(expected,field,result.records[index]));
+      const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&!ownedAnswer(expected,field,result.records[index]));
       return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
@@ -331,6 +353,7 @@
     if(buttons.length!==1||!editable(buttons[0]))return fail('structure','未识别到唯一且可操作的提交申请按钮。');
     if(current.form.dataset.greenhouseSubmissionAttempt)return fail('unknown','此表单已进入提交阶段，只允许核对结果。');
     for(const {node,field} of current.records){
+      if(field.attachmentAlternative&&field.alreadyPopulated)return fail('manual','申请表已有简历或求职信文本。当前仅可核对已确认的单份简历附件。');
       if(field.type==='file'&&field.key!=='resume'&&node.files.length)return fail('manual','网页已有其他附件尚未纳入本次确认版本，未允许提交。');
       if(field.type==='file'&&!field.attachmentRequirementKnown)return fail('manual','附件分组标题及必填依据尚未核实，请本人检查后再继续。');
       if(!field.required)continue;
@@ -375,20 +398,45 @@
       const profileFields=new Set(['first_name','last_name','preferred_name','email','phone']);
       let priority=0;
       for(const question of schema){
-        const field=question.fields?.[0],key=field?.name;
-        const record=current.records.find(item=>item.field.key===key);
-        if(question.fields?.length!==1||!record||seen.has(key))
-          return fail('structure','原生岗位字段和已确认页面结构不一致。');
-        seen.add(key);
-        if(key==='resume'){
-          if(field.type!=='input_file'||record.field.type!=='file')return fail('structure','原生附件类型不符。');
+        const field=question.fields?.[0],key=field?.name,domKey=key==='candidate_location'?'candidate-location':key;
+        const record=current.records.find(item=>item.field.key===domKey);
+        if(!record||seen.has(domKey))return fail('structure','原生岗位字段和已确认页面结构不一致。');
+        seen.add(domKey);
+        if(key==='resume'||key==='cover_letter'){
+          if(field.type!=='input_file'||record.field.type!=='file'||key==='cover_letter'&&(question.required||record.node.files.length))
+            return fail('manual','当前只支持已确认的单份简历附件。');
+          if(question.fields.length===1)continue;
+          const alternate=question.fields[1];
+          const input=current.records.find(item=>item.field.key===alternate.name);
+          if(question.fields.length!==2||alternate.name!==key+'_text'||alternate.type!=='textarea'||
+            input&&(!input.field.attachmentAlternative||input.node.value))
+            return fail('manual','简历或求职信的替代输入组未通过核对。');
+          if(input)seen.add(alternate.name);
+          continue;
+        }
+        if(question.fields.length!==1)return fail('structure','原生岗位问题出现未支持的字段组。');
+        const observed=await questionForNative(expected,record);
+        if(!observed.ok)return observed;
+        if(key==='candidate_location'){
+          const location=field.type==='input_text'&&exactLocation(record);
+          if(!location)return fail('manual','地点选项尚无可核对的名称与坐标。');
+          Object.assign(application,location);
+          continue;
+        }
+        if(field.type==='multi_value_single_select'){
+          const id=/^question_(\d{1,30})$/.exec(key)?.[1];
+          const options=Array.isArray(field.values)?field.values:[];
+          const matching=options.filter(option=>option.label===observed.value);
+          if(!id||options.length!==2||!options.some(option=>option.value===0)||!options.some(option=>option.value===1)||
+            matching.length!==1||!record.field.optionsComplete||
+            record.node.tagName==='SELECT'&&record.node.value!==String(matching[0].value))
+            return fail('manual','原题的实际选项标识与已确认的答案不一致。');
+          answers[id]={question_id:id,priority:priority++,boolean_value:matching[0].value};
           continue;
         }
         if(!['input_text','textarea'].includes(field.type)||record.field.customControl||
           !['text','email','tel','textarea'].includes(record.node.type))
           return fail('manual','原生字段类型尚无独立确认来源。');
-        const observed=await questionForNative(expected,record);
-        if(!observed.ok)return observed;
         if(profileFields.has(key)){
           if(observed.value)application[key]=observed.value;
         }else{
@@ -416,14 +464,15 @@
       Object.assign(application,{resume_url_filename:file.file.name,mapped_url_token:url.searchParams.get('t')||url.searchParams.get('gh_src'),
         appcast_click_id:url.searchParams.get('ccuid'),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone});
       return {ok:true,schema,protocol,expected:{application,csrfToken:loader.csrfToken,requestToken:loader.jobApplicationRequestToken,
-        fingerprint:loader.fingerprint,verification:{kind:'none'}}};
+        fingerprint:job.fingerprint??loader.fingerprint,verification:{kind:'none'}}};
     }catch{return fail('manual','未能冻结已确认申请内容。');}
   };
   async function questionForNative(expected,record) {
     const observed=await question(expected,record);
     if(!profileFact(expected,observed,record)&&!ownedAnswer(expected,observed,record))
       return fail('manual','原生请求包含未经确认的字段。');
-    return {ok:true,value:record.node.value};
+    const selected=record.node.tagName==='SELECT'?[...record.node.options].filter(option=>option.value===record.node.value):[];
+    return {ok:true,value:selected.length===1?text(selected[0]):controlValue(record)};
   }
   api.validateSubmit=async(expected,layout,locked)=>{
     try{

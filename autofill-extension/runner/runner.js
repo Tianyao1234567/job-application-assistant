@@ -334,6 +334,7 @@ async function executeGreenhouse(command,expect,payload) {
     if(!tab||new URL(tab.url).pathname!==new URL(target).pathname)tab=await navigate(command,expect,target,'detail',tab);
     return read(tab,expect,'inspect');
   }
+  if(!expect.replay&&command.op!=='preflight')return fail('manual','真实站当前仅检查页面，未填写、上传或提交。');
   if(!tab)throw new Stop('structure','原 Greenhouse 表单已关闭，请重新检查原任务。');
   safeUrl(tab.url,expect,'apply');
   if(typeof payload.layout!=='string'||!payload.layout||payload.layout.length>250000)throw new Stop('structure','缺少 Greenhouse 原表单结构版本。');
@@ -382,11 +383,11 @@ async function executeGreenhouse(command,expect,payload) {
   }
   if(command.op==='preflight'){
     const inspected=await read(tab,expect,'inspect');if(!inspected.ok)return inspected;
+    if(!expect.replay)return {ok:true,tabId:tab.id,url:tab.url};
     // A conditional field can appear after the previous answer. Reinspect the
     // same task before crossing the submit boundary, so it is recorded and
     // answered rather than treated as a completed form.
     if(inspected.questions?.length)return fail('questions_changed','申请表出现尚未确认的问题，将重新检查当前任务。');
-    if(!expect.replay)return fail('manual','真实 Greenhouse 原生提交保持暂停。');
     if(inspected.submissionProtocol)return nativeGreenhouse(command,expect,tab,inspected,payload,ledgerKey);
     if(inspected.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
     if((!expect.replay||inspected.uploadedResumeConfirmed)&&!await uploadProofFor(command,tab,payload.file))return fail('manual','缺少绑定本任务、执行资料及源文件的精确上传对象证据，已暂停，未提交申请。');
@@ -397,7 +398,6 @@ async function executeGreenhouse(command,expect,payload) {
   if(command.op==='submit'){
     const checked=await read(tab,expect,'inspect');
     if(!checked.ok||checked.receipt)return checked;
-    if(!expect.replay)return fail('manual','真实 Greenhouse 原生提交保持暂停。');
     if(checked.submissionProtocol)return nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey);
     if(checked.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
     if(checked.layout!==payload.layout)return fail('structure','提交前 Greenhouse 表单已变化。');

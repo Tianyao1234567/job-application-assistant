@@ -22,6 +22,7 @@ export const SOURCE_PATHS=Object.freeze([
   'autofill-extension/options/index.html','autofill-extension/options/options.js',
   'autofill-extension/popup/index.html','autofill-extension/popup/popup.js',
   'autofill-extension/runner/index.html','autofill-extension/runner/runner.js','autofill-extension/runner/local-adapter.js','autofill-extension/runner/greenhouse-adapter.js',
+  'autofill-extension/runner/greenhouse-native-gate.js','autofill-extension/runner/greenhouse-native-request.js',
   'autofill-extension/shared/schema.js','autofill-extension/shared/profile-facts.js','autofill-extension/shared/migration.js','autofill-extension/shared/match.js','autofill-extension/shared/storage.js',
   'autofill-extension/shared/ui.js','autofill-extension/shared/style.css',
   'autofill-extension/workspace/index.html','autofill-extension/workspace/workspace.js'

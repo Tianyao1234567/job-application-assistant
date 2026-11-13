@@ -23,7 +23,8 @@ export function fullFields(){
     const control=field.values?'<select '+attributes+'><option value="">Choose</option>'+field.values.map(option=>
       '<option value="'+option.value+'">'+escape(option.label)+'</option>').join('')+'</select>':
       '<input '+attributes+' type="'+(name==='email'?'email':name==='phone'?'tel':'text')+'">';
-    return '<p><label for="'+name+'">'+title+'</label>'+control+'</p>';
+    const metadata=field.name==='candidate_location'?' data-job-location-values data-location="'+location.location+'" data-latitude="'+location.latitude+'" data-longitude="'+location.longitude+'" data-country-short-name="'+location.country_short_name+'"':'';
+    return '<p'+metadata+'><label for="'+name+'">'+title+'</label>'+control+'</p>';
   }).join('');
 }
 

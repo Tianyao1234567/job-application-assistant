@@ -416,7 +416,8 @@ function taskConfirmationForm(task) {
   const token=`confirm-${task.id}`;
   const form=el('form',{'aria-label':`确认投递：${task.title}`});
   const name=state.profile.data?.personal?.name;
-  form.append(banner('请亲自核对本次申请','确认后允许在本岗位填写、附加所选简历并提交一次。招聘网站可能即时收到申请；未知结果只核对，不会重发。','warning'),
+  const readOnly=task.mode==='real';
+  form.append(banner('请亲自核对本次申请',readOnly?'确认后将检查原申请页。真实投递暂停，当前不会填写、上传或提交。':'确认后允许在本岗位填写、附加所选简历并提交一次。招聘网站可能即时收到申请；未知结果只核对，不会重发。','warning'),
     meta('公司 / 岗位',`${captured.company||'公司待核实'} · ${task.title} · ${captured.jobId}`),meta('岗位页面',task.url),
     meta('申请人',`${name?.zh||name?.en||'姓名待确认'} · ${captured.expectedAccount||'申请邮箱待配置'}`),
     meta('本次资料',`资料 v${captured.profileVersion} · ${modeLabel(state.profile.mode)}`),link('查看并核对完整资料','#profile','button text'),
@@ -424,7 +425,7 @@ function taskConfirmationForm(task) {
     meta('附件 SHA-256',el('span',{class:'hash-text',text:captured.resumeSha256||'尚未记录'})),
     meta('执行配置',captured.profileId||'尚未连接'));
   const checks={};
-  for(const [id,label] of [['job','我确认这是要申请的公司、岗位与页面。'],['profile','我已核对上述版本的本人资料及申请邮箱。'],['file','我已核对上述文件名称、版本与摘要，它是本次附件。'],['submit','我授权向这个岗位填写、附加该简历并提交一次申请。']]){
+  for(const [id,label] of [['job','我确认这是要申请的公司、岗位与页面。'],['profile','我已核对上述版本的本人资料及申请邮箱。'],['file','我已核对上述文件名称、版本与摘要，它是本次附件。'],['submit',readOnly?'我确认本次申请意向，并同意检查原申请页。':'我授权向这个岗位填写、附加该简历并提交一次申请。']]){
     checks[id]=draftInput(`${token}:${signature}:${id}`,{type:'checkbox',required:true,'aria-label':label},false);
     form.append(checkLine(label,checks[id]));
   }

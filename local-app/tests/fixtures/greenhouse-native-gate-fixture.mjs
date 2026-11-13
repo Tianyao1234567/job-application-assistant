@@ -30,7 +30,7 @@ function applicationPage(id,full){
   const url=jobURL(id),submit=new URL(url).pathname,confirmation=submit+'/confirmation';
   const jobPost={public_url:url,questions:full?archivedSchema.questions:questions,...(full?{fingerprint}: {})};
   const loader={urlToken:fixtureTenant,jobPostId:id,submitPath:submit,confirmationPath:confirmation,jobPost,
-    csrfToken:csrf,jobApplicationRequestToken:requestToken,fingerprint};
+    csrfToken:csrf,jobApplicationRequestToken:requestToken,...(full?{}:{fingerprint})};
   const remix={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':loader}}};
   const script=[
     'import {buildApplication,nativeSubmit} from "/native-fixture-client.js";',

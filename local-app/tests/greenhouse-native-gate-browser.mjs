@@ -126,7 +126,7 @@ async function runFullForm(id){
   await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
   const added=await waitFor('job added from the dashboard',state,value=>!!task(value,id));
   const original=task(added,id);
-  await dashboard.getByRole('button',{name:'确认岗位、资料与提交',exact:true}).first().click();
+  await dashboard.getByRole('row').filter({hasText:original.title}).getByRole('button',{name:'查看详情',exact:true}).click();
   const approval=dashboard.getByRole('form',{name:/确认投递/});
   for(const box of await approval.getByRole('checkbox').all())await box.check();
   await approval.getByRole('button',{name:'确认本次申请并继续',exact:true}).click();
@@ -139,6 +139,7 @@ async function runFullForm(id){
     if(await start.count())await start.click();
     else await action('resume');
   }
+  evidence.flow.push({id,stage:'added-and-confirmed',taskId:original.id});
   const discovered=await waitFor('full form questions or specific hold',state,value=>
     ['waiting_answer','waiting_user','failed','unknown'].includes(task(value,id)?.status));
   const current=task(discovered,id);
