@@ -1,7 +1,8 @@
 // Real product MV3, loopback native XHR/fetch and real local task service.
 import assert from 'node:assert/strict';
-import {fork} from 'node:child_process';
-import {createHash,randomBytes} from 'node:crypto';
+import {execFileSync,fork} from 'node:child_process';
+import https from 'node:https';
+import {createHash,randomBytes,X509Certificate} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import fs from 'node:fs/promises';
 import {createRequire} from 'node:module';
@@ -60,7 +61,28 @@ const realPage='<!doctype html><title>Fictional inspection at Mattermost</title>
   '<button type="submit">Submit application</button></form>';
 let backendData='data';
 const realPageMethods=[];
+let inspectionServer,inspectionCertificate;
+async function startInspectionSite(){
+  const certFile=path.join(directory,'inspection-cert.pem'),keyFile=path.join(directory,'inspection-key.pem');
+  execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=job-boards.greenhouse.io',
+    '-addext','subjectAltName=DNS:job-boards.greenhouse.io','-keyout',keyFile,'-out',certFile],{stdio:'ignore'});
+  const [cert,key]=await Promise.all([fs.readFile(certFile),fs.readFile(keyFile)]);
+  const spki=new X509Certificate(cert).publicKey.export({type:'spki',format:'der'});
+  inspectionCertificate=createHash('sha256').update(spki).digest('base64');
+  inspectionServer=https.createServer({cert,key},(request,response)=>{
+    if(request.url!==new URL(realJobUrl).pathname){response.writeHead(404).end();return;}
+    realPageMethods.push(request.method);
+    if(request.method!=='GET'){response.writeHead(405).end();return;}
+    response.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store'}).end(realPage);
+  });
+  await new Promise((resolve,reject)=>{
+    inspectionServer.once('error',reject);
+    inspectionServer.listen(4443,'127.0.0.1',resolve);
+  });
+}
+
 async function runReadOnlyConfirmation(){
+  await startInspectionSite();
   backendData='data-inspection';
   app=await startBackend();
   const profileId=await connect();
@@ -91,7 +113,11 @@ async function runReadOnlyConfirmation(){
   await waitFor('only inspection consent stored',state,value=>task(value,realJobId)?.confirmation?.purpose==='inspect');
   await dashboard.keyboard.press('Escape');
   await action('resume');
-  const held=await waitFor('actual MV3 real-mode read-only pause',state,value=>task(value,realJobId)?.issue?.title==='真实投递暂未开放');
+  const held=await waitFor('actual MV3 real-mode read-only pause',state,value=>{
+    const current=task(value,realJobId);
+    if(current?.status==='failed')throw new Error(JSON.stringify({issue:current.issue?.detail,requests:realPageMethods,pages:context.pages().map(page=>page.url())}));
+    return current?.issue?.title==='真实投递暂未开放';
+  });
   const before=task(held,realJobId);
   assert.equal(before.id,item.id);
   assert.equal(before.confirmation.purpose,'inspect');
@@ -126,15 +152,18 @@ async function runReadOnlyConfirmation(){
   assert.ok(realPageMethods.length>=2);
   assert.ok(realPageMethods.every(method=>method==='GET'));
   evidence.inspection={purpose:'inspect',persisted:true,restarted:true,sameTask:true,pageRequests:realPageMethods,submissionBoundary:false,dailySlot:false};
-  console.log('PASS real-site inspection consent persists and actual MV3 only reads the intercepted page');
+  console.log('PASS real-site inspection consent persists and actual MV3 only reads the loopback TLS page');
   await context.close();context=null;
   await closeApp();
+  await new Promise(resolve=>inspectionServer.close(resolve));
+  inspectionServer=null;
   backendData='data';
 }
 
 async function connect(){
   const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension,
-    ...(purposes?['--host-resolver-rules=MAP job-boards.greenhouse.io ~NOTFOUND']:[])]});
+    ...(inspectionServer?['--host-resolver-rules=MAP job-boards.greenhouse.io 127.0.0.1:4443','--no-proxy-server',
+      '--ignore-certificate-errors-spki-list='+inspectionCertificate]:[])]});
   context=await chromium.launchPersistentContext(path.join(directory,'browser-profile'),options);
   const observedWorkers=[];
   context.on('serviceworker',value=>observedWorkers.push(value.url()));
@@ -153,12 +182,9 @@ async function connect(){
     if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!(purposes&&backendData==='data-inspection'&&url.href===realJobUrl))
       evidence.externalRequests.push(url.origin);
   });
-  await context.route('https://**/*',route=>{
-    if(!purposes||backendData!=='data-inspection'||route.request().url()!==realJobUrl)return route.abort('blockedbyclient');
-    const method=route.request().method();realPageMethods.push(method);
-    if(method!=='GET')return route.abort('blockedbyclient');
-    return route.fulfill({status:200,contentType:'text/html',body:realPage});
-  });
+  // Let the loopback TLS page use Chrome's actual navigation and permissions.
+  // Everything else on HTTPS is blocked from this isolated browser.
+  await context.route(url=>url.protocol==='https:'&&!(inspectionServer&&url.origin===realOrigin),route=>route.abort('blockedbyclient'));
   context.on('page',page=>page.on('pageerror',error=>workerErrors.push(redact(error.message))));
   dashboard=context.pages()[0]||await context.newPage();
   await dashboard.goto(BASE);
@@ -539,5 +565,6 @@ try{
   await context?.close();
   if(app)await closeApp();
   await fixture?.close();
+  if(inspectionServer)await new Promise(resolve=>inspectionServer.close(resolve));
   await removeTestDirectory(directory);
 }

@@ -35,6 +35,7 @@ async function installOld(source,index){
  const {Store}=await import(pathToFileURL(path.join(directory,'local-app/model.mjs')).href);const store=new Store({data:path.join(directory,'.runtime/data')});store.demo();store.pause();store.save();return directory;
 }
 try{
+ if(checkPurpose)run(process.execPath,['--test','local-app/tests/profile-update-package.test.mjs']);
  await fs.mkdir(parent,{recursive:true});const {report}=await buildUpdate({projectRoot:root}),updateFile=path.join(report.directory,'更新.cmd');evidence.update={...report,directory:undefined};
  assert.equal(report.source,process.env.GITHUB_SHA);
  const bytes=await fs.readFile(updateFile);assert.equal(bytes.length,report.bytes);assert.equal(hash(bytes),report.sha256);
