@@ -168,7 +168,7 @@ async function runReadOnlyConfirmation(){
 
 async function runPublicInspection(){
   const url=realOrigin+'/mattermost/jobs/5381946008',id='5381946008';
-  const audit={url,readAt:new Date().toISOString(),pageResponses:[],modules:[],requests:[],blockedWrites:[]};
+  const audit={url,readAt:new Date().toISOString(),pageResponses:[],modules:[],requests:[],blockedWrites:[],boardWrites:[]};
   publicNavigation=audit;
   evidence.publicInspection=audit;
   backendData='data-public';
@@ -191,13 +191,14 @@ async function runPublicInspection(){
     return ['waiting_answer','waiting_user','failed'].includes(item?.status)&&item.issue?.kind!=='confirmation';
   });
   const current=task(found,id);
+  await collectPublicRequests(audit);
   audit.status=current.status;
   audit.issue=current.issue?.detail;
   audit.questions=current.questions?.map(q=>({key:q.key,required:q.required,unresolved:q.unresolved,optionCount:q.options.length}));
   assert.equal(current.status,'waiting_answer',JSON.stringify(audit));
   assert.equal(current.id,added.id);
   assert.equal(current.confirmation.purpose,'inspect');
-  assert.ok(audit.pageResponses.some(response=>response.status===200&&response.url===url));
+  assert.ok(audit.pageResponses.some(response=>response.status===200&&response.url===url),JSON.stringify(audit));
   assert.ok(audit.modules.some(asset=>asset.includes('entry.client-')));
   const batch=current.answerBatch.questions;
   const authorization=batch.find(q=>q.key==='question_18195692008');
@@ -272,11 +273,14 @@ async function runPublicInspection(){
   await dashboard.getByRole('heading',{name:'答案已保存，真实投递暂未开放',exact:true}).waitFor();
   assert.equal(await dashboard.getByRole('form',{name:/集中补充答案/}).count(),0);
   await verifyEmpty();
+  await collectPublicRequests(audit);
   const records=await storage(['localSubmissionAttempts','greenhouseUploadProofs']);
   assert.ok(!Object.values(records.localSubmissionAttempts||{}).some(attempt=>attempt.taskId===added.id));
   assert.equal(records.greenhouseUploadProofs?.[added.id],undefined);
   assert.deepEqual(audit.blockedWrites.filter(write=>[realOrigin,'https://boards.greenhouse.io'].includes(write.origin)),[]);
-  assert.ok(audit.requests.length>=2&&audit.requests.every(method=>method==='GET'));
+  assert.deepEqual(audit.boardWrites,[]);
+  assert.ok(audit.requests.length>=2&&audit.requests.every(method=>method==='GET'),JSON.stringify(audit));
+  assert.equal(audit.pageResponses.filter(response=>response.status===200&&response.url===url).length,2);
   Object.assign(audit,{sameTask:true,independentRestart:true,saved:answers.size,
     explicitBlanks:[...answers.values()].filter(answer=>answer.leaveBlank).length,
     exampleChoice:{key:authorization.key,labels:authorization.options.map(option=>option.text),required:true,version:authorization.version},
@@ -289,6 +293,15 @@ async function runPublicInspection(){
   backendData='data';
 }
 
+async function collectPublicRequests(audit){
+  const observed=await worker.evaluate(()=>{
+    const {methods,responses,writes}=globalThis.publicInspectionNetwork;
+    return {methods:methods.splice(0),responses:responses.splice(0),writes:writes.splice(0)};
+  });
+  audit.requests.push(...observed.methods);
+  audit.pageResponses.push(...observed.responses);
+  audit.boardWrites.push(...observed.writes);
+}
 async function connect(){
   const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension,
     ...(inspectionServer?['--host-resolver-rules=MAP job-boards.greenhouse.io 127.0.0.1:4443','--no-proxy-server',
@@ -315,17 +328,31 @@ async function connect(){
   // Everything else on HTTPS is blocked from this isolated browser.
   if(publicNavigation){
     const audit=publicNavigation;
+    // BrowserContext route/response events can miss the first navigation of a
+    // tab opened by the extension. Observe it at the network source as well.
+    await worker.evaluate(target=>{
+      const network=globalThis.publicInspectionNetwork={methods:[],responses:[],writes:[]};
+      const filter={urls:['https://job-boards.greenhouse.io/*','https://boards.greenhouse.io/*']};
+      chrome.webRequest.onBeforeRequest.addListener(details=>{
+        const url=new URL(details.url);
+        if(details.method!=='GET')network.writes.push({method:details.method,origin:url.origin});
+        if(details.type==='main_frame'&&url.origin+url.pathname===target)network.methods.push(details.method);
+      },filter);
+      chrome.webRequest.onCompleted.addListener(details=>{
+        const url=new URL(details.url);
+        if(details.type==='main_frame'&&url.origin+url.pathname===target)
+          network.responses.push({url:target,status:details.statusCode});
+      },filter);
+    },audit.url);
     const allowedOrigins=new Set([realOrigin,'https://boards.greenhouse.io','https://job-boards.cdn.greenhouse.io',
       'https://s8-recruiting.cdn.greenhouse.io','https://fonts.googleapis.com','https://fonts.gstatic.com']);
     await context.route(url=>['http:','https:'].includes(url.protocol)&&url.origin!==BASE,route=>{
       const request=route.request(),url=new URL(request.url()),method=request.method();
-      if(url.href===audit.url)audit.requests.push(method);
       if(method!=='GET'){audit.blockedWrites.push({method,origin:url.origin});return route.abort('blockedbyclient');}
       return allowedOrigins.has(url.origin)?route.continue():route.abort('blockedbyclient');
     });
     context.on('response',response=>{
       const url=new URL(response.url());
-      if(response.request().resourceType()==='document'&&url.origin===realOrigin)audit.pageResponses.push({url:url.origin+url.pathname,status:response.status()});
       if(url.origin==='https://job-boards.cdn.greenhouse.io'&&url.pathname.endsWith('.js')&&response.ok()&&!audit.modules.includes(url.pathname))audit.modules.push(url.pathname);
     });
   }else await context.route(url=>url.protocol==='https:'&&!(inspectionServer&&url.origin===realOrigin),route=>route.abort('blockedbyclient'));
