@@ -210,7 +210,7 @@ async function runPublicInspection(){
   assert.ok(current.inspectionAttachments.some(q=>q.key==='resume'&&q.required&&q.manualTextAlternative));
   assert.ok(current.inspectionAttachments.some(q=>q.key==='cover_letter'&&!q.required&&q.manualTextAlternative));
 
-  await dashboard.goto(BASE+'/#issues');
+  await dashboard.getByRole('dialog').getByRole('button',{name:'去补充答案',exact:true}).click();
   const form=dashboard.getByRole('form',{name:'集中补充答案：'+current.title});
   await form.waitFor();
   assert.ok(await form.getByText('原题版本 '+authorization.version,{exact:true}).isVisible());
@@ -249,6 +249,7 @@ async function runPublicInspection(){
     assert.equal(await page.locator('form .select__single-value').count(),0);
   };
   await verifyEmpty();
+  await context.pages().find(page=>page.url()===url).close();
   const pid=app.ready.pid;
   await context.close();context=null;
   await closeApp();
@@ -256,7 +257,6 @@ async function runPublicInspection(){
   assert.notEqual(app.ready.pid,pid);
   assert.equal(await connect(),profileId);
   assert.deepEqual((await persisted()).answers,saved.answers);
-  await context.pages().find(page=>page.url()===url)?.close();
   await action('resume');
   const after=await waitFor('same public job after independent restart',state,value=>
     task(value,id)?.issue?.title==='答案已保存，真实投递暂未开放');
