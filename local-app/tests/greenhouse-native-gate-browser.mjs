@@ -71,7 +71,7 @@ async function runReadOnlyConfirmation(){
   }
   profile.personal.email.zh=profile.personal.email.en=realAccount;
   await api('/profile',{data:profile,mode:'real',confirmed:true,baseVersion:(await state()).profile.version});
-  await api('/resume',{name:resume.name,mime:'text/plain',base64:resume.bytes.toString('base64'),mode:'real'});
+  await api('/resume',{name:'synthetic-inspection.txt',mime:'text/plain',base64:resume.bytes.toString('base64'),mode:'real'});
   await api('/settings',{settings:{mode:'real',scheduleEnabled:false,time:'09:00',dailyLimit:3,keywords:['Fictional'],cities:['Fictional'],visual:true},
     sites:[{id:'real-inspection',name:'Fictional inspection',company:'Mattermost',adapter:'greenhouse-v1',origin:realOrigin,
       tenant:'mattermost',expectedAccount:realAccount,mode:'real',enabled:true}]});
