@@ -1,8 +1,16 @@
 # Engineer交接（简版）
 
-更新：2026-11-12（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
+更新：2026-11-13（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 006 补充验证与生产重复受理边界
+## 008 投递流程修复及候选交付
+
+已读取 Manager `299d56d06590eac6efedf8d299320419b375c9f1` 的交接和 008。原任务 `5c8b638`。候选及验证源码 `4c990e86ab0c7112c81231799109fca6d79adf2d`。真实界面完成加岗位、本人确认、显示 11 个原题缺项和选项、批量保存与明确留空、同任务继续、附件核对及回执。已修复归档完整表单映射、暂停时预检跨提交边界和升级包缺模块。真实站目前只读检查。 [阶段报告](docs/GREENHOUSE_FLOW_CANDIDATE_008.md)
+
+最终托管真实 MV3 正常到达/接受/确认为 1/1/1，错附件为零到达，接受后丢响应在独立后台和隔离浏览器重启并重新配对后为 2→2，仍为 `unknown`。虚构服务去重保留一次接受，真实站重放语义未验证。托管 Windows candidate.8 和 candidate.10 各成功升级到同一 candidate.11，原资料、附件、任务、身份和账本保留。 [真实 MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43377153988/job/131726208682) · [Windows 升级](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43377154002/job/131726208563)
+
+`update.cmd` 为 325423 字节，SHA-256 `e2943bc0904a2427e19767a997eb2860f9232259cde0c6593772217d67bdf8aa`，从 Windows 托管产物取原样字节，放在需仓库权限的 GitHub 草稿。下一责任人为 Manager 审查，真实投递继续暂停，PR #5 仍是 draft。 [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-c50219f1712ef8ccff89)
+
+## 006 补充验证与生产重复受理边界（历史）
 
 已 fetch 并读取经理 `2d4c061f2b4af7de523846fb00962b5f6e775990` 的交接与006，原任务 `5c8b638`、范围004及本机约定005沿用。接续起点 `3a7805c`，定点验证源码 `d2e1be04d287094cb17309cbfad9c52852411e15`。本轮只改测试和文档。已更正下方历史记录，`43184820613` 的后台证据为同一 Node 进程内重建实例。
 
