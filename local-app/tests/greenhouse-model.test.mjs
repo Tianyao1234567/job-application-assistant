@@ -28,7 +28,7 @@ function setup(t,{production=false}={}){
   store.setSettings({settings:{...store.state.settings,mode:site.mode,keywords:['Synthetic'],cities:['Synthetic city']},sites:[site]});store.heartbeat(client);
   const task=store.manual(board+'/jobs/'+jobId).task;
   const take=()=>store.poll(client).command,send=(command,result)=>store.result({clientId:client.clientId,commandId:command.id,result});
-  const confirm=(extra={})=>store.action({action:'task-confirm',taskId:task.id,jobId,profileVersion:store.state.profile.version,resumeVersion:store.state.resume.version,profileId:client.profileId,submitConfirmed:true,...extra});
+  const confirm=(extra={})=>store.action({action:'task-confirm',taskId:task.id,jobId,profileVersion:store.state.profile.version,resumeVersion:store.state.resume.version,profileId:client.profileId,purpose:production?'inspect':'submit',...extra});
   const login={status:'ready',account:site.expectedAccount,tenant:site.tenant,identitySource:'confirmed-anonymous-applicant'};
   return {store,task,site,paths,clock:()=>now,advance:ms=>now+=ms,take,send,confirm,login,board};
 }
@@ -154,14 +154,53 @@ test('only exact synthetic replay receipt can mark replay submitted; unknown out
   assert.equal(env.task.status,'submitted');assert.match(env.task.result.evidence,/合成回执/);assert.match(env.task.result.evidence,/不是生产/);
 });
 test('paused production only inspects and preflights, including a previously queued submit phase',t=>{
-  const env=setup(t,{production:true});begin(env);
+  const env=setup(t,{production:true});
+  for(const patch of [{purpose:'submit'},{purpose:undefined,submitConfirmed:true},{purpose:'inspect',submitConfirmed:true}])
+    assert.throws(()=>env.confirm(patch),/仅允许确认检查页面/);
+  begin(env);
+  assert.equal(env.task.confirmation.purpose,'inspect');
+  assert.equal(Object.hasOwn(env.task.confirmation,'submitConfirmed'),false);
   env.task.phase='submit';
   const inspect=env.take();assert.equal(inspect.op,'inspect');
+  const authorize={clientId:client.clientId,commandId:inspect.id};
+  assert.equal(env.store.authorize(authorize).allowed,true);
+  const lease=env.store.command;
+  for(const op of ['fill','upload','answer','submit']){
+    env.store.command={...lease,op};
+    assert.equal(env.store.authorize(authorize).allowed,false);
+    assert.equal(env.store.authorize({...authorize,captureOnly:true}).allowed,false);
+  }
+  env.store.command=lease;
   env.send(inspect,{ok:true,layout:'observed-layout',questions:[],login:env.login});
   const check=env.take();assert.equal(check.op,'preflight');
   env.send(check,{ok:true});assert.equal(env.task.status,'waiting_user');assert.equal(env.task.phase,'preflight');
   assert.equal(env.task.submissionStarted,undefined);assert.equal(env.task.submitAuthorizedAt,undefined);
   assert.equal(env.store.dailyUsed(),0);assert.equal(env.take(),null);
   const restored=new Store(env.paths,{now:env.clock});assert.equal(restored.task(env.task.id).status,'waiting_user');
+  restored.heartbeat(client);
+  assert.equal(restored.confirmedTask(restored.task(env.task.id),'inspect'),true);
+  assert.equal(restored.confirmedTask(restored.task(env.task.id),'submit'),false);
   assert.equal(restored.canResumeTask(restored.task(env.task.id)),true);
+});
+
+test('legacy real confirmation does not grant either new permission and preserves historical unknown',t=>{
+  const env=setup(t,{production:true});begin(env);
+  const original=env.task.confirmation;
+  const {purpose,...scope}=original;
+  env.task.confirmation={...scope,submitConfirmed:true};
+  env.task.answers={historical:{value:'Fictional persisted answer'}};
+  const unknown={...structuredClone(env.task),id:'old-unknown',status:'unknown',phase:'verify',submissionStarted:true};
+  env.store.state.tasks.push(unknown);env.store.save();
+  const restored=new Store(env.paths,{now:env.clock});restored.heartbeat(client);
+  for(const item of [restored.task(env.task.id),restored.task(unknown.id)]){
+    assert.deepEqual(item.confirmation,{...scope,purpose:'unverified'});
+    assert.deepEqual(item.answers,env.task.answers);
+    assert.deepEqual(item.resumeSnapshot,env.task.resumeSnapshot);
+    assert.equal(restored.confirmedTask(item,'inspect'),false);
+    assert.equal(restored.confirmedTask(item,'submit'),false);
+  }
+  assert.equal(restored.snapshot().tasks[0].needsConfirmation,true);
+  assert.equal(restored.poll(client).command,null);
+  assert.equal(restored.canVerifyTask(restored.task(unknown.id)),true);
+  assert.throws(()=>restored.action({action:'task-resume',taskId:unknown.id}),/只能核对/);
 });

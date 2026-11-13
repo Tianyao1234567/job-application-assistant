@@ -70,6 +70,13 @@ export class Store {
     if(typeof this.state.manualPaused!=='boolean')this.state.manualPaused=this.state.paused!==false;
     if(this.state.manualPaused){this.state.paused=true;this.state.running=false;}
     for(const t of this.state.tasks){
+      if(t.confirmation&&this.state.sites.some(site=>site.id===t.siteId&&site.adapter==='greenhouse-v1')){
+        const confirmation=t.confirmation;
+        // Legacy real-site consent predates a trustworthy purpose. Keep its
+        // scope and history but remove the old assertion of submission consent.
+        if(confirmation.purpose!=='inspect')confirmation.purpose='unverified';
+        delete confirmation.submitConfirmed;
+      }
       if(this.hasSubmissionBoundary(t))t.submissionStarted=true;
       if(t.status==='submitting'||t.submissionStarted&&['queued','running','paused','waiting_user','failed'].includes(t.status)){t.status='unknown';t.phase='verify';this.step(t,'重启恢复','提交阶段已持久保存；只允许核对接收记录');this.issue(t,'unknown','提交结果待核实','重启时提交结果不明，系统不会再次提交');}
       else if(t.status==='running'){t.status='queued';t.phase='inspect';this.step(t,'重启恢复','恢复原任务，先重新检查网页和已有接收记录');}
@@ -93,15 +100,26 @@ export class Store {
   canResumeTask(t){return resumable.has(t.status)&&!this.hasSubmissionBoundary(t);}
   canVerifyTask(t){return t.status!=='submitting'&&this.hasSubmissionBoundary(t);}
   invalidateTask(t){t.revision=(t.revision||0)+1;if(!terminal.has(t.status)&&t.status!=='submitting')t.phase='inspect';}
-  confirmedTask(t){
+  confirmationPurpose(t,site){
+    const c=t.confirmation;
+    if(!c)return null;
+    if(greenhouseReplay(site))return c.purpose==='submit'||(c.purpose===undefined&&c.submitConfirmed===true)?'submit':null;
+    return site.adapter==='greenhouse-v1'&&c.purpose==='inspect'?'inspect':null;
+  }
+  confirmedTask(t,purpose){
     const site=this.site(t.siteId),c=t.confirmation,email=t.profileSnapshot?.data?.personal?.email;
     const applicantMatches=email?.confirmed===true&&[email.zh,email.en].some(value=>typeof value==='string'&&value.trim().toLowerCase()===site.expectedAccount);
-    return isGreenhouse(site)&&applicantMatches&&!!c&&c.submitConfirmed===true&&c.jobId===t.jobId&&c.url===t.url&&c.company===site.company&&c.expectedAccount===site.expectedAccount&&c.profileVersion===this.state.profile.version&&c.resumeVersion===this.state.resume?.version&&c.resumeSha256===this.state.resume?.sha256&&c.profileId===t.executionProfileId&&c.profileId===this.connection?.profileId&&t.profileVersion===c.profileVersion&&t.resumeVersion===c.resumeVersion&&t.profileSnapshot?.mode===site.mode&&t.resumeSnapshot?.mode===site.mode;
+    const confirmedPurpose=this.confirmationPurpose(t,site);
+    return isGreenhouse(site)&&applicantMatches&&!!confirmedPurpose&&(!purpose||confirmedPurpose===purpose)&&c.jobId===t.jobId&&c.url===t.url&&c.company===site.company&&c.expectedAccount===site.expectedAccount&&c.profileVersion===this.state.profile.version&&c.resumeVersion===this.state.resume?.version&&c.resumeSha256===this.state.resume?.sha256&&c.profileId===t.executionProfileId&&c.profileId===this.connection?.profileId&&t.profileVersion===c.profileVersion&&t.resumeVersion===c.resumeVersion&&t.profileSnapshot?.mode===site.mode&&t.resumeSnapshot?.mode===site.mode;
   }
   confirmTask(t,body){
     const site=this.site(t.siteId);
     if(!isGreenhouse(site)||this.hasSubmissionBoundary(t))throw new Error('该任务不能重新确认投递；已进入提交阶段时只能核对结果');
-    if(body.submitConfirmed!==true||body.jobId!==t.jobId||body.profileVersion!==this.state.profile.version||body.resumeVersion!==this.state.resume?.version||body.profileId!==this.connection?.profileId||!body.profileId||!this.lastSeen||this.clock()-this.lastSeen>=6000)throw new Error('请在执行浏览器已连接时，明确确认当前岗位、资料版本、附件版本及提交动作');
+    const replay=greenhouseReplay(site),purpose=replay?'submit':'inspect';
+    const legacyReplay=replay&&body.purpose===undefined&&body.submitConfirmed===true;
+    if(!legacyReplay&&(body.purpose!==purpose||Object.hasOwn(body,'submitConfirmed')))
+      throw new Error(replay?'请明确确认提交一次虚构申请':'真实站当前仅允许确认检查页面');
+    if(body.jobId!==t.jobId||body.profileVersion!==this.state.profile.version||body.resumeVersion!==this.state.resume?.version||body.profileId!==this.connection?.profileId||!body.profileId||!this.lastSeen||this.clock()-this.lastSeen>=6000)throw new Error('请在执行浏览器已连接时，明确确认当前岗位、资料版本、附件版本及操作用途');
     if(t.executionProfileId&&t.executionProfileId!==body.profileId)throw new Error('必须返回原执行浏览器配置恢复同一任务，不能切换执行 profile');
     const profile=this.state.profile,email=profile.data.personal.email;
     if(!profile.version||!this.state.resume||profile.mode!==site.mode||this.state.resume.mode!==site.mode||!email?.confirmed||![email.zh,email.en].some(value=>typeof value==='string'&&value.trim().toLowerCase()===site.expectedAccount))throw new Error('申请邮箱、资料和附件必须经本人确认，且与网站账号及运行模式一致');
@@ -110,12 +128,13 @@ export class Store {
     const versionsChanged=t.profileVersion!==profile.version||t.resumeVersion!==this.state.resume.version;
     t.executionProfileId=body.profileId;t.profileSnapshot=clone(profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=profile.version;t.resumeVersion=this.state.resume.version;
     if(versionsChanged){delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).map(([scope,answer])=>{const key=stableProfileKey(answer);if(!key||answer.leaveBlank===true)return [scope,answer];const before=previousProfile?profileValue(previousProfile,key):null,after=profileValue(profile.data,key);if(JSON.stringify(before||null)!==JSON.stringify(after||null)){const updated={...answer};if(after?.confirmed===true&&[after.zh,after.en].includes(answer.value))delete updated.stale;else updated.stale=true;return [scope,updated];}return [scope,answer];}));t.questions=[];}delete t.answerSupplement;
-    t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,submitConfirmed:true,confirmedAt:this.now()};
-    t.status='queued';t.phase='inspect';this.step(t,'本人已确认此次申请',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；填写前仍重新核对原值、结构和岗位。`);
+    t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,purpose,confirmedAt:this.now()};
+    t.status='queued';t.phase='inspect';this.step(t,replay?'本人已确认提交一次虚构申请':'本人已确认检查原申请页',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；${replay?'填写前仍重新核对原值、结构和岗位。':'真实站当前仅检查页面。'}`);
   }
   holdConfirmation(t){
     t.status='waiting_user';t.phase='inspect';
-    this.issue(t,'confirmation','申请确认或版本已变化','请返回原执行浏览器，重新核对当前岗位、资料、附件及提交动作。未继续填写、上传或提交。');
+    const purpose=greenhouseReplay(this.site(t.siteId))?'提交一次虚构申请':'检查原申请页';
+    this.issue(t,'confirmation','申请确认或版本已变化',`请返回原执行浏览器，重新核对当前岗位、资料、附件并确认${purpose}。`);
   }
   invalidateGreenhouseVersions(){
     for(const t of this.state.tasks)if(isGreenhouse(this.site(t.siteId))&&t.confirmation&&!this.hasSubmissionBoundary(t)&&(t.profileVersion!==this.state.profile.version||t.resumeVersion!==this.state.resume?.version)){this.invalidateTask(t);this.holdConfirmation(t);}
@@ -544,7 +563,7 @@ export class Store {
     c.clientId=client.clientId;c.profileId=client.profileId;c.extensionId=client.extensionId;c.claimedAt=this.clock();if(c.taskId)c.revision=this.task(c.taskId).revision||0;this.command=c;this.save();
     const site=clone(this.site(c.siteId)),task=c.taskId?this.task(c.taskId):null;
     delete site.login;
-    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.submitConfirmed===true:this.confirmedTask(task),confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true&&answer.stale!==true).map(answer=>clone(answer)),confirmedProfileEntries:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>['personal.email','personal.phone','personal.location'].includes(e.key)&&e.confirmed&&e.value.trim()).map(e=>({key:e.key,value:e.key==='personal.email'?site.expectedAccount:e.value,confirmed:true})),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
+    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.profileId===client.profileId:this.confirmedTask(task),confirmationPurpose:this.confirmationPurpose(task,site),confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true&&answer.stale!==true).map(answer=>clone(answer)),confirmedProfileEntries:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>['personal.email','personal.phone','personal.location'].includes(e.key)&&e.confirmed&&e.value.trim()).map(e=>({key:e.key,value:e.key==='personal.email'?site.expectedAccount:e.value,confirmed:true})),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
   }
   authorize({clientId,commandId,captureOnly=false}){
     this.expireCommand();
@@ -557,7 +576,9 @@ export class Store {
     if(!c.taskId){const site=this.site(c.siteId);return {allowed:c.op==='open'||c.op==='check'||(!this.state.paused&&site.enabled&&!site.skipped&&site.mode===this.state.settings.mode)};}
     const t=this.task(c.taskId),site=this.site(t.siteId);
     const local=t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo';
-    const greenhouse=isGreenhouse(site)&&this.confirmedTask(t)&&t.mode===site.mode;
+    const readOnly=c.op==='inspect'||c.op==='preflight';
+    const purpose=greenhouseReplay(site)?'submit':'inspect';
+    const greenhouse=isGreenhouse(site)&&(readOnly||purpose==='submit')&&this.confirmedTask(t,purpose)&&t.mode===site.mode;
     const allowed=(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&(local||greenhouse);
     if(captureOnly===true)return {allowed:allowed&&c.op==='submit'&&greenhouseReplay(site)};
     if(allowed&&c.op==='submit'){t.submitAuthorizedAt=this.now();this.save();}

@@ -11,7 +11,9 @@ import {createHash} from 'node:crypto';
 import {buildUpdate,baselineManifest,UPDATE_BASELINES} from './package-update.mjs';
 if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true')throw new Error('HOSTED_WINDOWS_REQUIRED');
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url))),parent=path.join(root,'.runtime/windows-update'),cache=path.join(parent,'cache'),BASE='http://127.0.0.1:17321';
-const candidateFlow=gitSubject().includes('[native-full-flow]');
+const subject=gitSubject();
+const candidateFlow=subject.includes('[native-full-flow]');
+const checkPurpose=subject.includes('[confirmation-purpose]');
 function gitSubject(){const result=spawnSync('git',['log','-1','--format=%s'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);return result.stdout;}
 const evidence={source:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,scope:'Single CMD, candidate8/10, fictional stopped old installation moved to a short path; actual Windows Chromium and extension. No employer requests or personal data.',scenarios:[],status:'RUNNING'};
 let phase='build',activeRoot,managed;
@@ -66,7 +68,25 @@ try{
   }
   const task={id:'fictional-task',jobId:'cpp-002',siteId:state.sites[0].id,title:'Fictional relocation task',url:'http://127.0.0.1:17322/site/alpha/jobs/cpp-002',company:'Fictional company',location:'Fictional city',mode:'demo',status:'unknown',phase:'verify',steps:[],executionProfileId:originalBridge.profileId,submissionStarted:true,resumeSnapshot:structuredClone(state.resume),profileSnapshot:structuredClone(state.profile),profileVersion:state.profile.version,resumeVersion:state.resume.version};
   const pending={id:'fictional-pending',jobId:'cpp-001',siteId:state.sites[0].id,title:'Fictional pending task',url:'http://127.0.0.1:17322/site/alpha/jobs/cpp-001',company:'Fictional company',location:'Fictional city',mode:'demo',status:'waiting_answer',phase:'answer',steps:[],executionProfileId:originalBridge.profileId,profileSnapshot:structuredClone(state.profile),resumeSnapshot:structuredClone(state.resume),profileVersion:state.profile.version,resumeVersion:state.resume.version,question:{key:'motivation',text:'为什么希望申请这个岗位？',scope:`local-v1:${state.sites[0].tenant}:cpp-001:motivation:v1`}};
-  state.tasks=[task,pending];state.answers=[{scope:'fictional-memory',value:'Preserve the answer'}];await fs.writeFile(stateFile,JSON.stringify(state,null,2));
+  state.tasks=[task,pending];state.answers=[{scope:'fictional-memory',value:'Preserve the answer'}];
+  let legacyReal,legacyUnknown;
+  if(checkPurpose){
+   const origin='https://job-boards.greenhouse.io',url=origin+'/mattermost/jobs/900000002';
+   const site={id:'fictional-old-real-site',adapter:'greenhouse-v1',mode:'real',origin,tenant:'mattermost',
+     company:'Mattermost',name:'Fictional upgrade record',expectedAccount:'fictional-old@example.test',enabled:true,skipped:false,
+     listUrl:origin+'/mattermost',loginUrl:origin+'/mattermost'};
+   state.sites.push(site);
+   legacyReal={...structuredClone(task),id:'fictional-old-real-consent',jobId:'900000002',siteId:site.id,url,
+     company:site.company,mode:'real',status:'queued',phase:'inspect',submissionStarted:false,
+     answers:{fictional:{value:'Preserve original fictional answer',confirmed:true}},
+     confirmation:{jobId:'900000002',url,company:site.company,expectedAccount:site.expectedAccount,
+       profileId:originalBridge.profileId,profileVersion:state.profile.version,resumeVersion:state.resume.version,
+       resumeSha256:state.resume.sha256,confirmedAt:new Date().toISOString(),submitConfirmed:true}};
+   legacyReal.profileSnapshot.mode='real';legacyReal.resumeSnapshot.mode='real';
+   legacyUnknown={...structuredClone(legacyReal),id:'fictional-old-real-unknown',status:'unknown',phase:'verify',submissionStarted:true};
+   state.tasks.push(legacyReal,legacyUnknown);
+  }
+  await fs.writeFile(stateFile,JSON.stringify(state,null,2));
   const before=structuredClone(state),originalPDF=await fs.readFile(state.resume.file),browserDirectory=(await fs.readdir(path.join(directory,'.runtime/browsers'))).find(name=>/^chromium-[0-9]+$/.test(name)),browserRelative=path.join('.runtime/browsers',browserDirectory,'chrome-win64/chrome.exe'),browserHash=hash(await fs.readFile(path.join(directory,browserRelative)));
   phase='move-and-update';const shorter=path.join(parent,'short-'+index);await fs.rename(directory,shorter);directory=shorter;activeRoot=directory;await fs.copyFile(updateFile,path.join(directory,'更新.cmd'));
   if(!candidateFlow){
@@ -104,11 +124,29 @@ try{
     const request=await import(chrome.runtime.getURL('runner/greenhouse-native-request.js'));
     return typeof gate.installNativeGate==='function'&&typeof request.createNativeCapture==='function';
    }),true);
+   if(checkPurpose){
+    phase='legacy-real-consent-after-update';
+    const saved=JSON.parse(await fs.readFile(path.join(directory,'.runtime/data/state.json'),'utf8'));
+    for(const old of [legacyReal,legacyUnknown]){
+     const migrated=saved.tasks.find(t=>t.id===old.id),exposed=current.tasks.find(t=>t.id===old.id);
+     const {submitConfirmed,...scope}=old.confirmation;
+     assert.deepEqual(migrated.confirmation,{...scope,purpose:'unverified'});
+     assert.deepEqual(migrated.answers,old.answers);
+     assert.equal(migrated.executionProfileId,originalBridge.profileId);
+     assert.equal(migrated.resumeSnapshot.sha256,old.resumeSnapshot.sha256);
+     assert.deepEqual(await fs.readFile(migrated.resumeSnapshot.file),originalPDF);
+     assert.equal(exposed.submissionStarted,old.submissionStarted);
+     assert.equal(exposed.canVerify,old.status==='unknown');
+     assert.equal(exposed.needsConfirmation,old.status!=='unknown');
+    }
+    assert.match((await api(directory,'/action',{action:'task-resume',taskId:legacyUnknown.id},400)).error,/只能核对|不可重新/);
+   }
    service(directory,'stop');managed=undefined;activeRoot=undefined;
    assert.equal(hash(await fs.readFile(path.join(directory,browserRelative))),browserHash);
    evidence.scenarios.push({baseline:baselineVersion,baselineSource:source,passed:true,installedNativeImports:true,
     profileEditsIdsMappingsAnswersAndTasksPreserved:true,attachmentBytesAndHashMatch:true,unknownCannotResume:true,
-    originalProfileIdAndLedgersPreserved:true,extensionIdPreserved:true,freshActualHeartbeat:true,existingBrowserBinaryUnchanged:true});
+    originalProfileIdAndLedgersPreserved:true,extensionIdPreserved:true,freshActualHeartbeat:true,existingBrowserBinaryUnchanged:true,
+    ...(checkPurpose?{legacyRealConsentUnverified:true,legacyRealUnknownPreserved:true}:{})});
    continue;
   }
   phase='repair-existing-and-answer';

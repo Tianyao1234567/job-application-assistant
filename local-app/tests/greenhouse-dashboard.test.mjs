@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const source=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 const startup='setInterval(() => refresh(), 1000);\nawait refresh(true);';
 assert.ok(source.includes(startup));
-const executable=source.replace(/^import .*from '\/schema\.js';\n/,'').replace(startup,`globalThis.dashboard={
+const executable=source.replace(/^import .*from '\/(?:schema|profile-file-import)\.js';\n/gm,'').replace(startup,`globalThis.dashboard={
   taskConfirmationForm,answerForm,answerMemoryCard,renderSettingsSite,questionInput,taskActions,siteControls,
   setState(value){state=value;},setSettings(value){settingsDraft=value;},
   quiet(){refresh=async()=>{};render=()=>{};}
@@ -34,7 +34,7 @@ function harness(snapshot){
   const get=selector=>{if(!ids.has(selector))ids.set(selector,new Element());return ids.get(selector);};
   get('meta[name="local-key"]').content='fictional-key';
   const document={querySelector:get,querySelectorAll:()=>[],createElement:tag=>new Element(tag),createTextNode:text=>{const node=new Element('#text');node.textContent=text;return node;}};
-  const context=vm.createContext({document,Node:Element,window:{addEventListener(){},postMessage(){}},location:{origin:'http://127.0.0.1:17321',hash:'',search:''},URLSearchParams,AbortController,structuredClone,Intl,Date,console,
+  const context=vm.createContext({document,Node:Element,definitions:[],createProfileFileImport:()=>({}),window:{addEventListener(){},postMessage(){}},location:{origin:'http://127.0.0.1:17321',hash:'',search:''},URLSearchParams,AbortController,structuredClone,Intl,Date,console,
     fetch:async(path,options)=>{calls.push({path,body:options.body?JSON.parse(options.body):undefined});return {ok:true,status:200,json:async()=>({ok:true})};},setTimeout:()=>1,clearTimeout(){},setInterval(){throw new Error('Polling must not start in focused UI tests');}});
   vm.runInContext(executable,context,{filename:'dashboard-app.js'});
   context.dashboard.setState(snapshot);context.dashboard.quiet();
@@ -46,7 +46,7 @@ const inputs=root=>walk(root).filter(node=>node.tagName==='INPUT');
 const submit=form=>form.events.submit({preventDefault(){}});
 const question=()=>({key:'question_1',text:'Why are you interested in this role at Fictional Company?',scope:'greenhouse:fictional:123:question_1:version-a',version:'version-a',source:'http://127.0.0.1:17322/greenhouse/fictional/jobs/123',type:'textarea',options:[],optionsComplete:true,purpose:'company-motivation'});
 function state(){
-  const task={id:'fictional-task',siteId:'fictional-site',title:'Fictional Engineer',company:'Fictional Company',jobId:'123',url:'https://job-boards.greenhouse.io/fictional/jobs/123',status:'waiting_user',needsConfirmation:true,question:question()};
+  const task={id:'fictional-task',siteId:'fictional-site',title:'Fictional Engineer',company:'Fictional Company',jobId:'123',url:'https://job-boards.greenhouse.io/fictional/jobs/123',status:'waiting_user',mode:'demo',needsConfirmation:true,question:question()};
   return {tasks:[task],sites:[{id:task.siteId,adapter:'greenhouse-v1',company:'Fictional Company',expectedAccount:'fictional@example.invalid'}],connection:{connected:true,profileId:'fictional-execution-profile'},profile:{version:3,mode:'real',data:{personal:{name:{zh:'Fictional Applicant',confirmed:true}}}},resume:{version:4,name:'fictional.txt',size:41,sha256:'a'.repeat(64)},answers:[]};
 }
 
@@ -57,8 +57,18 @@ test('rendering a task never confirms it; four deliberate checks bind exact job 
   await submit(form);assert.equal(h.calls.length,0);assert.match(form.textContent,/请本人逐项核对/);
   for(const control of checks)control.checked=true;
   await submit(form);assert.equal(h.calls.length,1);
-  assert.deepEqual(h.calls[0],{path:'/api/action',body:{action:'task-confirm',taskId:s.tasks[0].id,jobId:'123',profileVersion:3,resumeVersion:4,profileId:s.connection.profileId,submitConfirmed:true}});
+  assert.deepEqual(h.calls[0],{path:'/api/action',body:{action:'task-confirm',taskId:s.tasks[0].id,jobId:'123',profileVersion:3,resumeVersion:4,profileId:s.connection.profileId,purpose:'submit'}});
   assert.match(form.textContent,/fictional\.txt/);assert.match(form.textContent,/a{64}/);assert.match(form.textContent,/提交一次申请/);
+});
+
+test('real confirmation explicitly saves inspection without the submission flag',async()=>{
+  const s=state();s.tasks[0].mode='real';const h=harness(s),form=h.app.taskConfirmationForm(s.tasks[0]);
+  for(const control of inputs(form))control.checked=true;
+  assert.match(form.textContent,/同意检查原申请页/);
+  await submit(form);
+  assert.equal(h.calls.length,1);
+  assert.equal(h.calls[0].body.purpose,'inspect');
+  assert.equal(Object.hasOwn(h.calls[0].body,'submitConfirmed'),false);
 });
 
 test('stale profile, attachment, or execution-profile confirmations never send a mutation',async()=>{

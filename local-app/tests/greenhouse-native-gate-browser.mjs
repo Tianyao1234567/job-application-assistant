@@ -16,6 +16,7 @@ const {chromium}=require('playwright');
 const BASE='http://127.0.0.1:17321';
 const lifecycle=process.env.GREENHOUSE_NATIVE_GATE_LIFECYCLE==='1';
 const full=process.env.GREENHOUSE_NATIVE_FULL_FLOW==='1';
+const purposes=process.env.GREENHOUSE_CONFIRMATION_PURPOSE==='1';
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
@@ -49,8 +50,91 @@ async function api(route,body,expectedStatus=200){
 }
 const state=()=>api('/state');
 const action=(name,data={},status=200)=>api('/action',{action:name,...data},status);
+const realOrigin='https://job-boards.greenhouse.io';
+const realJobId='900000001',realJobUrl=realOrigin+'/mattermost/jobs/'+realJobId;
+const realAccount='fictional-inspection@example.test';
+const realPage='<!doctype html><title>Fictional inspection at Mattermost</title><h1>Fictional inspection</h1>'+
+  '<form><label for="first_name">First Name*</label><input id="first_name" required>'+
+  '<label for="email">Email*</label><input id="email" type="email" required>'+
+  '<fieldset><legend>Resume/CV*</legend><label for="resume">Attach</label><input id="resume" type="file" required></fieldset>'+
+  '<button type="submit">Submit application</button></form>';
+let backendData='data';
+const realPageMethods=[];
+async function runReadOnlyConfirmation(){
+  backendData='data-inspection';
+  app=await startBackend();
+  const profileId=await connect();
+  const profile=JSON.parse(await fs.readFile(path.join(projectRoot,'autofill-extension/profile.example.json'),'utf8'));
+  for(const item of Object.values(profile.personal)){
+    item.source='Fictional isolated test record';
+    if(item.zh)item.zh=item.zh.replace(/虚构|测试|example\.invalid/g,'Fictional');
+  }
+  profile.personal.email.zh=profile.personal.email.en=realAccount;
+  await api('/profile',{data:profile,mode:'real',confirmed:true,baseVersion:(await state()).profile.version});
+  await api('/resume',{name:resume.name,mime:'text/plain',base64:resume.bytes.toString('base64'),mode:'real'});
+  await api('/settings',{settings:{mode:'real',scheduleEnabled:false,time:'09:00',dailyLimit:3,keywords:['Fictional'],cities:['Fictional'],visual:true},
+    sites:[{id:'real-inspection',name:'Fictional inspection',company:'Mattermost',adapter:'greenhouse-v1',origin:realOrigin,
+      tenant:'mattermost',expectedAccount:realAccount,mode:'real',enabled:true}]});
+  await dashboard.goto(BASE+'/#queue');
+  await dashboard.getByLabel('岗位链接',{exact:true}).fill(realJobUrl);
+  await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
+  const added=await waitFor('real inspection added',state,value=>!!task(value,realJobId));
+  const item=task(added,realJobId);
+  await dashboard.getByRole('row').filter({hasText:item.title}).getByRole('button',{name:'查看详情',exact:true}).click();
+  const approval=dashboard.getByRole('form',{name:/确认页面检查/});
+  await approval.getByRole('checkbox',{name:'我确认本次申请意向，并同意检查原申请页。',exact:true}).waitFor();
+  for(const box of await approval.getByRole('checkbox').all())await box.check();
+  const [request]=await Promise.all([dashboard.waitForRequest(req=>req.method()==='POST'&&req.url()===BASE+'/api/action'&&req.postDataJSON().action==='task-confirm'),
+    approval.getByRole('button',{name:'确认检查原申请页',exact:true}).click()]);
+  assert.equal(request.postDataJSON().purpose,'inspect');
+  assert.equal(Object.hasOwn(request.postDataJSON(),'submitConfirmed'),false);
+  await waitFor('only inspection consent stored',state,value=>task(value,realJobId)?.confirmation?.purpose==='inspect');
+  await dashboard.keyboard.press('Escape');
+  await action('resume');
+  const held=await waitFor('actual MV3 real-mode read-only pause',state,value=>task(value,realJobId)?.issue?.title==='真实投递暂未开放');
+  const before=task(held,realJobId);
+  assert.equal(before.id,item.id);
+  assert.equal(before.confirmation.purpose,'inspect');
+  assert.equal(Object.hasOwn(before.confirmation,'submitConfirmed'),false);
+  assert.equal(before.submissionStarted,undefined);
+  assert.equal(Object.hasOwn(before,'submitDay'),false);
+  const persisted=async()=>task(JSON.parse(await fs.readFile(path.join(directory,backendData,'state.json'),'utf8')),realJobId);
+  assert.deepEqual((await persisted()).confirmation,before.confirmation);
+  const page=context.pages().find(page=>page.url()===realJobUrl);
+  assert.equal(await page.inputValue('#email'),'');
+  assert.equal(await page.locator('#resume').evaluate(input=>input.files.length),0);
+  const {localSubmissionAttempts}=await storage('localSubmissionAttempts');
+  assert.ok(!Object.values(localSubmissionAttempts||{}).some(attempt=>attempt.taskId===item.id));
+  const pid=app.ready.pid;
+  await context.close();context=null;
+  await closeApp();
+  app=await startBackend();
+  assert.notEqual(app.ready.pid,pid);
+  assert.equal(await connect(),profileId);
+  const restored=task(await state(),realJobId);
+  assert.deepEqual(restored.confirmation,before.confirmation);
+  assert.equal(restored.needsConfirmation,false);
+  assert.deepEqual((await persisted()).confirmation,before.confirmation);
+  const retained=context.pages().find(page=>page.url()===realJobUrl);
+  if(retained)await retained.close();
+  await action('task-resume',{taskId:item.id});
+  await action('resume');
+  await waitFor('same inspection after restart',state,value=>{
+    const resumed=task(value,realJobId);
+    return resumed?.status==='waiting_user'&&resumed.issue?.title==='真实投递暂未开放'&&resumed.steps.length>before.steps.length;
+  });
+  assert.ok(realPageMethods.length>=2);
+  assert.ok(realPageMethods.every(method=>method==='GET'));
+  evidence.inspection={purpose:'inspect',persisted:true,restarted:true,sameTask:true,pageRequests:realPageMethods,submissionBoundary:false,dailySlot:false};
+  console.log('PASS real-site inspection consent persists and actual MV3 only reads the intercepted page');
+  await context.close();context=null;
+  await closeApp();
+  backendData='data';
+}
+
 async function connect(){
-  const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
+  const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension,
+    ...(purposes?['--host-resolver-rules=MAP job-boards.greenhouse.io ~NOTFOUND']:[])]});
   context=await chromium.launchPersistentContext(path.join(directory,'browser-profile'),options);
   const observedWorkers=[];
   context.on('serviceworker',value=>observedWorkers.push(value.url()));
@@ -66,10 +150,15 @@ async function connect(){
   // application POST must use the browser's own connection and retry logic.
   context.on('request',request=>{
     const url=new URL(request.url());
-    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin))
+    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!(purposes&&backendData==='data-inspection'&&url.href===realJobUrl))
       evidence.externalRequests.push(url.origin);
   });
-  await context.route('https://**/*',route=>route.abort('blockedbyclient'));
+  await context.route('https://**/*',route=>{
+    if(!purposes||backendData!=='data-inspection'||route.request().url()!==realJobUrl)return route.abort('blockedbyclient');
+    const method=route.request().method();realPageMethods.push(method);
+    if(method!=='GET')return route.abort('blockedbyclient');
+    return route.fulfill({status:200,contentType:'text/html',body:realPage});
+  });
   context.on('page',page=>page.on('pageerror',error=>workerErrors.push(redact(error.message))));
   dashboard=context.pages()[0]||await context.newPage();
   await dashboard.goto(BASE);
@@ -94,7 +183,7 @@ async function configure(){
 async function confirm(id,expectedStatus=200){
   const current=await state(),item=task(current,id);
   return action('task-confirm',{taskId:item.id,jobId:id,profileVersion:current.profile.version,resumeVersion:current.resume.version,
-    profileId:current.connection.profileId,submitConfirmed:true},expectedStatus);
+    profileId:current.connection.profileId,purpose:'submit'},expectedStatus);
 }
 async function run(id,afterAnswers){
   await action('add',{url:jobURL(id)});
@@ -130,7 +219,9 @@ async function runFullForm(id){
   const approval=dashboard.getByRole('form',{name:/确认投递/});
   for(const box of await approval.getByRole('checkbox').all())await box.check();
   await approval.getByRole('button',{name:'确认本次申请并继续',exact:true}).click();
-  await waitFor('job confirmed through the dashboard',state,value=>!task(value,id).needsConfirmation);
+  const confirmed=await waitFor('job confirmed through the dashboard',state,value=>!task(value,id).needsConfirmation);
+  assert.equal(task(confirmed,id).confirmation.purpose,'submit');
+  assert.equal(Object.hasOwn(task(confirmed,id).confirmation,'submitConfirmed'),false);
   const dialog=dashboard.locator('dialog[open]');
   if(await dialog.count())await dashboard.keyboard.press('Escape');
   await dashboard.goto(BASE+'/#overview');
@@ -201,7 +292,7 @@ function record(name,id,item){
   console.log('PASS '+name+' '+JSON.stringify(counts));
 }
 async function startBackend(){
-  const dataDir=path.join(directory,'data');
+  const dataDir=path.join(directory,backendData);
   if(!lifecycle&&!full)return createApp({dataDir,startFixture:false,testMode:true,testKey});
   const child=fork(fileURLToPath(new URL('./fixtures/greenhouse-native-gate-backend.mjs',import.meta.url)),[dataDir,testKey],
     {cwd:projectRoot,stdio:['ignore','inherit','inherit','ipc']});
@@ -318,6 +409,7 @@ async function verifyFaults(){
 }
 
 try{
+  if(purposes)await runReadOnlyConfirmation();
   fixture=await startNativeFixture(directory,resume,{full});
   app=await startBackend();
   const profileId=await connect();
@@ -408,7 +500,7 @@ try{
     evidence.backend.after=app.ready;
   }
   assert.equal(await connect(),profileId);
-  assert.equal(evidence.workerStarts[0],evidence.workerStarts[1]);
+  assert.equal(evidence.workerStarts.at(-2),evidence.workerStarts.at(-1));
   const {localSubmissionAttempts}=await storage('localSubmissionAttempts');
   assert.ok(Object.values(localSubmissionAttempts).some(attempt=>attempt.taskId===unknown.id&&attempt.profileId===profileId));
   await confirm(lost,400);

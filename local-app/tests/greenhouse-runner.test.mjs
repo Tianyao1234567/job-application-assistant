@@ -47,7 +47,7 @@ function harness({replay=true,storageGate,prepareGate,receipt=false}={}){
   vm.runInContext(source.replace(/^import[^\n]+\n/gm,'').replace(/start\(\)\.catch\([\s\S]*$/,'globalThis.run=execute;globalThis.policy={expected,greenhouseUrl,greenhouseEntries};'),context);
   vm.runInContext("bridge={key:'fictional-bridge-key',profileId:'fictional-profile'};",context);
   h.command=op=>({id:'command-'+op,op,site:{adapter:replay?'greenhouse-replay-v1':'greenhouse-v1',origin,tenant,company,expectedAccount:'fictional@example.invalid',mode:replay?'demo':'real',listUrl:origin+prefix,loginUrl:origin+prefix},
-    task:{id:'task',jobId:'1234567',url:origin+prefix+'/jobs/1234567',mode:replay?'demo':'real',applicantConfirmed:true,executionProfileId:'fictional-profile',confirmedProfileKeys:['personal.email','personal.phone']},
+    task:{id:'task',jobId:'1234567',url:origin+prefix+'/jobs/1234567',mode:replay?'demo':'real',applicantConfirmed:true,confirmationPurpose:replay?'submit':'inspect',executionProfileId:'fictional-profile',confirmedProfileKeys:['personal.email','personal.phone']},
     payload:op==='fill'?{layout,entries:[{key:'personal.email',value:'fictional@example.invalid',confirmed:true}]}:{layout,file}});
   h.run=op=>context.run(h.command(op));h.runCommand=context.run;h.policy=context.policy;
   return h;

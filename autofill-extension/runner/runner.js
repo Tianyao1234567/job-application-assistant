@@ -173,8 +173,11 @@ function greenhouseExpected(command) {
   const task=command.task;
   if(task&&(!/^\d{1,30}$/.test(task.jobId)||task.mode!==(replay?'demo':'real')))throw new Stop('structure','Greenhouse 岗位身份或任务模式不符。');
   const applicantConfirmed=!!task&&task.applicantConfirmed===true&&task.executionProfileId===bridge.profileId;
+  const confirmationPurpose=task?.confirmationPurpose;
+  if(task&&!['inspect','verify'].includes(command.op)&&confirmationPurpose!==(replay?'submit':'inspect'))
+    throw new Stop('manual',replay?'请在后台明确确认提交一次虚构申请。':'请在后台确认只读检查原申请页。');
   if(task&&!['inspect','verify'].includes(command.op)&&!applicantConfirmed)throw new Stop('manual','请先在后台确认本岗位、申请资料、附件及提交动作，并使用同一投递浏览器。');
-  return {adapter:site.adapter,origin,replay,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed,
+  return {adapter:site.adapter,origin,replay,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed,confirmationPurpose,
     profileFields:Array.isArray(task?.confirmedProfileEntries)?greenhouseEntries(task.confirmedProfileEntries).map(entry=>entry.name):[],
     profileValues:Object.fromEntries(Array.isArray(task?.confirmedProfileEntries)?greenhouseEntries(task.confirmedProfileEntries).map(entry=>[entry.name,entry.value]):[]),
     confirmedAnswers:Array.isArray(task?.confirmedAnswers)?task.confirmedAnswers:[]};
@@ -227,7 +230,7 @@ async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
   const {confirmation}=command.task,file=greenhouseFileIdentity(payload.file);
   const protocol=checked.submissionProtocol;
   if(!expect.replay||!file||checked.layout!==payload.layout||
-    !confirmation?.submitConfirmed||confirmation.profileId!==bridge.profileId||
+    expect.confirmationPurpose!=='submit'||!confirmation||confirmation.profileId!==bridge.profileId||
     confirmation.jobId!==expect.jobId||confirmation.url!==command.task.url||
     confirmation.company!==expect.company||confirmation.expectedAccount!==expect.expectedAccount||
     confirmation.resumeSha256!==file.sha256||typeof confirmation.confirmedAt!=='string'||
