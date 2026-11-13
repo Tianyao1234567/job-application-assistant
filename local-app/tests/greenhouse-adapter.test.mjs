@@ -328,6 +328,24 @@ test('invisible enterprise badge does not block its normal assessment; visible c
  src='https://www.recaptcha.net/recaptcha/enterprise/bframe';
  assert.equal((await h.api.validateSubmit(expected,inspected.layout,file)).ok,false);assert.equal(h.clicks,0);
 });
+test('real inspection can bind a server-rendered title placeholder only to the matching public job and heading',async()=>{
+  const h=harness(),context={...expected,origin:'https://job-boards.greenhouse.io',tenant:'mattermost',
+    jobId:'5381946008',company:'Mattermost',replay:false,confirmationPurpose:'inspect'};
+  h.page.location.href=context.origin+'/mattermost/jobs/'+context.jobId;
+  h.document.title='page_title';
+  const job={public_url:h.page.location.href,company_name:'Mattermost',title:'Fictional Engineer'};
+  const loader={urlToken:context.tenant,jobPostId:context.jobId,jobPost:job};
+  const query=h.document.querySelectorAll.bind(h.document);
+  h.document.querySelectorAll=selector=>selector==='script'?[{textContent:'window.__remixContext = '+JSON.stringify({state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':loader}}})+';'}]:query(selector);
+  assert.equal((await h.inspect(context)).ok,true);
+  assert.equal((await h.inspect({...context,confirmationPurpose:'submit'})).ok,false);
+  job.company_name='Wrong company';assert.equal((await h.inspect(context)).ok,false);
+  job.company_name='Mattermost';job.title='Different job';assert.equal((await h.inspect(context)).ok,false);
+  job.title='Fictional Engineer';loader.jobPostId='111';assert.equal((await h.inspect(context)).ok,false);
+  loader.jobPostId=context.jobId;h.document.title='Job Application for Fictional Engineer at Wrong company';
+  assert.equal((await h.inspect(context)).ok,false);
+  assert.equal(h.writes,0);
+});
 test('scoped loader requiredness identifies optional cover letter without guessing from absent star',async()=>{
  const h=harness();h.field('cover_letter').group={querySelector:()=>({textContent:'Cover Letter'})};
  const query=h.document.querySelectorAll.bind(h.document),loader={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':{urlToken:'fictional',jobPostId:'1234567',jobPost:{public_url:expected.origin+'/greenhouse/fictional/jobs/1234567',questions:[{label:'Cover Letter',required:false,fields:[{name:'cover_letter',type:'input_file'}]}]}}}}};

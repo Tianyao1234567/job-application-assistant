@@ -194,6 +194,7 @@ async function runPublicInspection(){
   await collectPublicRequests(audit);
   audit.status=current.status;
   audit.issue=current.issue?.detail;
+  audit.documentTitle=await context.pages().find(page=>page.url()===url)?.title();
   audit.questions=current.questions?.map(q=>({key:q.key,required:q.required,unresolved:q.unresolved,optionCount:q.options.length}));
   assert.equal(current.status,'waiting_answer',JSON.stringify(audit));
   assert.equal(current.id,added.id);

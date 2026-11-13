@@ -26,7 +26,15 @@
     const detail=job?base+'/jobs/'+job:null;
     if(!(detail&&(url.pathname===detail||url.pathname===detail+'/confirmation'||replay&&url.pathname===detail+'/receipt'))&&!(allowList&&url.pathname===base))return fail('structure','公司租户或岗位标识已变化。');
     const title=norm(document.title),suffix=' at '+norm(expected.company);
-    if(!title.toLowerCase().endsWith(suffix.toLowerCase()))return fail('account','页面企业名称与确认的公司不符。');
+    if(!title.toLowerCase().endsWith(suffix.toLowerCase())){
+      // The official server-rendered page can still show its localization key
+      // when the extension first reads it. Bind that case to the same public
+      // loader route and visible job heading, for read-only inspection only.
+      const isPublicPlaceholder=!replay&&expected.confirmationPurpose==='inspect'&&title==='page_title'&&url.pathname===detail;
+      const job=isPublicPlaceholder?applicationLoader(expected)?.jobPost:null;
+      if(!job||norm(job.company_name)!==norm(expected.company)||!norm(job.title)||
+        norm(job.title)!==text(document.querySelector('h1')))return fail('account','页面企业名称与确认的公司不符。');
+    }
     return {ok:true,url,source:url.origin+(detail||base),base,job};
   }
   function findForm() {
