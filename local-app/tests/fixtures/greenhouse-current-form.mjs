@@ -74,13 +74,14 @@ export function currentFields(){
     '<div id="race-slot"></div><template id="race-template">'+select('race','Please identify your race',menu('race').filter(([id])=>id!=='4'))+'</template>'+
     select('veteran_status','Veteran Status',menu('veteran_status'));
 }
-export function currentValues(values,places){
+export function currentValues(values,places,city){
   const {hispanic_ethnicity, 'candidate-location':locationId, country, ...rest}=values;
-  const place=places.find(item=>item.id===locationId);
+  const place=city?{id:city.id,label:city.name,lat:city.latitude,lon:city.longitude,country:city.country_short_name}:
+    places.find(item=>item.id===locationId);
   if(!place||!rest.phone.startsWith('+1')||country!=='ca')throw Error('Fictional country/location not matched');
   if(hispanic_ethnicity==='1')rest.race='4';
   if(hispanic_ethnicity==='2')rest.race='8';
-  return {...rest,location:place.label,latitude:String(place.lat),longitude:String(place.lon),country_short_name:'CA'};
+  return {...rest,location:place.label,latitude:String(place.lat),longitude:String(place.lon),country_short_name:place.country||'CA'};
 }
 export function assertCurrentApplication(application,reference,file,id,email='fictional@example.invalid'){
   const {race,gender,veteran_status,phone,location,latitude,longitude,country_short_name,...rest}=application;

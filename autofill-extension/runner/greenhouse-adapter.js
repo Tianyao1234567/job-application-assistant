@@ -451,8 +451,7 @@
       if(selected&&selected!==value)return fail('manual','保留本人已选择的原值，请核对后继续。');
       if(!field.optionsComplete&&selected!==value)return fail('manual','选项未完整观察，请先由本人在原页面选择，再确认该原文。');
       if(field.optionsComplete&&!field.options.some(option=>option.text===value&&!option.disabled))return fail('manual','确认答案不在实际选项中。');
-      const list=document.getElementById(node.getAttribute('aria-controls')||'');
-      const matches=[...(list?.querySelectorAll?.('[role="option"]')||[])].filter(option=>visible(option)&&text(option)===value&&option.getAttribute('aria-disabled')!=='true');
+      const matches=matchingChoices(node,field,null,value);
       return {ok:true,...record,write:value,choice:true,selected,option:matches.length===1?matches[0]:null};
     }
     if(!editable(node)||!['INPUT','TEXTAREA','SELECT'].includes(node.tagName)||!['text','email','tel','url','search','number','textarea','select-one'].includes(field.type))return fail('manual','此控件需要本人处理，自动填写已停止。');
@@ -716,7 +715,8 @@
             answer.value===payload.answer&&JSON.stringify(answer.location)===JSON.stringify(payload.location)))return fail('manual','确认选项与后台保存记录不符。');
           prepared.answer=payload;
         }
-        if(target.choice&&!target.selected&&!target.option)return fail('manual','请先打开当前原题的选项菜单。');
+        if(target.choice&&target.selected!==(target.structured?target.selectionId:target.write)&&!target.option)
+          return fail('manual','当前原题菜单没有唯一的确认选项。');
         Object.assign(prepared,{key,value,write:target.write,node:target.node,original:target.node.value,raw:target.raw,choice:target.choice,structured:target.structured,selectionId:target.selectionId,selection:target.selected,option:target.option});
       }else if(method==='upload'){
         const target=uploadTarget(current);if(!target.ok)return target;

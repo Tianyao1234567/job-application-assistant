@@ -348,7 +348,11 @@ async function runIsolatedExecution(){
     await consent('确认检查原申请页');
     await waitFor('isolated inspection permission',state,value=>task(value,id)?.confirmation?.purpose==='inspect');
     await action('resume');
-    const pending=task(await waitFor('isolated page answers',state,value=>task(value,id)?.status==='waiting_answer'),id);
+    const pending=task(await waitFor('isolated page answers',state,value=>{
+      const item=task(value,id);
+      if(item?.status==='waiting_user'||workerErrors.length)throw new Error(JSON.stringify({issue:item?.issue,steps:item?.steps.slice(-4),pageErrors:workerErrors}));
+      return item?.status==='waiting_answer';
+    }),id);
     await dashboard.getByRole('dialog').getByRole('button',{name:'去补充答案',exact:true}).click();
     async function answerBatch(entry){
       const form=dashboard.getByRole('form',{name:'集中补充答案：'+entry.title});
@@ -370,6 +374,10 @@ async function runIsolatedExecution(){
       }
       await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
     }
+    if(officialControls){
+      const actual=context.pages().find(page=>page.url()===url);
+      await actual.locator('#country[aria-labelledby="country-label"]').waitFor({timeout:6000});
+    }
     await answerBatch(pending);
     if(id!==isolatedJobs[2]){
       const branch=task(await waitFor('isolated conditional question',state,value=>task(value,id)?.answerBatch?.questions.some(q=>q.key==='race')),id);
@@ -383,6 +391,7 @@ async function runIsolatedExecution(){
     assert.equal(await isolatedPage.locator('#resume').evaluate(input=>input.files.length),0);
     assert.deepEqual(fixture.counts(id),emptyCounts);
     assert.equal(fixture.uploadRequests(),isolatedCases.length);
+    const previousSearches=fixture.locationRequests();
     await dashboard.goto(BASE+'/#queue');
     const currentRow=dashboard.getByRole('row').filter({hasText:ready.title});
     await currentRow.getByRole('button',{name:'查看详情',exact:true}).click();
@@ -394,6 +403,7 @@ async function runIsolatedExecution(){
     },45000),id);
     assert.equal(outcome.id,added.id);
     const counts=fixture.counts(id);
+    if(officialControls)assert.equal(fixture.locationRequests(),previousSearches+1);
     assert.equal(outcome.status,id===isolatedJobs[0]?'submitted':'unknown');
     assert.equal(counts.accepted,id===isolatedJobs[1]?0:1);
     if(id===isolatedJobs[0]){
@@ -422,20 +432,29 @@ async function runIsolatedExecution(){
     await dashboard.keyboard.press('Escape');
   }
   const lost=isolatedJobs[2],previous=fixture.counts(lost),pid=app.ready.pid;
+  const {localSubmissionAttempts:ledgerBefore}=await storage(['localSubmissionAttempts']);
+  const lostTask=task(await state(),lost);
+  const diskBefore=JSON.parse(await fs.readFile(path.join(directory,backendData,'state.json'),'utf8'));
+  assert.equal(task(diskBefore,lost).submissionStarted,true);
+  assert.ok(Object.values(ledgerBefore).some(entry=>entry.taskId===lostTask.id));
   await context.close();context=null;
   await closeApp();app=await startBackend();
   assert.notEqual(app.ready.pid,pid);
   assert.equal(await connect(),profileId);
   const restored=task(await state(),lost);
+  assert.equal(restored.id,lostTask.id);
   assert.equal(restored.status,'unknown');
+  assert.equal(restored.submissionStarted,true);
   await action('task-resume',{taskId:restored.id},400);
   await action('task-confirm',{taskId:restored.id,purpose:'isolated-submit'},400);
   await action('resume');
   await action('verify',{taskId:restored.id});
   await waitFor('verification only after restart',state,value=>task(value,lost)?.steps.at(-1)?.label==='核对接收结果');
   assert.deepEqual(fixture.counts(lost),previous);
+  assert.equal(task(await state(),lost).status,'unknown');
+  assert.deepEqual((await storage(['localSubmissionAttempts'])).localSubmissionAttempts,ledgerBefore);
   evidence.isolatedExecution={beforeExplicitApproval:'zero uploads and applications',cases:isolatedCases,restart:fixture.counts(lost),
-    sameProfile:true,independentBackend:true,productionPaused:true,officialControls};
+    sameProfile:true,independentBackend:true,ledgerPreserved:true,productionPaused:true,officialControls,nativeLocationSearches:fixture.locationRequests()};
   console.log('PASS isolated real-origin explicit approval and native application protection');
 }
 

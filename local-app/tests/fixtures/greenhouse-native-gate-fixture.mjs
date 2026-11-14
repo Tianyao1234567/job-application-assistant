@@ -44,7 +44,7 @@ function applicationPage(id,full,dynamic,isolated){
     'const loader=window.__remixContext.state.loaderData["routes/$url_token_.jobs_.$job_post_id"];',
     'const form=document.querySelector("form"),input=form.elements.resume;',
     ...(isolated?.renderer?['import {installOfficialControls} from "/official-controls.js";',
-      'const officialValues=await installOfficialControls(form,loader.jobPost);']:isolated?['('+isolatedControls.toString()+')();']:[]),
+      'const officialValues=await installOfficialControls(form,loader.jobPost); form.hidden=false;']:isolated?['('+isolatedControls.toString()+')();']:[]),
     ...(full&&!dynamic?['const location='+JSON.stringify({location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'})+';']:[]),
     ...(dynamic?['const places='+JSON.stringify(places)+';',
       ...(!isolated?.renderer?['const ethnicity=form.querySelector(\'select[name="hispanic_ethnicity"]\'),slot=document.querySelector("#race-slot");',
@@ -66,8 +66,8 @@ function applicationPage(id,full,dynamic,isolated){
     'form.addEventListener("submit",async event=>{',
     '  event.preventDefault();form.dataset.nativeSubmitCalls=String(Number(form.dataset.nativeSubmitCalls||0)+1);',
     '  const values=Object.fromEntries([...form.elements].filter(input=>input.name).map(input=>[input.name,input.value]));',
-    ...(isolated?.renderer?['  Object.assign(values,officialValues());']:[]),
-    '  const application=buildApplication(loader.jobPost,{...'+(dynamic?'('+currentValues.toString()+')(values,places)':full?'('+fullValues.toString()+')(values)':'values')+',resume},[],{},[],[],new URLSearchParams(window.location.search));',
+    ...(isolated?.renderer?['  const {city,...choices}=officialValues(); Object.assign(values,choices);']:[]),
+    '  const application=buildApplication(loader.jobPost,{...'+(dynamic?'('+currentValues.toString()+')(values,places'+(isolated?.renderer?',city':'')+')':full?'('+fullValues.toString()+')(values)':'values')+',resume},[],{},[],[],new URLSearchParams(window.location.search));',
     '  try{const response=await nativeSubmit({application,submitPath:loader.submitPath,csrfToken:loader.csrfToken,',
     '    fingerprint:'+(full?'loader.jobPost.fingerprint':'loader.fingerprint')+',jobApplicationRequestToken:loader.jobApplicationRequestToken});',
     '    if(response.ok)window.location.assign(loader.confirmationPath);',
@@ -76,7 +76,7 @@ function applicationPage(id,full,dynamic,isolated){
   ].join('\n');
   const fixtureEnvironment=isolated?.renderer?'<script>window.ENV={ASSET_URL:location.origin,LOCATION_CONTROL_PROVIDER:"pelias",LOCATION_CONTROL_BASE_URL:location.origin+"/",LOCATION_CONTROL_API_KEY:"fixture"};</script>':'';
   const body=fixtureEnvironment+(isolated?'<meta name="job-isolated-execution" content="'+isolated.marker+'"><link rel="modulepreload" href="https://job-boards.cdn.greenhouse.io/assets/entry.client-HYmR2EDs.js">':'')+'<h1>Fictional native vacancy '+id+'</h1><p class="job-location">Fictional Test City</p>'+
-    '<form data-greenhouse-replay data-tenant="'+fixtureTenant+'" data-job-id="'+id+'" method="post" action="'+submit+'">'+
+    '<form '+(isolated?.renderer?'id="application-form" hidden ':'')+'data-greenhouse-replay data-tenant="'+fixtureTenant+'" data-job-id="'+id+'" method="post" action="'+submit+'">'+
     (dynamic?currentFields():full?fullFields():input('first_name','text')+input('last_name','text')+input('email','email')+input('phone','tel')+
     '<fieldset class="file-upload"><legend id="upload-label-resume">Resume/CV*</legend><label for="resume">Attach</label>'+
     '<input id="resume" name="resume" type="file" accept=".txt" required></fieldset>'+
@@ -100,7 +100,7 @@ async function read(request){
 export async function startNativeFixture(directory,resume,{full=false,dynamic=false,isolated=null}={}){
   const origin=isolated?isolatedOrigin:fixtureOrigin;
   const jobs=isolated?isolatedJobs:allJobs,lostJob=isolated?isolatedJobs[2]:fixtureJobs[3];
-  let uploadRequests=0;
+  let uploadRequests=0,locationRequests=0;
   const ref=key=>origin+'/greenhouse-upload/'+key;
   const client=dynamic?currentClient:await fs.readFile(new URL('./greenhouse-native-client.js',import.meta.url));
   const uploads=new Map([['other-fictional-object',{name:resume.name,sha256:digest(Buffer.alloc(resume.bytes.length,88)),size:resume.bytes.length}]]);
@@ -120,8 +120,10 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
       const url=new URL(request.url,origin);
       if(isolated?.renderer?.has(url.pathname)&&request.method==='GET')
         return respond(response,200,isolated.renderer.get(url.pathname),{'Content-Type':'text/javascript; charset=utf-8'});
-      if(dynamic&&['/greenhouse-locations','/v1/autocomplete'].includes(url.pathname)&&request.method==='GET')
+      if(dynamic&&['/greenhouse-locations','/v1/autocomplete'].includes(url.pathname)&&request.method==='GET'){
+        if(url.pathname==='/v1/autocomplete')locationRequests++;
         return respond(response,200,JSON.stringify(locationResponse(url.searchParams.get('q')||url.searchParams.get('text'))),{'Content-Type':'application/json'});
+      }
       if(url.pathname==='/native-fixture-client.js'&&request.method==='GET')
         return respond(response,200,client,{'Content-Type':'text/javascript'});
       if(url.pathname==='/greenhouse-upload'&&request.method==='POST'){
@@ -196,7 +198,7 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
   };
   const server=isolated?https.createServer(isolated,handler):http.createServer(handler);
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(isolated?4443:17322,'127.0.0.1',resolve);});
-  return {acceptanceFile,uploadRequests:()=>uploadRequests,counts:id=>({...state[id]}),accepted:id=>({...accepted[id]}),
+  return {acceptanceFile,uploadRequests:()=>uploadRequests,locationRequests:()=>locationRequests,counts:id=>({...state[id]}),accepted:id=>({...accepted[id]}),
     trace:id=>structuredClone(traces[id]),
     close:()=>new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()))};
 }

@@ -67,5 +67,5 @@ export async function installOfficialControls(form,job){
     }
     check();
   });
-  return ()=>({country,'candidate-location':city?.id,race});
+  return ()=>({country,'candidate-location':city?.id,race,city});
 }

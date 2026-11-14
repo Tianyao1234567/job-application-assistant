@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {Store,FIXTURE,hash} from '../model.mjs';
 import {ROOT} from '../paths.mjs';
+import {searchGreenhouseLocations} from '../greenhouse-location.mjs';
 
 // These tests use only fictional local records. No employer is contacted, even
 // when testing the production-mode authorization and unknown-result branches.
@@ -295,6 +296,34 @@ test('changing the confirmed self-identification branch invalidates its earlier 
   assert.equal(env.task.answers[race.scope].stale,true);
   assert.equal(env.store.applicableAnswer(env.task,race),null);
   assert.equal(env.store.dailyUsed(),0);
+});
+
+test('real location search uses the configuration of the exact task page',async t=>{
+  const origin='https://job-boards.greenhouse.io',taskUrl=origin+'/mattermost/jobs/900000011';
+  const site={adapter:'greenhouse-v1',tenant:'mattermost',origin};
+  const job={urlToken:site.tenant,jobPostId:'900000011',jobPost:{public_url:taskUrl}};
+  const config={LOCATION_CONTROL_PROVIDER:'pelias',
+    LOCATION_CONTROL_BASE_URL:'https://api-geocode-earth-proxy.greenhouse.io/',LOCATION_CONTROL_API_KEY:'fictional-test'};
+  const urls=[];
+  t.mock.method(globalThis,'fetch',async (target,options)=>{
+    urls.push(String(target));
+    if(urls.length===1||urls.length===3){
+      const state={loaderData:{root:{ENV:config},'routes/$url_token_.jobs_.$job_post_id':job}};
+      return new Response('<script>window.__remixContext = '+JSON.stringify({state})+'</script>',{headers:{'Content-Type':'text/html'}});
+    }
+    assert.equal(options.headers.Origin,origin);
+    assert.equal(target.searchParams.get('api_key'),config.LOCATION_CONTROL_API_KEY);
+    assert.equal(target.searchParams.get('text'),'Fictional City');
+    return Response.json({features:[{geometry:{type:'Point',coordinates:[-72,46]},
+      properties:{id:'site-test',label:'Fictional City, Canada',layer:'locality',country:'Canada',country_code:'CA'}}]});
+  });
+  assert.deepEqual(await searchGreenhouseLocations('Fictional City',{site,taskUrl}),
+    [{id:'site-test',label:'Fictional City, Canada',longitude:'-72',latitude:'46',country:'CA'}]);
+  assert.equal(urls[0],taskUrl);
+  assert.match(urls[1],/^https:\/\/api-geocode-earth-proxy\.greenhouse\.io\/v1\/autocomplete\?/);
+  job.jobPostId='900000012';
+  await assert.rejects(searchGreenhouseLocations('Fictional City',{site,taskUrl}),/配置已变化/);
+  assert.equal(urls.length,3);
 });
 
 test('normal real settings cannot grant the isolated submission purpose',t=>{
