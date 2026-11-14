@@ -8,7 +8,15 @@
 
 本机 74 项通过。实际 APP 与 MV3 在隔离 HTTPS 上保存 CA、保留 US，独立重启后无重复问题，后续改变为 JP 只重新核对国家。地点为空时使用默认用途成功保存，模拟失败保留草稿。Windows 从 .8/.10/.12 成功升级。candidate.14 草稿实下载 363247 字节，SHA-256 `99987c553d4aa33de4a245850b7c4540cf3e067450cd3b6c4590480c04a80cd0`。 [MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43571972486/job/132378102740) · [Windows](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43571972509/job/132378124530) · [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-900b66b9e0daf39cf4e0)
 
-Manager 审查修复候选。Engineer 在独立源码继续隔离真实执行准备。真实企业提交暂停，PR #5 draft。
+candidate.14 待 Manager 审查。真实企业提交暂停，PR #5 draft。
+
+## 012 隔离执行准备
+
+独立验证源码 `afa29a3d824403b111c1e78aa1759d7b8e40c3cf`。现有任务先按 `inspect` 只读补答，隔离测试进程及文档匹配时才可在任务详情再次明确授权本岗位、资料、精确附件和执行浏览器。当前官方国家、Pelias 地点和条件识别组件在隔离表单内使用实际事件。沿用页面 XHR、原生请求冻结和响应及确认关联。APP 的地点查询改为读取实际岗位的匹配配置。 [阶段报告](docs/GREENHOUSE_ISOLATED_EXECUTION_012.md)
+
+本机定点 100 项通过。托管实际 MV3 在授权前上传及申请均为 0，正常 1/1/1，错附件 0 到达。接受后丢响应，独立后台及浏览器重启、同数据目录重新配对，保持同任务 `unknown`，到达 1→1，浏览器账本一致。 [MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43575944813/job/132390088450)
+
+Manager 审查 candidate.14 和独立执行源码。candidate.14 固定于上列窄修源码。真实站继续只读，真实企业提交暂停，PR #5 保持 draft。首个实际岗位、资料、附件和提交动作仍须本人核对。
 
 ## 011 区号、地点及条件自我识别接入，candidate.13 审查草稿（历史）
 
