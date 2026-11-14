@@ -1,0 +1,256 @@
+{
+  "source": "https://job-boards.greenhouse.io/mattermost/jobs/5381946008",
+  "observedAt": "2026-10-22T08:00:24.177440+00:00",
+  "htmlSHA256": "279bb31ced65ac1e39e27317eb9c1789ef05cd2c2bfb398639961c8d8ce34f42",
+  "method": "Verified HTTPS GET and scoped public loader JSON; no fill/file/CAPTCHA/submission",
+  "questions": [
+    {
+      "label": "First Name",
+      "required": true,
+      "fields": [
+        {
+          "name": "first_name",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Last Name",
+      "required": true,
+      "fields": [
+        {
+          "name": "last_name",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Preferred First Name",
+      "required": false,
+      "fields": [
+        {
+          "name": "preferred_name",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Email",
+      "required": true,
+      "fields": [
+        {
+          "name": "email",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Phone",
+      "required": true,
+      "fields": [
+        {
+          "name": "phone",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Candidate Location",
+      "required": true,
+      "fields": [
+        {
+          "name": "candidate_location",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Resume/CV",
+      "required": true,
+      "fields": [
+        {
+          "name": "resume",
+          "type": "input_file",
+          "allowed_filetypes": [
+            "pdf",
+            "doc",
+            "docx",
+            "txt",
+            "rtf"
+          ]
+        },
+        {
+          "name": "resume_text",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "label": "Cover Letter",
+      "required": false,
+      "fields": [
+        {
+          "name": "cover_letter",
+          "type": "input_file",
+          "allowed_filetypes": [
+            "pdf",
+            "doc",
+            "docx",
+            "txt",
+            "rtf"
+          ]
+        },
+        {
+          "name": "cover_letter_text",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "label": "How did you hear about Mattermost?",
+      "required": true,
+      "fields": [
+        {
+          "name": "question_18195688008",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Why are you interested in this role at Mattermost?",
+      "required": true,
+      "fields": [
+        {
+          "name": "question_18195689008",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "LinkedIn Profile",
+      "required": false,
+      "fields": [
+        {
+          "name": "question_18195686008",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "label": "Are you legally authorized to work in Japan?",
+      "required": true,
+      "fields": [
+        {
+          "name": "question_18195692008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Do you now, or will you in the future, require employer sponsorship to obtain or maintain work authorization in Japan (e.g., Work Visa, Specified Skilled Worker Visa, Engineer/Specialist in Humanities/International Services Visa, or other residence status permitting employment)?",
+      "required": true,
+      "fields": [
+        {
+          "name": "question_18195693008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Are you a native Japanese speaker? ",
+      "required": true,
+      "fields": [
+        {
+          "name": "question_18196782008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Do you have strong English proficiency for business reading and writing?",
+      "required": true,
+      "fields": [
+        {
+          "name": "question_18196783008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Have you directly served defense, national security, or critical infrastructure customers in a technical capacity?",
+      "required": true,
+      "fields": [
+        {
+          "name": "question_18196784008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "dynamicControls": [
+    {
+      "id": "country",
+      "label": "Country*",
+      "role": "combobox",
+      "optionsComplete": false
+    },
+    {
+      "id": "candidate-location",
+      "label": "Location (City)*",
+      "role": "combobox",
+      "optionsComplete": false
+    }
+  ],
+  "auxiliaryControls": "Unnamed required React Select proxies map to the unique labelled combobox in the same .select container",
+  "preloadedConfirmationMessageIsNotReceipt": true
+}

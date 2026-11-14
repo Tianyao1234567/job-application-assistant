@@ -69,13 +69,13 @@ test('敏感与登录同义词保护',()=>{
   for(const word of ['密码','OTP','登录邮箱','passport','身份令牌 token','性别','Expected salary','Work authorization','Visa sponsorship','犯罪记录','残障','Ethnicity','Veteran','Relocation','Notice period','到岗时间','利益冲突','Legal declaration','合同条款','Privacy consent','身份证号码','user_age','userSex','rightToWork','ssn','ID card','passcode','Expected CTC','permission to work','When can you start','Earliest start date']) assert.ok(sandbox.JobFill.guardText(word),word);
   for(const word of ['Full name','学校名称','现居城市','项目描述','Major','Programming skills','applicationPage','homepage','University of Sussex','Accounting']) assert.equal(sandbox.JobFill.guardText(word),null,word);
 });
-test('扩展仅授权本机站点；原通用填写内容代码保持无提交与网络调用',()=>{
+test('扩展仅授权本机与两个 Greenhouse 主机；原通用填写内容代码保持无提交与网络调用',()=>{
   const root=new URL('../',import.meta.url),manifest=JSON.parse(fs.readFileSync(new URL('manifest.json',root),'utf8'));
-  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage','alarms']);assert.equal(manifest.manifest_version,3);
-  assert.deepEqual(manifest.host_permissions,['http://127.0.0.1/*']);
+  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage','alarms','webRequest']);assert.equal(manifest.manifest_version,3);
+  assert.deepEqual(manifest.host_permissions,['http://127.0.0.1/*','https://job-boards.greenhouse.io/*','https://boards.greenhouse.io/*']);
   assert.equal(manifest.content_security_policy.extension_pages,"script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:17321 http://127.0.0.1:17322");
   assert.deepEqual(manifest.content_scripts,[{matches:['http://127.0.0.1/*'],js:['bridge/dashboard.js'],run_at:'document_idle',all_frames:false}]);
-  for(const file of ['background.js','popup/index.html','options/index.html','workspace/index.html','content/guard.js','content/scan.js','content/fill.js','bridge/dashboard.js','runner/index.html','runner/runner.js','runner/local-adapter.js']) assert.ok(fs.existsSync(new URL(file,root)),file);
+  for(const file of ['background.js','popup/index.html','options/index.html','workspace/index.html','content/guard.js','content/scan.js','content/fill.js','bridge/dashboard.js','runner/index.html','runner/runner.js','runner/local-adapter.js','runner/greenhouse-adapter.js']) assert.ok(fs.existsSync(new URL(file,root)),file);
   for(const file of ['content/guard.js','content/scan.js','content/fill.js','workspace/workspace.js']){const code=fs.readFileSync(new URL(file,root),'utf8');assert.doesNotMatch(code,/\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|requestSubmit)\s*\(|\.submit\s*\(|KeyboardEvent\s*\(|\.innerHTML\s*=/);}
 });
 test('本地执行器拒绝真实模式、未适配网站和外部站点命令',()=>{
