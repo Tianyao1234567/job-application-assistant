@@ -46,7 +46,7 @@ function applicationPage(id,full,dynamic,isolated){
     ...(isolated?['('+isolatedControls.toString()+')();']:[]),
     ...(full&&!dynamic?['const location='+JSON.stringify({location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'})+';']:[]),
     ...(dynamic?['const places='+JSON.stringify(places)+';',
-      'const ethnicity=form.elements.namedItem("hispanic_ethnicity"),slot=document.querySelector("#race-slot");',
+      'const ethnicity=form.querySelector(\'select[name="hispanic_ethnicity"]\'),slot=document.querySelector("#race-slot");',
       'ethnicity.addEventListener("change",()=>{slot.replaceChildren();if(ethnicity.value==="0")slot.append(document.querySelector("#race-template").content.cloneNode(true));});',
       'slot.addEventListener("change",event=>{if(event.target.value==="8"){ethnicity.value="2";slot.replaceChildren();}});']:[]),
     'let resume;',

@@ -309,9 +309,10 @@ export class Store {
   snapshot(){
     const s=clone(this.state),connected=this.clock()-this.lastSeen<6000&&this.lastSeen>0;
     for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);
+      t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));
       t.canConfirmIsolatedExecution=!!this.isolatedBinding(t)&&!this.hasSubmissionBoundary(t)&&!t.needsConfirmation&&
         this.confirmationPurpose(this.task(t.id),this.site(t.siteId))==='inspect'&&this.isolatedInspectionReady(t);
-      if(t.confirmation)delete t.confirmation.isolatedRun;t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));if(t.status==='waiting_answer')t.answerBatch=this.answerBatch(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
+      if(t.confirmation)delete t.confirmation.isolatedRun;if(t.status==='waiting_answer')t.answerBatch=this.answerBatch(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
     const decision=scheduleDecision(s.settings,s.lastSchedule,this.clock());
     let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
     const stats={demo:{submitted:0,today:0},real:{submitted:0,today:0}};

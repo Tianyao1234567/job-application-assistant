@@ -426,7 +426,7 @@
       const selected=field.controlKind==='location'?answer.location:field.options.find(option=>option.id===answer.selectionId&&option.text===value);
       if(isolatedDocument(expected)&&field.customControl){
         const selectedId=specialChoice(record),baseline=answer.pageBaselineId??answer.selectedId??null;
-        if(!selected||selectedId&&selectedId!==answer.selectionId&&selectedId!==baseline)
+        if(!selected||selectedChoice(node)&&!selectedId||selectedId&&selectedId!==answer.selectionId&&selectedId!==baseline)
           return fail('manual','保留原网页选择，请重新核对。');
         const list=document.getElementById(node.getAttribute('aria-controls')||'');
         const matches=[...(list?.querySelectorAll?.('[role="option"]')||[])].filter(option=>
@@ -695,7 +695,7 @@
       if(method==='openChoice'){
         const target=current.records.find(record=>record.field.key===payload.key);
         if(!target?.field.customControl||!(target.field.optionsComplete||isolatedDocument(expected)&&target.field.controlKind==='location')||!editable(target.node)||
-          selectedChoice(target.node)&&!(isolatedDocument(expected)&&target.field.controlKind&&
+          selectedChoice(target.node)&&!(isolatedDocument(expected)&&target.field.controlKind&&specialChoice(target)&&
           specialChoice(target)===(payload.pageBaselineId??payload.selectedId??null)))return fail('manual','此选项应由本人在页面选择。');
         const q=await question(expected,target);if(payload.confirmed!==true||q.scope!==payload.scope||q.version!==payload.version||q.text!==payload.text||!(q.options.some(option=>option.text===payload.answer&&!option.disabled)||
           q.controlKind==='location'&&isolatedDocument(expected)&&payload.location?.id===payload.selectionId))return fail('structure','原题或确认选项已变化。');

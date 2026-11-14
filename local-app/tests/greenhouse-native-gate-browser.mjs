@@ -392,8 +392,27 @@ async function runIsolatedExecution(){
     const counts=fixture.counts(id);
     assert.equal(outcome.status,id===isolatedJobs[0]?'submitted':'unknown');
     assert.equal(counts.accepted,id===isolatedJobs[1]?0:1);
-    if(id===isolatedJobs[0])assert.deepEqual(counts,{posts:1,accepted:1,confirmations:1,responseDropped:0});
-    if(id===isolatedJobs[1])assert.deepEqual(counts,emptyCounts);
+    if(id===isolatedJobs[0]){
+      assert.deepEqual(counts,{posts:1,accepted:1,confirmations:1,responseDropped:0});
+      const accepted=fixture.accepted(id),stored=await storage(['greenhouseReceiptSessions','greenhouseUploadProofs']);
+      const session=stored.greenhouseReceiptSessions[outcome.id],proof=stored.greenhouseUploadProofs[outcome.id];
+      assert.equal(proof.tabId,outcome.tabId);
+      assert.equal(proof.profileId,profileId);
+      assert.equal(proof.referenceSha256,accepted.referenceSha256);
+      assert.equal(proof.sha256,sha256);
+      assert.equal(session.spec.documentId,proof.documentId);
+      assert.equal(session.spec.account,isolatedAccount);
+      assert.equal(session.request.nativeRequestSha256,accepted.bodySha256);
+      assert.equal(session.spec.nativeRequestSha256,accepted.bodySha256);
+      assert.equal(session.nativeResponse.status,200);
+      assert.ok(session.confirmedAt>=session.request.startedAt);
+      assert.equal(outcome.result.evidence,'隔离测试站网络回执');
+    }
+    if(id===isolatedJobs[1]){
+      assert.deepEqual(counts,emptyCounts);
+      assert.equal(await isolatedPage.locator('form').getAttribute('data-native-submit-calls'),'1');
+    }
+    if(id===isolatedJobs[2])assert.equal(counts.responseDropped,1);
     isolatedCases.push({jobId:id,status:outcome.status,counts});
     console.log('Isolated outcome '+JSON.stringify(isolatedCases.at(-1)));
     await dashboard.keyboard.press('Escape');
