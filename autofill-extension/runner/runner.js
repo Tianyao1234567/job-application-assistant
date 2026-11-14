@@ -348,7 +348,7 @@ async function executeGreenhouse(command,expect,payload) {
     const inspected=await read(tab,expect,'inspect');
     if(!inspected.ok)return inspected;
     for(const entry of entries){
-      if(inspected.fields?.some(field=>field.key===entry.name&&field.customControl))continue;
+      if(inspected.fields?.some(field=>field.key===entry.name&&(field.customControl||field.controlKind)))continue;
       const result=await mutate(command,tab,expect,'fillField',payload.layout,entry.name,entry.value);
       if(!result.ok)return {...result,tabId:tab.id,url:tab.url};
       filled+=Number(result.filled)||0;
