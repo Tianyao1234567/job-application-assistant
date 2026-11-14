@@ -6,7 +6,22 @@
 - **仓库：** `Tianyao1234567/job-application-assistant`。Manager文档分支`dev/pm9-demo-windows-readiness`；当前工程实现分支`engineer/profile-import-usability`。PR #5保持draft，不合并、不强推，不覆盖其他写入者。
 - **核心目标：** 实际缺项→平台记录原题→本人直接回答确认→持久保存→同任务继续→适用事实复用。普通补答无需JSON、工程师或另一GPT中转。JSON仅用于首次导入、大改、批量维护或内部交换。
 
-## 当前执行：012接收011集成证据，修复两处补答阻塞后交候选
+## 当前执行：013发布candidate.14，接收隔离执行，接通正常产品授权路径
+
+2026-11-14，Engineer已读经理 `c68a4c79cb6345d17763949e9f88751de9c604cb` 及012。候选14固定源码 `620dbb8ea8f06233b5a81f0d299c8d62e45e2571`；独立执行验证 `afa29a3d824403b111c1e78aa1759d7b8e40c3cf`；工程交接/HEAD/远端 `afed94070e94d81370f294129cbf4abfbebab330`，检查时干净，afa到交接仅文档变化。两段源码明确分开，后续代码未混入candidate.14。
+
+**按[验收与派工013](docs/PROFILE_USABILITY_CHECKPOINT_013.md)关闭012两P2并公开发布candidate.14预发布更新。** 已核对源码/断言、补答MV3及三版Windows原始日志、草稿与公开实下载。网页US/APP CA在重启后复用，网页JP只重问；空地点默认task成功、保存失败草稿保留、普通事实仍可存资料；.8/.10/.12升级数据/身份/账本/unknown与inspect保留。74项为Engineer本机报告。
+
+[公开下载update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.14-selection-review/update.cmd)：363247字节，SHA-256 `99987c553d4aa33de4a245850b7c4540cf3e067450cd3b6c4590480c04a80cd0`。tag指向620dbb8，非draft的prerelease、不标Latest，candidate.13草稿和candidate.12旧发布保留。新包含010/011及012补答窄修，不含后续独立执行。用户可按停止→同目录update.cmd→UPDATE_COMPLETE→原启动更新，无需重装/重导；Manager未操作生产安装。
+
+**独立执行按官方组件隔离范围接收。** 实际APP/MV3单独授权前0上传/0申请；官方国家/地点/条件组件及原生XHR/fetch/gate/回执接通，正常1/1/1、错附件0、接受后丢响应独立重启配对后1→1unknown且账本一致。100项为Engineer本机报告，撤权/换文档复用旧证据。1→1是本次隔离观察，不代表生产无传输重发。当前仍依赖testMode、900测试号段、marker和isolated-submit，企业页面只能inspect。
+
+**下一责任人为Engineer：按013接通正常产品启动入口下的逐任务明确授权、实际任务作用域、真实上传证明、原生冻结与回执路径。** 默认只读，旧许可不升格；测试参数/HTML marker不能作为生产授权。用隔离网络验证正常产品路径并形成新候选、candidate.14升级及首单确认入口，实际企业填写/上传/提交仍暂停。已通过阶段不重做，不因缺用户链接停止通用开发。
+
+经理已请用户稍后提供首个实际岗位链接，目前无具体链接，也无岗位/资料/附件/提交授权。技术测试岗位不当作用户目标，收到链接先只读适配。原任务5c8b638、004范围、005资源和008持续推进保持，PR #5 draft未合并，完整项目未最终验收。以下历史保留，当前按013。
+
+
+## 2026-11-14审查012（历史）：两P2已由013关闭
 
 2026-11-14，Engineer已读经理 `6f3d7bb02ca3859acc4c8be6764669e143258678` 及011。验证/打包源码 `d649586b54d006ee86e4fbd5367c500bd482532f`，工程交接/HEAD/远端 `5498b772d47ace6fd035ee5ae035121d7d690e15`，检查时干净，验证后只变两份工程文档。Manager只审查和维护经理文档，未改实现/工程交接或执行生产更新。
 
