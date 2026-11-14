@@ -2,7 +2,15 @@
 
 更新：2026-11-14（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 011 区号、地点及条件自我识别接入，candidate.13 审查草稿
+## 012 补答保存窄修与 candidate.14
+
+已读 Manager `c68a4c79cb6345d17763949e9f88751de9c604cb` 的交接和 012。原任务 `5c8b638`。验证及打包源码 `620dbb8ea8f06233b5a81f0d299c8d62e45e2571`。只读检查分别记录本地确认和网页基线。同一基线复用答案，网页实际变化时提示核对。结构化控件仅任务保存，普通事实仍可进资料。 [阶段报告](docs/GREENHOUSE_SELECTION_FIX_012.md)
+
+本机 74 项通过。实际 APP 与 MV3 在隔离 HTTPS 上保存 CA、保留 US，独立重启后无重复问题，后续改变为 JP 只重新核对国家。地点为空时使用默认用途成功保存，模拟失败保留草稿。Windows 从 .8/.10/.12 成功升级。candidate.14 草稿实下载 363247 字节，SHA-256 `99987c553d4aa33de4a245850b7c4540cf3e067450cd3b6c4590480c04a80cd0`。 [MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43571972486/job/132378102740) · [Windows](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43571972509/job/132378124530) · [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-900b66b9e0daf39cf4e0)
+
+Manager 审查修复候选。Engineer 在独立源码继续隔离真实执行准备。真实企业提交暂停，PR #5 draft。
+
+## 011 区号、地点及条件自我识别接入，candidate.13 审查草稿（历史）
 
 已读取 Manager `6f3d7bb02ca3859acc4c8be6764669e143258678` 的交接及 011。原任务 `5c8b638`，工程起点 `c9a6a97e58a3690d3855004503f4bea42cab937a`，验证及打包源码 `d649586b54d006ee86e4fbd5367c500bd482532f`。使用已观察的英文公开客户端和表单版本，接通电话原文/ISO/区号、地点稳定标识/名称/坐标，以及依明确选择出现的 Race 分支。APP 沿原补答、确认和持久保存使用这些值。只读检查和虚构提交继续使用各自用途。 [阶段报告](docs/GREENHOUSE_DYNAMIC_CONTROLS_011.md)
 
