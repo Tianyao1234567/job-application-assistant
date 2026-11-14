@@ -344,7 +344,7 @@ export class Store {
     // different target with a new site id instead of retargeting existing tasks.
     for(const old of this.state.sites)if((this.state.tasks.some(t=>t.siteId===old.id)||this.command?.siteId===old.id||this.queue.some(c=>c.siteId===old.id))&&!sameTarget(old,mapped.find(s=>s.id===old.id)))throw new Error('已有任务或待执行操作的网站不能删除或更改账号、租户及接入方式；请使用新的网站标识');
     for(const site of mapped){const old=this.state.sites.find(s=>s.id===site.id);site.login=old&&old.tenant===site.tenant&&old.expectedAccount===site.expectedAccount&&old.origin===site.origin?old.login:{status:'unknown'};}
-    for(const t of this.state.tasks){const site=mapped.find(s=>s.id===t.siteId);if(['queued','running'].includes(t.status)&&(next.mode!==t.mode||!site?.enabled||site.skipped)){this.invalidateTask(t);t.status='queued';}}
+    for(const t of this.state.tasks){const site=mapped.find(s=>s.id===t.siteId);if(['queued','running'].includes(t.status)&&(next.mode!==t.mode||!site?.enabled||site.skipped)){this.resetExecution(t);this.invalidateTask(t);t.status='queued';}}
     this.state.settings=next;this.state.sites=mapped;this.save();
   }
   setProfile({data,mode,confirmed,baseVersion,retireEnglish=[]}){

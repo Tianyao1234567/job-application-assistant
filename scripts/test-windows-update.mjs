@@ -14,6 +14,7 @@ const root=path.resolve(fileURLToPath(new URL('..',import.meta.url))),parent=pat
 const subject=gitSubject();
 const candidateFlow=subject.includes('[native-full-flow]');
 const checkPurpose=subject.includes('[confirmation-purpose]');
+const checkPublished14=subject.includes('[upgrade-candidate14]');
 const dynamic=subject.includes('[dynamic-controls]');
 function gitSubject(){const result=spawnSync('git',['log','-1','--format=%s'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);return result.stdout;}
 const evidence={source:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,scope:'Single CMD, candidate8/10, fictional stopped old installation moved to a short path; actual Windows Chromium and extension. No employer requests or personal data.',scenarios:[],status:'RUNNING'};
@@ -36,7 +37,7 @@ async function installOld(source,index){
  const {Store}=await import(pathToFileURL(path.join(directory,'local-app/model.mjs')).href);const store=new Store({data:path.join(directory,'.runtime/data')});store.demo();store.pause();store.save();return directory;
 }
 try{
- if(checkPurpose||dynamic)run(process.execPath,['--test','local-app/tests/profile-update-package.test.mjs']);
+ if(checkPurpose||dynamic||checkPublished14)run(process.execPath,['--test','local-app/tests/profile-update-package.test.mjs']);
  await fs.mkdir(parent,{recursive:true});const {report}=await buildUpdate({projectRoot:root}),updateFile=path.join(report.directory,'更新.cmd');evidence.update={...report,directory:undefined};
  assert.equal(report.source,process.env.GITHUB_SHA);
  const bytes=await fs.readFile(updateFile);assert.equal(bytes.length,report.bytes);assert.equal(hash(bytes),report.sha256);
@@ -45,8 +46,9 @@ try{
  const npm=path.join(path.dirname(process.execPath),'node_modules/npm/bin/npm-cli.js');const env={...process.env,PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:'1',PLAYWRIGHT_BROWSERS_PATH:path.join(cache,'.runtime/browsers'),npm_config_cache:path.join(parent,'npm-cache'),TEMP:path.join(parent,'tmp'),TMP:path.join(parent,'tmp'),TMPDIR:path.join(parent,'tmp')};await fs.mkdir(env.TEMP,{recursive:true});
  run(process.execPath,[npm,'ci','--ignore-scripts','--no-audit','--no-fund'],{cwd:path.join(cache,'runtime-deps'),env});
  run(process.execPath,[path.join(cache,'runtime-deps/node_modules/playwright/cli.js'),'install','--no-shell','chromium'],{cwd:cache,env:{...env,PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:'',PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT:'45000'},timeout:180000});
- for(const [index,source]of UPDATE_BASELINES.slice(2).entries()){
+ for(const [index,source]of (checkPublished14?UPDATE_BASELINES.slice(-1):UPDATE_BASELINES.slice(2)).entries()){
   const baselineVersion=(await baselineManifest(root,source)).version;
+  const inspectBaseline=/\.(12|14)$/.test(baselineVersion);
   phase='old-'+baselineVersion+'-start';let directory=await installOld(source,index);activeRoot=directory;service(directory,'start');const {context,runner}=await connect(directory);
   const oldId=new URL(runner.url()).hostname,originalBridge=await runner.evaluate(async()=>(await chrome.storage.local.get('localBridge')).localBridge);assert.ok(originalBridge.profileId);
   await context.addCookies([{name:'fictional_migration_cookie',value:'preserve-fixture-session',url:BASE,httpOnly:true,sameSite:'Lax',expires:Math.floor(Date.now()/1000)+86400}]);
@@ -72,7 +74,7 @@ try{
   const pending={id:'fictional-pending',jobId:'cpp-001',siteId:state.sites[0].id,title:'Fictional pending task',url:'http://127.0.0.1:17322/site/alpha/jobs/cpp-001',company:'Fictional company',location:'Fictional city',mode:'demo',status:'waiting_answer',phase:'answer',steps:[],executionProfileId:originalBridge.profileId,profileSnapshot:structuredClone(state.profile),resumeSnapshot:structuredClone(state.resume),profileVersion:state.profile.version,resumeVersion:state.resume.version,question:{key:'motivation',text:'为什么希望申请这个岗位？',scope:`local-v1:${state.sites[0].tenant}:cpp-001:motivation:v1`}};
   state.tasks=[task,pending];state.answers=[{scope:'fictional-memory',value:'Preserve the answer'}];
   let legacyReal,legacyUnknown;
-  if(checkPurpose||dynamic){
+  if(checkPurpose||dynamic||checkPublished14){
    const origin='https://job-boards.greenhouse.io',url=origin+'/mattermost/jobs/900000002';
    const site={id:'fictional-old-real-site',adapter:'greenhouse-v1',mode:'real',origin,tenant:'mattermost',
      company:'Mattermost',name:'Fictional upgrade record',expectedAccount:'fictional-old@example.test',enabled:true,skipped:false,
@@ -83,7 +85,7 @@ try{
      answers:{fictional:{value:'Preserve original fictional answer',confirmed:true}},
      confirmation:{jobId:'900000002',url,company:site.company,expectedAccount:site.expectedAccount,
        profileId:originalBridge.profileId,profileVersion:state.profile.version,resumeVersion:state.resume.version,
-       resumeSha256:state.resume.sha256,confirmedAt:new Date().toISOString(),...(baselineVersion.endsWith('.12')?{purpose:'inspect'}:{submitConfirmed:true})}};
+       resumeSha256:state.resume.sha256,confirmedAt:new Date().toISOString(),...(inspectBaseline?{purpose:'inspect'}:{submitConfirmed:true})}};
    legacyReal.profileSnapshot.mode='real';legacyReal.resumeSnapshot.mode='real';
    legacyUnknown={...structuredClone(legacyReal),id:'fictional-old-real-unknown',status:'unknown',phase:'verify',submissionStarted:true};
    state.tasks.push(legacyReal,legacyUnknown);
@@ -126,7 +128,7 @@ try{
     const request=await import(chrome.runtime.getURL('runner/greenhouse-native-request.js'));
     return typeof gate.installNativeGate==='function'&&typeof request.createNativeCapture==='function';
    }),true);
-   if(checkPurpose||dynamic){
+   if(checkPurpose||dynamic||checkPublished14){
     phase='legacy-real-consent-after-update';
     const saved=JSON.parse(await fs.readFile(path.join(directory,'.runtime/data/state.json'),'utf8'));
     for(const old of [legacyReal,legacyUnknown]){
@@ -139,17 +141,20 @@ try{
      assert.deepEqual(await fs.readFile(migrated.resumeSnapshot.file),originalPDF);
      assert.equal(exposed.submissionStarted,old.submissionStarted);
      assert.equal(exposed.canVerify,old.status==='unknown');
+     assert.equal(exposed.executionOffer,null);
      assert.equal(exposed.needsConfirmation,old.status!=='unknown');
      assert.equal(migrated.confirmation.submitConfirmed,undefined);
     }
     assert.match((await api(directory,'/action',{action:'task-resume',taskId:legacyUnknown.id},400)).error,/只能核对|不可重新/);
+    await api(directory,'/action',{action:'task-confirm',taskId:legacyReal.id,purpose:'execute'},400);
+    await api(directory,'/action',{action:'task-confirm',taskId:legacyUnknown.id,purpose:'execute'},400);
    }
    service(directory,'stop');managed=undefined;activeRoot=undefined;
    assert.equal(hash(await fs.readFile(path.join(directory,browserRelative))),browserHash);
    evidence.scenarios.push({baseline:baselineVersion,baselineSource:source,passed:true,installedNativeImports:true,
     profileEditsIdsMappingsAnswersAndTasksPreserved:true,attachmentBytesAndHashMatch:true,unknownCannotResume:true,
     originalProfileIdAndLedgersPreserved:true,extensionIdPreserved:true,freshActualHeartbeat:true,existingBrowserBinaryUnchanged:true,
-    ...(checkPurpose||dynamic?{legacyRealConsentUnverified:!baselineVersion.endsWith('.12'),realInspectionConsentPreserved:baselineVersion.endsWith('.12'),legacyRealUnknownPreserved:true}:{})});
+    ...(checkPurpose||dynamic||checkPublished14?{legacyRealConsentUnverified:!inspectBaseline,realInspectionConsentPreserved:inspectBaseline,legacyRealUnknownPreserved:true}:{})});
    continue;
   }
   phase='repair-existing-and-answer';

@@ -666,7 +666,7 @@ async function collectPublicRequests(audit){
 async function connect(){
   const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension,
     ...((inspectionServer||isolatedExecution)?['--host-resolver-rules='+(isolatedExecution?
-      isolatedHosts.map(host=>'MAP '+host+' 127.0.0.1:4443').join(', ')+', MAP * ~NOTFOUND':
+      isolatedHosts.map(host=>'MAP '+host+' 127.0.0.1:4443').join(', ')+', EXCLUDE 127.0.0.1, MAP * ~NOTFOUND':
       'MAP job-boards.greenhouse.io 127.0.0.1:4443'+(selectionBaseline?', MAP job-boards.cdn.greenhouse.io ~NOTFOUND':'')),'--no-proxy-server',
       '--ignore-certificate-errors-spki-list='+inspectionCertificate]:[])]});
   context=await chromium.launchPersistentContext(path.join(directory,'browser-profile'),options);
