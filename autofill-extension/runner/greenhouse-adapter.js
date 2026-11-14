@@ -386,6 +386,9 @@
         const grouped=schema.some(q=>attachmentAlternative(field.key+'_text',field.groupTitle,q));
         return grouped?{...field,manualTextAlternative:true}:field;
       }));
+      const ethnicity=fields.find(field=>field.controlKind==='hispanic');
+      const visibleRace=fields.find(field=>field.controlKind==='conditional-race');
+      if(visibleRace&&ethnicity)visibleRace.parentScope=ethnicity.scope;
       const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&(expected.replay!==true||!ownedAnswer(expected,field,result.records[index])));
       if(control&&!fields.some(field=>field.key==='race')){
         const parent=fields.find(field=>field.key==='hispanic_ethnicity');
@@ -394,7 +397,7 @@
         if(parentAnswer&&expected.replay!==true){
           const options=source.fields[0].values.filter(item=>item.value!=='4').map(item=>({id:item.value,text:item.label,disabled:false}));
           const race={key:'race',text:control.controls.raceLabel,options,optionsComplete:true,type:'select-one',
-            controlKind:'conditional-race',purpose:'voluntary-sensitive',required:false,source:parent.source};
+            controlKind:'conditional-race',purpose:'voluntary-sensitive',required:false,source:parent.source,parentScope:parent.scope};
           race.version=await sha(JSON.stringify([race.key,race.text,options,'no']));
           race.scope=`greenhouse-v1:${expected.tenant}:${expected.jobId}:race:${race.version}`;
           questions.push(race);

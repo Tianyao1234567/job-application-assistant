@@ -238,7 +238,7 @@ async function runPublicInspection(){
       const row=form.getByRole('group',{name:q.text,exact:true});
       await row.getByLabel(q.text+'：搜索城市',{exact:true}).fill('Springfield');
       await row.getByRole('button',{name:'搜索地点',exact:true}).click();
-      await input.locator('option').filter({hasText:/Springfield/}).first().waitFor();
+      await input.locator('option').filter({hasText:/Springfield/}).first().waitFor({state:'attached'});
       const place=(await input.locator('option').allTextContents()).find(label=>label.includes('Springfield'));
       await input.selectOption({label:place});
       answers.set(q.scope,{value:place,leaveBlank:false});

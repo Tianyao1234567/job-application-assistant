@@ -245,6 +245,28 @@ test('dynamic answers bind exact country and most recent locality candidate rath
   assert.equal(restored.dailyUsed(),0);
 });
 
+test('changing the confirmed self-identification branch invalidates its earlier Race answer',t=>{
+  const env=setup(t,{production:true});begin(env);
+  const parent=question(env,'hispanic_ethnicity',{controlKind:'hispanic',type:'select-one',required:false,
+    options:[{id:'0',text:'No'},{id:'1',text:'Yes'},{id:'2',text:'Decline'}]});
+  const race=question(env,'race',{controlKind:'conditional-race',type:'select-one',required:false,
+    options:[{id:'2',text:'Asian'}],parentScope:parent.scope});
+  const observe=questions=>env.send(env.take(),{ok:true,layout:'layout',questions,login:env.login});
+  const save=(q,selectionId,answer)=>{
+    const batch=env.store.answerBatch(env.task);
+    assert.deepEqual(batch.questions.map(q=>q.key),[q.key]);
+    env.store.action({action:'answers',taskId:env.task.id,batchVersion:batch.version,answers:[{scope:q.scope,version:q.version,selectionId,answer,save:'task'}]});
+  };
+  observe([parent]);save(parent,'0','No');
+  observe([parent,race]);save(race,'2','Asian');
+  const changed=question(env,'hispanic_ethnicity',{controlKind:'hispanic',type:'select-one',required:false,
+    options:[{id:'0',text:'No'},{id:'1',text:'Yes'}]});
+  observe([changed]);save(changed,'1','Yes');
+  assert.equal(env.task.answers[race.scope].stale,true);
+  assert.equal(env.store.applicableAnswer(env.task,race),null);
+  assert.equal(env.store.dailyUsed(),0);
+});
+
 test('legacy real confirmation does not grant either new permission and preserves historical unknown',t=>{
   const env=setup(t,{production:true});begin(env);
   const original=env.task.confirmation;

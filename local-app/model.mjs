@@ -144,7 +144,7 @@ export class Store {
     const site=this.site(t.siteId),own=t.answers?.[q.scope],memory=this.state.answers.find(a=>a.siteId===site.id&&a.scope===q.scope&&a.confirmed===true);
     if(q.controlKind){
       if(!own?.confirmed||own.stale||!['scope','version','text','source','purpose'].every(key=>own[key]===q[key]))return null;
-      if(q.controlKind==='conditional-race'&&!Object.values(t.answers).some(parent=>parent.controlKind==='hispanic'&&parent.selectionId==='0'&&!parent.stale))return null;
+      if(q.controlKind==='conditional-race'&&(!q.parentScope||t.answers[q.parentScope]?.selectionId!=='0'||t.answers[q.parentScope].stale))return null;
       if(own.leaveBlank&&!q.required&&!q.alreadyPopulated)return '';
       if(q.selectedId&&q.selectedId!==own.selectionId)return null;
       if(q.controlKind==='location')return own.location?.id===own.selectionId?own.location.label:null;
