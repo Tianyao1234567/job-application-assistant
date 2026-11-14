@@ -25,8 +25,8 @@ export function locationCandidates(data){
   }
   return candidates;
 }
-async function fetchLimited(url,type,max){
-  const response=await fetch(url,{headers:{Accept:type,...(type==='application/json'&&url instanceof URL&&url.origin==='https://api-geocode-earth-proxy.greenhouse.io'?{Origin:'https://job-boards.greenhouse.io'}:{})},redirect:'error',signal:AbortSignal.timeout(9000)});
+async function fetchLimited(url,type,max,origin){
+  const response=await fetch(url,{headers:{Accept:type,...(origin?{Origin:origin}:{})},redirect:'error',signal:AbortSignal.timeout(9000)});
   if(!response.ok||!response.headers.get('content-type')?.includes(type))throw new Error('地点来源暂时无法读取');
   const reader=response.body.getReader(),parts=[];
   let total=0;
@@ -61,6 +61,6 @@ export async function searchGreenhouseLocations(query,{replay=false,site,taskUrl
     throw new Error('当前公开岗位的地点服务配置已变化，请重新检查');
   const endpoint=new URL(LOCATION_ENDPOINT);
   endpoint.search=new URLSearchParams({api_key:config.LOCATION_CONTROL_API_KEY,layers:'locality',lang:'en',text:query});
-  try{return locationCandidates(JSON.parse(await fetchLimited(endpoint,'application/json',160000)));}
+  try{return locationCandidates(JSON.parse(await fetchLimited(endpoint,'application/json',160000,site.origin)));}
   catch{throw new Error('Greenhouse 地点搜索暂时不可用');}
 }

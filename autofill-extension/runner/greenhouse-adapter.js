@@ -241,7 +241,7 @@
       }
       const {alreadyPopulated,...structure}=field;
       if(field.controlKind==='location'){structure.options=[];optionKeys=[];}
-      records.push({node,field,raw:JSON.stringify({...structure,name:node.name||'',optionKeys})});
+      records.push({node,field,expected,raw:JSON.stringify({...structure,name:node.name||'',optionKeys})});
     }
     const saved=uploaded.get(form);
     if(saved&&!keys.has('resume')){
@@ -269,7 +269,7 @@
     if(field.controlKind==='location'){
       const selected=node.closest('.select')?.querySelector('.select__single-value');
       // Only the verified fixture can expose its retained option identity.
-      if(!document.querySelector('meta[name="job-isolated-execution"]'))return null;
+      if(!isolatedDocument(record.expected))return null;
       return selected?.getAttribute('data-option-id')||null;
     }
     if(field.controlKind==='phone-country'){
@@ -331,7 +331,7 @@
     return typeof actual==='string'&&(q.key==='email'?actual.trim().toLowerCase()===value.trim().toLowerCase():actual===value);
   }
   function isolatedDocument(expected){
-    return expected.confirmationPurpose==='isolated-submit'&&/^[a-f0-9]{48}$/.test(expected.isolatedMarker||'')&&
+    return expected?.confirmationPurpose==='isolated-submit'&&/^[a-f0-9]{48}$/.test(expected.isolatedMarker||'')&&
       expected.origin==='https://job-boards.greenhouse.io'&&/^900\d{6}$/.test(expected.jobId)&&
       document.querySelector('meta[name="job-isolated-execution"]')?.content===expected.isolatedMarker;
   }

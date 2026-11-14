@@ -324,6 +324,7 @@ async function runIsolatedExecution(){
   const profileId=await connect();
   await configureInspection();
   const isolatedCases=[];
+  evidence.isolatedExecution={cases:isolatedCases};
   for(const id of isolatedJobs){
     const url=isolatedJobURL(id);
     await action('add',{url});
@@ -371,11 +372,13 @@ async function runIsolatedExecution(){
       const branch=task(await waitFor('isolated conditional question',state,value=>task(value,id)?.answerBatch?.questions.some(q=>q.key==='race')),id);
       await answerBatch(branch);
     }
+    console.log('Isolated answers saved for '+id);
     const ready=task(await waitFor('ready for separate isolated submission approval',state,value=>task(value,id)?.canConfirmIsolatedExecution),id);
     const isolatedPage=context.pages().find(page=>page.url()===url);
     assert.equal(await isolatedPage.inputValue('#email'),'');
     assert.equal(await isolatedPage.locator('#resume').evaluate(input=>input.files.length),0);
     assert.deepEqual(fixture.counts(id),emptyCounts);
+    assert.equal(fixture.uploadRequests(),isolatedCases.length);
     await dashboard.goto(BASE+'/#queue');
     const currentRow=dashboard.getByRole('row').filter({hasText:ready.title});
     await currentRow.getByRole('button',{name:'查看详情',exact:true}).click();
@@ -392,6 +395,7 @@ async function runIsolatedExecution(){
     if(id===isolatedJobs[0])assert.deepEqual(counts,{posts:1,accepted:1,confirmations:1,responseDropped:0});
     if(id===isolatedJobs[1])assert.deepEqual(counts,emptyCounts);
     isolatedCases.push({jobId:id,status:outcome.status,counts});
+    console.log('Isolated outcome '+JSON.stringify(isolatedCases.at(-1)));
     await dashboard.keyboard.press('Escape');
   }
   const lost=isolatedJobs[2],previous=fixture.counts(lost),pid=app.ready.pid;
@@ -407,7 +411,7 @@ async function runIsolatedExecution(){
   await action('verify',{taskId:restored.id});
   await waitFor('verification only after restart',state,value=>task(value,lost)?.steps.at(-1)?.label==='核对接收结果');
   assert.deepEqual(fixture.counts(lost),previous);
-  evidence.isolatedExecution={beforeExplicitApproval:'zero writes',cases:isolatedCases,restart:fixture.counts(lost),
+  evidence.isolatedExecution={beforeExplicitApproval:'zero uploads and applications',cases:isolatedCases,restart:fixture.counts(lost),
     sameProfile:true,independentBackend:true,productionPaused:true};
   console.log('PASS isolated real-origin explicit approval and native application protection');
 }

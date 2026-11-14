@@ -46,7 +46,7 @@ function applicationPage(id,full,dynamic,isolated){
     ...(isolated?['('+isolatedControls.toString()+')();']:[]),
     ...(full&&!dynamic?['const location='+JSON.stringify({location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'})+';']:[]),
     ...(dynamic?['const places='+JSON.stringify(places)+';',
-      'const ethnicity=document.querySelector("#hispanic_ethnicity"),slot=document.querySelector("#race-slot");',
+      'const ethnicity=form.elements.namedItem("hispanic_ethnicity"),slot=document.querySelector("#race-slot");',
       'ethnicity.addEventListener("change",()=>{slot.replaceChildren();if(ethnicity.value==="0")slot.append(document.querySelector("#race-template").content.cloneNode(true));});',
       'slot.addEventListener("change",event=>{if(event.target.value==="8"){ethnicity.value="2";slot.replaceChildren();}});']:[]),
     'let resume;',
@@ -97,6 +97,7 @@ async function read(request){
 export async function startNativeFixture(directory,resume,{full=false,dynamic=false,isolated=null}={}){
   const origin=isolated?isolatedOrigin:fixtureOrigin;
   const jobs=isolated?isolatedJobs:allJobs,lostJob=isolated?isolatedJobs[2]:fixtureJobs[3];
+  let uploadRequests=0;
   const ref=key=>origin+'/greenhouse-upload/'+key;
   const client=dynamic?currentClient:await fs.readFile(new URL('./greenhouse-native-client.js',import.meta.url));
   const uploads=new Map([['other-fictional-object',{name:resume.name,sha256:digest(Buffer.alloc(resume.bytes.length,88)),size:resume.bytes.length}]]);
@@ -119,6 +120,7 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
       if(url.pathname==='/native-fixture-client.js'&&request.method==='GET')
         return respond(response,200,client,{'Content-Type':'text/javascript'});
       if(url.pathname==='/greenhouse-upload'&&request.method==='POST'){
+        uploadRequests++;
         assert.equal(request.headers.origin,origin);
         assert.equal(request.headers.cookie,cookie);
         const form=await new Request(origin,{method:'POST',headers:{'Content-Type':request.headers['content-type']},body:await read(request)}).formData();
@@ -189,7 +191,7 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
   };
   const server=isolated?https.createServer(isolated,handler):http.createServer(handler);
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(isolated?4443:17322,'127.0.0.1',resolve);});
-  return {acceptanceFile,counts:id=>({...state[id]}),accepted:id=>({...accepted[id]}),
+  return {acceptanceFile,uploadRequests:()=>uploadRequests,counts:id=>({...state[id]}),accepted:id=>({...accepted[id]}),
     trace:id=>structuredClone(traces[id]),
     close:()=>new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()))};
 }
