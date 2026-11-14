@@ -10,6 +10,7 @@ import path from 'node:path';
 import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoot} from '../../autofill-extension/tests/runtime.mjs';
 import {createApp} from '../server.mjs';
 import {currentQuestions} from './fixtures/greenhouse-current-form.mjs';
+import {loadOfficialControls} from './fixtures/greenhouse-official-controls.mjs';
 import {flowAnswers} from './fixtures/greenhouse-native-full-form.mjs';
 import {fixtureOrigin,fixtureTenant,fixtureCompany,fixtureAccount,fixtureAnswers,fixtureJobs,fixtureFaultJobs,jobURL,startNativeFixture,isolatedJobs,isolatedJobURL,isolatedAccount} from './fixtures/greenhouse-native-gate-fixture.mjs';
 
@@ -24,6 +25,7 @@ const dynamic=process.env.GREENHOUSE_DYNAMIC_CONTROLS==='1';
 const selectionBaseline=process.env.GREENHOUSE_SELECTION_BASELINE==='1';
 const isolatedExecution=process.env.GREENHOUSE_ISOLATED_EXECUTION==='1';
 const isolatedMarker=randomBytes(24).toString('hex');
+const officialControls=process.env.GREENHOUSE_OFFICIAL_CONTROLS==='1';
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
@@ -318,7 +320,8 @@ async function runSelectionBaseline(){
 
 async function runIsolatedExecution(){
   const credentials=await inspectionCredentials();
-  fixture=await startNativeFixture(directory,{...resume,name:'synthetic-inspection.txt'},{full:true,dynamic:true,isolated:{...credentials,marker:isolatedMarker}});
+  const renderer=officialControls?await loadOfficialControls():null;
+  fixture=await startNativeFixture(directory,{...resume,name:'synthetic-inspection.txt'},{full:true,dynamic:true,isolated:{...credentials,marker:isolatedMarker,renderer}});
   backendData='data-isolated-execution';
   app=await startBackend();
   const profileId=await connect();
@@ -375,6 +378,7 @@ async function runIsolatedExecution(){
     console.log('Isolated answers saved for '+id);
     const ready=task(await waitFor('ready for separate isolated submission approval',state,value=>task(value,id)?.canConfirmIsolatedExecution),id);
     const isolatedPage=context.pages().find(page=>page.url()===url);
+    if(officialControls)assert.equal(await isolatedPage.locator('#country').getAttribute('aria-labelledby'),'country-label');
     assert.equal(await isolatedPage.inputValue('#email'),'');
     assert.equal(await isolatedPage.locator('#resume').evaluate(input=>input.files.length),0);
     assert.deepEqual(fixture.counts(id),emptyCounts);
@@ -431,7 +435,7 @@ async function runIsolatedExecution(){
   await waitFor('verification only after restart',state,value=>task(value,lost)?.steps.at(-1)?.label==='核对接收结果');
   assert.deepEqual(fixture.counts(lost),previous);
   evidence.isolatedExecution={beforeExplicitApproval:'zero uploads and applications',cases:isolatedCases,restart:fixture.counts(lost),
-    sameProfile:true,independentBackend:true,productionPaused:true};
+    sameProfile:true,independentBackend:true,productionPaused:true,officialControls};
   console.log('PASS isolated real-origin explicit approval and native application protection');
 }
 

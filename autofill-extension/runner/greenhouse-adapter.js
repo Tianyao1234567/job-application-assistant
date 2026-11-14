@@ -3,6 +3,7 @@
 (() => {
   const api=globalThis.JobGreenhouse={};
   const pending=new Map();
+  const locationSelections=globalThis.__jobGreenhouseLocationSelections ||= new WeakMap();
   const archivedQuestionsSha='eec1b7f3b49199d206e5a8897125507d898e93c5cf8a6600022ed653a71df9c4';
   const archivedClientSha='378c96ee0ba18cc20667ed84f7822c0d78d833296d843097040c47e2dfba2728';
   const uploaded=globalThis.__jobGreenhouseFiles ||= new WeakMap();
@@ -267,10 +268,9 @@
     if(!field.controlKind)return null;
     if(node.tagName==='SELECT')return node.value||null;
     if(field.controlKind==='location'){
-      const selected=node.closest('.select')?.querySelector('.select__single-value');
-      // Only the verified fixture can expose its retained option identity.
-      if(!isolatedDocument(record.expected))return null;
-      return selected?.getAttribute('data-option-id')||null;
+      const selection=locationSelections.get(node);
+      if(!isolatedDocument(record.expected)||!selection||selection.label!==selectedChoice(node))return null;
+      return selection.id;
     }
     if(field.controlKind==='phone-country'){
       const match=/^\+(\d+) \(([a-z]{2})\)$/.exec(selectedChoice(node));
@@ -416,6 +416,12 @@
       return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
+  function matchingChoices(node,field,selected,value) {
+    const list=document.getElementById(node.getAttribute('aria-controls')||'');
+    return [...(list?.querySelectorAll('[role="option"]')||[])].filter(option=>
+      visible(option)&&text(option)===value&&option.getAttribute('aria-disabled')!=='true'&&
+      (field.controlKind!=='phone-country'||!!option.querySelector('.iti__flag.iti__'+selected.id)));
+  }
   function fieldTarget(current,expected,key,value,explicit=false,answer=null) {
     const records=current.records.filter(record=>record.field.key===key);
     if(records.length!==1)return fail('structure','字段不存在或不唯一，不能自动填写。');
@@ -428,11 +434,7 @@
         const selectedId=specialChoice(record),baseline=answer.pageBaselineId??answer.selectedId??null;
         if(!selected||selectedChoice(node)&&!selectedId||selectedId&&selectedId!==answer.selectionId&&selectedId!==baseline)
           return fail('manual','保留原网页选择，请重新核对。');
-        const list=document.getElementById(node.getAttribute('aria-controls')||'');
-        const matches=[...(list?.querySelectorAll?.('[role="option"]')||[])].filter(option=>
-          visible(option)&&text(option)===value&&option.getAttribute('aria-disabled')!=='true'&&
-          (field.controlKind!=='phone-country'||!!option.querySelector('.iti__flag.iti__'+selected.id))&&
-          (field.controlKind!=='location'||option.getAttribute('data-option-id')===selected.id));
+        const matches=matchingChoices(node,field,selected,value);
         return {ok:true,...record,write:value,choice:true,structured:true,selectionId:answer.selectionId,
           selected:selectedId,option:matches.length===1?matches[0]:null};
       }
@@ -479,12 +481,14 @@
   // layout, task reports, or logs; submission binds the form state seen before
   // asynchronous hashing and authorization to the final synchronous click.
   function captureValues(current) {
-    return current.records.map(({node,field})=>({node,key:field.key,value:field.type==='file'?null:node.value,selection:field.customControl?selectedChoice(node):null,checked:node.checked,selectedIndex:node.tagName==='SELECT'?node.selectedIndex:undefined,files:field.type==='file'?[...node.files]:null}));
+    return current.records.map(record=>{const {node,field}=record;return {node,key:field.key,value:field.type==='file'?null:node.value,
+      selection:field.customControl?selectedChoice(node):null,choiceId:specialChoice(record),checked:node.checked,
+      selectedIndex:node.tagName==='SELECT'?node.selectedIndex:undefined,files:field.type==='file'?[...node.files]:null};});
   }
   function sameValues(captured,current) {
     return captured.length===current.records.length&&captured.every((before,index)=>{
       const {node,field}=current.records[index];
-      return before.node===node&&before.key===field.key&&before.value===(field.type==='file'?null:node.value)&&before.selection===(field.customControl?selectedChoice(node):null)&&before.checked===node.checked&&(node.tagName!=='SELECT'||before.selectedIndex===node.selectedIndex)&&(!before.files||node.files.length===before.files.length&&before.files.every((file,index)=>node.files[index]===file));
+      return before.node===node&&before.key===field.key&&before.choiceId===specialChoice(current.records[index])&&before.value===(field.type==='file'?null:node.value)&&before.selection===(field.customControl?selectedChoice(node):null)&&before.checked===node.checked&&(node.tagName!=='SELECT'||before.selectedIndex===node.selectedIndex)&&(!before.files||node.files.length===before.files.length&&before.files.every((file,index)=>node.files[index]===file));
     });
   }
   function captchaVisible() {
@@ -699,7 +703,8 @@
           specialChoice(target)===(payload.pageBaselineId??payload.selectedId??null)))return fail('manual','此选项应由本人在页面选择。');
         const q=await question(expected,target);if(payload.confirmed!==true||q.scope!==payload.scope||q.version!==payload.version||q.text!==payload.text||!(q.options.some(option=>option.text===payload.answer&&!option.disabled)||
           q.controlKind==='location'&&isolatedDocument(expected)&&payload.location?.id===payload.selectionId))return fail('structure','原题或确认选项已变化。');
-        Object.assign(prepared,{key:payload.key,node:target.node,original:target.node.value,raw:target.raw,selection:selectedChoice(target.node)});
+        Object.assign(prepared,{key:payload.key,node:target.node,original:target.node.value,raw:target.raw,selection:selectedChoice(target.node),
+          ...(isolatedDocument(expected)&&target.field.controlKind&&{answer:payload.answer,location:payload.location})});
       }else if(method==='fillField'||method==='answer'){
         let key=method==='answer'?payload.key:args[1],value=method==='answer'?payload.answer:args[2];
         const target=fieldTarget(current,expected,key,value,method==='answer',payload);if(!target.ok)return target;
@@ -767,7 +772,22 @@
       if(prepared.method==='openChoice'){
         const target=current.records.find(record=>record.field.key===prepared.key);
         if(target?.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original||selectedChoice(target.node)!==prepared.selection)return fail('manual','控件已变化，未打开菜单。');
-        target.node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));return {ok:true,opened:true};
+        const node=target.node;
+        const reactControl=node.closest('.select__control');
+        (reactControl||node).dispatchEvent(new MouseEvent(reactControl?'mouseup':'mousedown',{bubbles:true,button:0}));
+        if(!prepared.location)return {ok:true,opened:true};
+        setValue(node,prepared.location.label.split(',')[0]);
+        return new Promise(resolve=>{
+          const expires=Date.now()+4000;
+          const poll=()=>{
+            const matches=matchingChoices(node,target.field,prepared.location,prepared.answer);
+            if(matches.length===1)return resolve({ok:true,opened:true});
+            if(matches.length>1||Date.now()>expires||!node.isConnected)
+              return resolve(fail('manual','站点地点菜单未显示唯一的已确认名称。'));
+            setTimeout(poll,50);
+          };
+          poll();
+        });
       }
       if(prepared.method==='fillField'||prepared.method==='answer'){
         const target=fieldTarget(current,expected,prepared.key,prepared.value,prepared.method==='answer',prepared.answer);if(!target.ok)return target;
@@ -776,7 +796,13 @@
           if((prepared.structured?specialChoice(target):selectedChoice(target.node))!==prepared.selection)return fail('manual','本人选择已变化，未覆盖。');
           if(prepared.selection===(prepared.structured?prepared.selectionId:prepared.write))return {ok:true,layout:prepared.layout,filled:0};
           if(target.option!==prepared.option||!visible(prepared.option))return fail('structure','当前选项菜单已变化。');
-          prepared.option.click();return new Promise(resolve=>setTimeout(()=>resolve((prepared.structured?specialChoice(target)===prepared.selectionId:selectedChoice(target.node)===prepared.write)?{ok:true,layout:prepared.layout,filled:1}:fail('manual','网站未保留确认选项。')),500));
+          prepared.option.click();
+          return new Promise(resolve=>setTimeout(()=>{
+            if(target.field.controlKind==='location'&&selectedChoice(target.node)===prepared.write)
+              locationSelections.set(target.node,{id:prepared.selectionId,label:prepared.write});
+            const accepted=prepared.structured?specialChoice(target)===prepared.selectionId:selectedChoice(target.node)===prepared.write;
+            resolve(accepted?{ok:true,layout:prepared.layout,filled:1}:fail('manual','网站未保留确认选项。'));
+          },500));
         }
         if(target.node.value===prepared.write)return {ok:true,layout:prepared.layout,filled:0};
         // No await precedes this one authorized DOM write.

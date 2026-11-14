@@ -43,12 +43,13 @@ function applicationPage(id,full,dynamic,isolated){
     'import {buildApplication,nativeSubmit} from "/native-fixture-client.js";',
     'const loader=window.__remixContext.state.loaderData["routes/$url_token_.jobs_.$job_post_id"];',
     'const form=document.querySelector("form"),input=form.elements.resume;',
-    ...(isolated?['('+isolatedControls.toString()+')();']:[]),
+    ...(isolated?.renderer?['import {installOfficialControls} from "/official-controls.js";',
+      'const officialValues=await installOfficialControls(form,loader.jobPost);']:isolated?['('+isolatedControls.toString()+')();']:[]),
     ...(full&&!dynamic?['const location='+JSON.stringify({location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'})+';']:[]),
     ...(dynamic?['const places='+JSON.stringify(places)+';',
-      'const ethnicity=form.querySelector(\'select[name="hispanic_ethnicity"]\'),slot=document.querySelector("#race-slot");',
-      'ethnicity.addEventListener("change",()=>{slot.replaceChildren();if(ethnicity.value==="0")slot.append(document.querySelector("#race-template").content.cloneNode(true));});',
-      'slot.addEventListener("change",event=>{if(event.target.value==="8"){ethnicity.value="2";slot.replaceChildren();}});']:[]),
+      ...(!isolated?.renderer?['const ethnicity=form.querySelector(\'select[name="hispanic_ethnicity"]\'),slot=document.querySelector("#race-slot");',
+        'ethnicity.addEventListener("change",()=>{slot.replaceChildren();if(ethnicity.value==="0")slot.append(document.querySelector("#race-template").content.cloneNode(true));});',
+        'slot.addEventListener("change",event=>{if(event.target.value==="8"){ethnicity.value="2";slot.replaceChildren();}});']:[])]:[]),
     'let resume;',
     'input.addEventListener("change",()=>{',
     '  const xhr=new XMLHttpRequest(),body=new FormData(),file=input.files[0],key='+JSON.stringify(uploadKey(id))+';',
@@ -65,6 +66,7 @@ function applicationPage(id,full,dynamic,isolated){
     'form.addEventListener("submit",async event=>{',
     '  event.preventDefault();form.dataset.nativeSubmitCalls=String(Number(form.dataset.nativeSubmitCalls||0)+1);',
     '  const values=Object.fromEntries([...form.elements].filter(input=>input.name).map(input=>[input.name,input.value]));',
+    ...(isolated?.renderer?['  Object.assign(values,officialValues());']:[]),
     '  const application=buildApplication(loader.jobPost,{...'+(dynamic?'('+currentValues.toString()+')(values,places)':full?'('+fullValues.toString()+')(values)':'values')+',resume},[],{},[],[],new URLSearchParams(window.location.search));',
     '  try{const response=await nativeSubmit({application,submitPath:loader.submitPath,csrfToken:loader.csrfToken,',
     '    fingerprint:'+(full?'loader.jobPost.fingerprint':'loader.fingerprint')+',jobApplicationRequestToken:loader.jobApplicationRequestToken});',
@@ -72,7 +74,8 @@ function applicationPage(id,full,dynamic,isolated){
     '  }catch{form.dataset.nativeSubmitOutcome="rejected";}',
     '});'
   ].join('\n');
-  const body=(isolated?'<meta name="job-isolated-execution" content="'+isolated.marker+'"><link rel="modulepreload" href="https://job-boards.cdn.greenhouse.io/assets/entry.client-HYmR2EDs.js">':'')+'<h1>Fictional native vacancy '+id+'</h1><p class="job-location">Fictional Test City</p>'+
+  const fixtureEnvironment=isolated?.renderer?'<script>window.ENV={ASSET_URL:location.origin,LOCATION_CONTROL_PROVIDER:"pelias",LOCATION_CONTROL_BASE_URL:location.origin+"/",LOCATION_CONTROL_API_KEY:"fixture"};</script>':'';
+  const body=fixtureEnvironment+(isolated?'<meta name="job-isolated-execution" content="'+isolated.marker+'"><link rel="modulepreload" href="https://job-boards.cdn.greenhouse.io/assets/entry.client-HYmR2EDs.js">':'')+'<h1>Fictional native vacancy '+id+'</h1><p class="job-location">Fictional Test City</p>'+
     '<form data-greenhouse-replay data-tenant="'+fixtureTenant+'" data-job-id="'+id+'" method="post" action="'+submit+'">'+
     (dynamic?currentFields():full?fullFields():input('first_name','text')+input('last_name','text')+input('email','email')+input('phone','tel')+
     '<fieldset class="file-upload"><legend id="upload-label-resume">Resume/CV*</legend><label for="resume">Attach</label>'+
@@ -115,8 +118,10 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
       const connection=connections.get(request.socket);
       const reused=connection.requests++>0;
       const url=new URL(request.url,origin);
-      if(dynamic&&url.pathname==='/greenhouse-locations'&&request.method==='GET')
-        return respond(response,200,JSON.stringify(locationResponse(url.searchParams.get('q'))),{'Content-Type':'application/json'});
+      if(isolated?.renderer?.has(url.pathname)&&request.method==='GET')
+        return respond(response,200,isolated.renderer.get(url.pathname),{'Content-Type':'text/javascript; charset=utf-8'});
+      if(dynamic&&['/greenhouse-locations','/v1/autocomplete'].includes(url.pathname)&&request.method==='GET')
+        return respond(response,200,JSON.stringify(locationResponse(url.searchParams.get('q')||url.searchParams.get('text'))),{'Content-Type':'application/json'});
       if(url.pathname==='/native-fixture-client.js'&&request.method==='GET')
         return respond(response,200,client,{'Content-Type':'text/javascript'});
       if(url.pathname==='/greenhouse-upload'&&request.method==='POST'){
