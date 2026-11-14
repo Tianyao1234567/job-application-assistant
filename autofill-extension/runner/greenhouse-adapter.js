@@ -266,7 +266,12 @@
     const {node,field}=record;
     if(!field.controlKind)return null;
     if(node.tagName==='SELECT')return node.value||null;
-    if(field.controlKind==='location')return null;
+    if(field.controlKind==='location'){
+      const selected=node.closest('.select')?.querySelector('.select__single-value');
+      // Only the verified fixture can expose its retained option identity.
+      if(!document.querySelector('meta[name="job-isolated-execution"]'))return null;
+      return selected?.getAttribute('data-option-id')||null;
+    }
     if(field.controlKind==='phone-country'){
       const match=/^\+(\d+) \(([a-z]{2})\)$/.exec(selectedChoice(node));
       return match&&field.options.some(item=>item.id===match[2]&&item.dial===match[1])?match[2]:null;
@@ -305,7 +310,7 @@
       const id=specialChoice(record);
       if(!id||answer.selectionId!==id)return false;
       if(q.controlKind!=='location')return q.options.some(option=>option.id===id&&option.text===answer.value);
-      const option=record.node.selectedOptions?.[0];
+      const option=record.node.selectedOptions?.[0]||(isolatedDocument(expected)&&record.node.closest('.select')?.querySelector('.select__single-value'));
       return answer.location?.id===id&&!!option&&text(option)===answer.location.label;
     }
     if(!q.required&&!q.alreadyPopulated&&expected.confirmedAnswers.some(answer=>answer?.confirmed===true&&answer.leaveBlank===true&&['key','scope','version','text','source','purpose'].every(key=>answer[key]===q[key])))return true;
@@ -324,6 +329,11 @@
     if(!q.alreadyPopulated)return allowEmpty;
     const actual=controlValue(record);
     return typeof actual==='string'&&(q.key==='email'?actual.trim().toLowerCase()===value.trim().toLowerCase():actual===value);
+  }
+  function isolatedDocument(expected){
+    return expected.confirmationPurpose==='isolated-submit'&&/^[a-f0-9]{48}$/.test(expected.isolatedMarker||'')&&
+      expected.origin==='https://job-boards.greenhouse.io'&&/^900\d{6}$/.test(expected.jobId)&&
+      document.querySelector('meta[name="job-isolated-execution"]')?.content===expected.isolatedMarker;
   }
   async function confirmedQuestions(expected,current) {
     for(const record of current.records){
@@ -389,12 +399,12 @@
       const ethnicity=fields.find(field=>field.controlKind==='hispanic');
       const visibleRace=fields.find(field=>field.controlKind==='conditional-race');
       if(visibleRace&&ethnicity)visibleRace.parentScope=ethnicity.scope;
-      const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&(expected.replay!==true||!ownedAnswer(expected,field,result.records[index])));
+      const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&(!(expected.replay||isolatedDocument(expected))||!ownedAnswer(expected,field,result.records[index])));
       if(control&&!fields.some(field=>field.key==='race')){
         const parent=fields.find(field=>field.key==='hispanic_ethnicity');
         const parentAnswer=parent&&expected.confirmedAnswers?.find(answer=>answer.scope===parent.scope&&answer.selectionId==='0'&&answer.confirmed===true);
         const source=control.job.eeoc_sections.flatMap(section=>section.questions).find(q=>q.fields[0].name==='race');
-        if(parentAnswer&&expected.replay!==true){
+        if(parentAnswer&&!(expected.replay||isolatedDocument(expected))){
           const options=source.fields[0].values.filter(item=>item.value!=='4').map(item=>({id:item.value,text:item.label,disabled:false}));
           const race={key:'race',text:control.controls.raceLabel,options,optionsComplete:true,type:'select-one',
             controlKind:'conditional-race',purpose:'voluntary-sensitive',required:false,source:parent.source,parentScope:parent.scope};
@@ -411,9 +421,22 @@
     if(records.length!==1)return fail('structure','字段不存在或不唯一，不能自动填写。');
     const record=records[0],{node,field}=record;
     if(field.controlKind){
-      if(!expected.replay||!explicit||!editable(node)||node.tagName!=='SELECT'||!answer?.selectionId)
+      if(!(expected.replay||isolatedDocument(expected))||!explicit||!editable(node)||!answer?.selectionId)
         return fail('manual','未核实此控件的受管选择方式。');
       const selected=field.controlKind==='location'?answer.location:field.options.find(option=>option.id===answer.selectionId&&option.text===value);
+      if(isolatedDocument(expected)&&field.customControl){
+        const selectedId=specialChoice(record),baseline=answer.pageBaselineId??answer.selectedId??null;
+        if(!selected||selectedId&&selectedId!==answer.selectionId&&selectedId!==baseline)
+          return fail('manual','保留原网页选择，请重新核对。');
+        const list=document.getElementById(node.getAttribute('aria-controls')||'');
+        const matches=[...(list?.querySelectorAll?.('[role="option"]')||[])].filter(option=>
+          visible(option)&&text(option)===value&&option.getAttribute('aria-disabled')!=='true'&&
+          (field.controlKind!=='phone-country'||!!option.querySelector('.iti__flag.iti__'+selected.id))&&
+          (field.controlKind!=='location'||option.getAttribute('data-option-id')===selected.id));
+        return {ok:true,...record,write:value,choice:true,structured:true,selectionId:answer.selectionId,
+          selected:selectedId,option:matches.length===1?matches[0]:null};
+      }
+      if(node.tagName!=='SELECT')return fail('manual','当前地点控件的实际选项身份尚未核实。');
       const options=[...node.options].filter(o=>o.value===answer.selectionId&&text(o)===value&&!o.disabled&&!o.parentElement?.disabled);
       if(!selected||selected.id!==answer.selectionId||options.length!==1||node.value&&node.value!==selected.id)
         return fail('manual','当前选项标识或本人选择已变化。');
@@ -451,7 +474,7 @@
     if(records.length!==1||records[0].node.disabled||records[0].node.multiple)return fail('structure','未识别到唯一的简历附件控件。');
     return {ok:true,...records[0]};
   }
-  const sameExpected=(a,b)=>['origin','tenant','jobId','company','expectedAccount','replay','applicantConfirmed'].every(key=>a[key]===b[key])&&JSON.stringify(a.confirmedAnswers||[])===JSON.stringify(b.confirmedAnswers||[])&&JSON.stringify(a.profileValues||{})===JSON.stringify(b.profileValues||{});
+  const sameExpected=(a,b)=>['origin','tenant','jobId','company','expectedAccount','replay','applicantConfirmed','confirmationPurpose','isolatedMarker'].every(key=>a[key]===b[key])&&JSON.stringify(a.confirmedAnswers||[])===JSON.stringify(b.confirmedAnswers||[])&&JSON.stringify(a.profileValues||{})===JSON.stringify(b.profileValues||{});
   // Values stay in this isolated world only. They must not be serialized into
   // layout, task reports, or logs; submission binds the form state seen before
   // asynchronous hashing and authorization to the final synchronous click.
@@ -520,10 +543,11 @@
   // require independent confirmation before they can enter this lane.
   api.nativeState=async(expected,layout,locked,captured)=>{
     try{
-      if(expected.replay!==true)return fail('manual','原生真实提交保持暂停。');
+      if(!(expected.replay||isolatedDocument(expected)))return fail('manual','原生真实提交保持暂停。');
       const loader=applicationLoader(expected),control=await publicControlSchema(expected,loader);
       const current=checked(expected,layout,true,control);if(!current.ok)return current;
       const values=captureValues(current),job=loader?.jobPost,schema=job?.questions;
+      if(isolatedDocument(expected)&&!control)return fail('structure','当前隔离执行未匹配已核实的原生结构。');
       if(!schema?.length||schema.length>60||!control&&job.eeoc_sections?.length||job.demographic_questions?.questions?.length)
         return fail('manual','当前原生申请结构缺少独立确认来源。');
       const versioned=schema.some(question=>question.fields?.some(field=>field.name==='candidate_location'));
@@ -666,13 +690,16 @@
       const payload=['answer','openChoice'].includes(method)?args[0]:null,layout=payload?.layout||args[0];
       const control=await publicControlSchema(expected);
       const current=checked(expected,layout,true,control);if(!current.ok)return current;
-      if(!expected.replay&&expected.confirmationPurpose==='inspect')return fail('manual','真实站当前仅允许检查。');
+      if(!expected.replay&&!isolatedDocument(expected))return fail('manual','真实站当前仅允许检查。');
       const prepared={method,expected:{...expected},layout,control,form:current.form,at:Date.now()};
       if(method==='openChoice'){
         const target=current.records.find(record=>record.field.key===payload.key);
-        if(!target?.field.customControl||!target.field.optionsComplete||selectedChoice(target.node)||!editable(target.node))return fail('manual','此选项应由本人在页面选择。');
-        const q=await question(expected,target);if(payload.confirmed!==true||q.scope!==payload.scope||q.version!==payload.version||q.text!==payload.text||!q.options.some(option=>option.text===payload.answer&&!option.disabled))return fail('structure','原题或确认选项已变化。');
-        Object.assign(prepared,{key:payload.key,node:target.node,original:target.node.value,raw:target.raw});
+        if(!target?.field.customControl||!(target.field.optionsComplete||isolatedDocument(expected)&&target.field.controlKind==='location')||!editable(target.node)||
+          selectedChoice(target.node)&&!(isolatedDocument(expected)&&target.field.controlKind&&
+          specialChoice(target)===(payload.pageBaselineId??payload.selectedId??null)))return fail('manual','此选项应由本人在页面选择。');
+        const q=await question(expected,target);if(payload.confirmed!==true||q.scope!==payload.scope||q.version!==payload.version||q.text!==payload.text||!(q.options.some(option=>option.text===payload.answer&&!option.disabled)||
+          q.controlKind==='location'&&isolatedDocument(expected)&&payload.location?.id===payload.selectionId))return fail('structure','原题或确认选项已变化。');
+        Object.assign(prepared,{key:payload.key,node:target.node,original:target.node.value,raw:target.raw,selection:selectedChoice(target.node)});
       }else if(method==='fillField'||method==='answer'){
         let key=method==='answer'?payload.key:args[1],value=method==='answer'?payload.answer:args[2];
         const target=fieldTarget(current,expected,key,value,method==='answer',payload);if(!target.ok)return target;
@@ -685,7 +712,7 @@
           prepared.answer=payload;
         }
         if(target.choice&&!target.selected&&!target.option)return fail('manual','请先打开当前原题的选项菜单。');
-        Object.assign(prepared,{key,value,write:target.write,node:target.node,original:target.node.value,raw:target.raw,choice:target.choice,selection:target.selected,option:target.option});
+        Object.assign(prepared,{key,value,write:target.write,node:target.node,original:target.node.value,raw:target.raw,choice:target.choice,structured:target.structured,selectionId:target.selectionId,selection:target.selected,option:target.option});
       }else if(method==='upload'){
         const target=uploadTarget(current);if(!target.ok)return target;
         const file=args[1];
@@ -733,23 +760,23 @@
   }
   api.commit=(expected,token,nativeGate=false)=>{
     const prepared=pending.get(token);pending.delete(token);
-    if(!prepared||!sameExpected(expected,prepared.expected)||Date.now()-prepared.at>30000)return fail('structure','操作预检已过期或用途已变化，请重新检查。');
+    if(!prepared||!sameExpected(expected,prepared.expected)||!expected.replay&&!isolatedDocument(expected)||Date.now()-prepared.at>30000)return fail('structure','操作预检已过期或用途已变化，请重新检查。');
     try{
       const current=checked(expected,prepared.layout,true,prepared.control);if(!current.ok)return current;
       if(current.form!==prepared.form)return fail('structure','申请表已被替换，请重新检查。');
       if(prepared.method==='openChoice'){
         const target=current.records.find(record=>record.field.key===prepared.key);
-        if(target?.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original||selectedChoice(target.node))return fail('manual','控件已变化，未打开菜单。');
+        if(target?.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original||selectedChoice(target.node)!==prepared.selection)return fail('manual','控件已变化，未打开菜单。');
         target.node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));return {ok:true,opened:true};
       }
       if(prepared.method==='fillField'||prepared.method==='answer'){
         const target=fieldTarget(current,expected,prepared.key,prepared.value,prepared.method==='answer',prepared.answer);if(!target.ok)return target;
         if(target.node!==prepared.node||target.raw!==prepared.raw||target.node.value!==prepared.original)return fail('manual','保留本人接管后修改的内容，未覆盖原值。');
         if(prepared.choice){
-          if(selectedChoice(target.node)!==prepared.selection)return fail('manual','本人选择已变化，未覆盖。');
-          if(prepared.selection===prepared.write)return {ok:true,layout:prepared.layout,filled:0};
+          if((prepared.structured?specialChoice(target):selectedChoice(target.node))!==prepared.selection)return fail('manual','本人选择已变化，未覆盖。');
+          if(prepared.selection===(prepared.structured?prepared.selectionId:prepared.write))return {ok:true,layout:prepared.layout,filled:0};
           if(target.option!==prepared.option||!visible(prepared.option))return fail('structure','当前选项菜单已变化。');
-          prepared.option.click();return new Promise(resolve=>setTimeout(()=>resolve(selectedChoice(target.node)===prepared.write?{ok:true,layout:prepared.layout,filled:1}:fail('manual','网站未保留确认选项。')),500));
+          prepared.option.click();return new Promise(resolve=>setTimeout(()=>resolve((prepared.structured?specialChoice(target)===prepared.selectionId:selectedChoice(target.node)===prepared.write)?{ok:true,layout:prepared.layout,filled:1}:fail('manual','网站未保留确认选项。')),500));
         }
         if(target.node.value===prepared.write)return {ok:true,layout:prepared.layout,filled:0};
         // No await precedes this one authorized DOM write.

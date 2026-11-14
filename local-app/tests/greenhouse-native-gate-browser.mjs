@@ -11,7 +11,7 @@ import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoo
 import {createApp} from '../server.mjs';
 import {currentQuestions} from './fixtures/greenhouse-current-form.mjs';
 import {flowAnswers} from './fixtures/greenhouse-native-full-form.mjs';
-import {fixtureOrigin,fixtureTenant,fixtureCompany,fixtureAccount,fixtureAnswers,fixtureJobs,fixtureFaultJobs,jobURL,startNativeFixture} from './fixtures/greenhouse-native-gate-fixture.mjs';
+import {fixtureOrigin,fixtureTenant,fixtureCompany,fixtureAccount,fixtureAnswers,fixtureJobs,fixtureFaultJobs,jobURL,startNativeFixture,isolatedJobs,isolatedJobURL,isolatedAccount} from './fixtures/greenhouse-native-gate-fixture.mjs';
 
 const require=createRequire(new URL('../../autofill-extension/package.json',import.meta.url));
 const {chromium}=require('playwright');
@@ -22,6 +22,8 @@ const purposes=process.env.GREENHOUSE_CONFIRMATION_PURPOSE==='1';
 const publicInspection=process.env.GREENHOUSE_PUBLIC_INSPECTION==='1';
 const dynamic=process.env.GREENHOUSE_DYNAMIC_CONTROLS==='1';
 const selectionBaseline=process.env.GREENHOUSE_SELECTION_BASELINE==='1';
+const isolatedExecution=process.env.GREENHOUSE_ISOLATED_EXECUTION==='1';
+const isolatedMarker=randomBytes(24).toString('hex');
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
@@ -83,14 +85,18 @@ function baselinePage(){
 let backendData='data',publicNavigation;
 const realPageMethods=[];
 let inspectionServer,inspectionCertificate;
-async function startInspectionSite(){
+async function inspectionCredentials(){
   const certFile=path.join(directory,'inspection-cert.pem'),keyFile=path.join(directory,'inspection-key.pem');
   execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=job-boards.greenhouse.io',
     '-addext','subjectAltName=DNS:job-boards.greenhouse.io','-keyout',keyFile,'-out',certFile],{stdio:'ignore'});
   const [cert,key]=await Promise.all([fs.readFile(certFile),fs.readFile(keyFile)]);
   const spki=new X509Certificate(cert).publicKey.export({type:'spki',format:'der'});
   inspectionCertificate=createHash('sha256').update(spki).digest('base64');
-  inspectionServer=https.createServer({cert,key},(request,response)=>{
+  return {cert,key};
+}
+async function startInspectionSite(){
+  const credentials=await inspectionCredentials();
+  inspectionServer=https.createServer(credentials,(request,response)=>{
     if(request.url!==new URL(realJobUrl).pathname){response.writeHead(404).end();return;}
     realPageMethods.push(request.method);
     if(request.method!=='GET'){response.writeHead(405).end();return;}
@@ -108,18 +114,26 @@ async function configureInspection(){
     item.source='Fictional isolated test record';
     if(item.zh)item.zh=item.zh.replace(/虚构|测试|example\.invalid/g,'Fictional');
   }
-  profile.personal.email.zh=profile.personal.email.en=realAccount;
+  profile.personal.email.zh=profile.personal.email.en=isolatedExecution?isolatedAccount:realAccount;
+  if(isolatedExecution){
+    profile.personal.phone.zh=profile.personal.phone.en='+16135550100';
+    delete profile.personal.location;
+  }
   if(selectionBaseline){
     delete profile.personal.location;
     delete profile.links.linkedin;
   }
-  profile.personal.firstName={zh:'Sample',en:null,source:'Isolated browser check',confirmed:true};
-  profile.personal.lastName={zh:'Applicant',en:null,source:'Isolated browser check',confirmed:true};
+  if(isolatedExecution){
+    delete profile.personal.firstName;delete profile.personal.lastName;
+  }else{
+    profile.personal.firstName={zh:'Sample',en:null,source:'Isolated browser check',confirmed:true};
+    profile.personal.lastName={zh:'Applicant',en:null,source:'Isolated browser check',confirmed:true};
+  }
   await api('/profile',{data:profile,mode:'real',confirmed:true,baseVersion:(await state()).profile.version});
   await api('/resume',{name:'synthetic-inspection.txt',mime:'text/plain',base64:resume.bytes.toString('base64'),mode:'real'});
   await api('/settings',{settings:{mode:'real',scheduleEnabled:false,time:'09:00',dailyLimit:3,keywords:['Fictional'],cities:['Fictional'],visual:true},
     sites:[{id:'real-inspection',name:'Fictional inspection',company:'Mattermost',adapter:'greenhouse-v1',origin:realOrigin,
-      tenant:'mattermost',expectedAccount:realAccount,mode:'real',enabled:true}]});
+      tenant:'mattermost',expectedAccount:isolatedExecution?isolatedAccount:realAccount,mode:'real',enabled:true}]});
 }
 async function runReadOnlyConfirmation(){
   await startInspectionSite();
@@ -302,6 +316,102 @@ async function runSelectionBaseline(){
   console.log('PASS actual APP retains local CA intent against the same US baseline, handles later JP, and saves a city with the default scope');
 }
 
+async function runIsolatedExecution(){
+  const credentials=await inspectionCredentials();
+  fixture=await startNativeFixture(directory,resume,{full:true,dynamic:true,isolated:{...credentials,marker:isolatedMarker}});
+  backendData='data-isolated-execution';
+  app=await startBackend();
+  const profileId=await connect();
+  await configureInspection();
+  const isolatedCases=[];
+  for(const id of isolatedJobs){
+    const url=isolatedJobURL(id);
+    await action('add',{url});
+    const current=await state(),added=task(current,id);
+    const approval={taskId:added.id,jobId:id,profileVersion:current.profile.version,resumeVersion:current.resume.version,
+      resumeSha256:current.resume.sha256,profileId,purpose:'inspect'};
+    await action('task-confirm',{...approval,purpose:'isolated-submit'},400);
+    await dashboard.goto(BASE+'/#queue');
+    const row=dashboard.getByRole('row').filter({hasText:added.title}).first();
+    await row.getByRole('button',{name:'查看详情',exact:true}).click();
+    async function consent(label){
+      const visible=dashboard.getByRole('dialog');
+      const form=visible.getByRole('form');
+      await form.waitFor();
+      for(const checkbox of await form.getByRole('checkbox').all())await checkbox.check();
+      await form.getByRole('button',{name:label,exact:true}).click();
+    }
+    await consent('确认检查原申请页');
+    await waitFor('isolated inspection permission',state,value=>task(value,id)?.confirmation?.purpose==='inspect');
+    await action('resume');
+    const pending=task(await waitFor('isolated page answers',state,value=>task(value,id)?.status==='waiting_answer'),id);
+    await dashboard.getByRole('dialog').getByRole('button',{name:'去补充答案',exact:true}).click();
+    async function answerBatch(entry){
+      const form=dashboard.getByRole('form',{name:'集中补充答案：'+entry.title});
+      for(const q of entry.answerBatch.questions){
+        const field=form.getByLabel(q.text+'：答案',{exact:true});
+        if(q.controlKind==='location'){
+          const group=form.getByRole('group',{name:q.text,exact:true});
+          await group.getByLabel(q.text+'：搜索城市',{exact:true}).fill('Twin City');
+          await group.getByRole('button',{name:'搜索地点',exact:true}).click();
+          await field.selectOption('fiction-place-a');
+          continue;
+        }
+        const value=q.key==='country'?'Canada +1':q.key==='hispanic_ethnicity'?(id===isolatedJobs[2]?'Decline To Self Identify':'No'):
+          q.key==='race'?'Asian':flowAnswers[q.key];
+        await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
+        if(value&&q.options.length)await field.selectOption({label:value});
+        else if(value)await field.fill(value);
+        else await form.getByLabel(q.text+'：本次留空',{exact:true}).check();
+      }
+      await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
+    }
+    await answerBatch(pending);
+    if(id!==isolatedJobs[2]){
+      const branch=task(await waitFor('isolated conditional question',state,value=>task(value,id)?.answerBatch?.questions.some(q=>q.key==='race')),id);
+      await answerBatch(branch);
+    }
+    const ready=task(await waitFor('ready for separate isolated submission approval',state,value=>task(value,id)?.canConfirmIsolatedExecution),id);
+    const isolatedPage=context.pages().find(page=>page.url()===url);
+    assert.equal(await isolatedPage.inputValue('#email'),'');
+    assert.equal(await isolatedPage.locator('#resume').evaluate(input=>input.files.length),0);
+    assert.deepEqual(fixture.counts(id),emptyCounts);
+    await dashboard.goto(BASE+'/#queue');
+    const currentRow=dashboard.getByRole('row').filter({hasText:ready.title});
+    await currentRow.getByRole('button',{name:'查看详情',exact:true}).click();
+    await consent('明确授权隔离测试提交一次');
+    const outcome=task(await waitFor('isolated native outcome',state,value=>{
+      const item=task(value,id);
+      if(item?.confirmation?.purpose==='isolated-submit'&&item.status==='waiting_user')throw new Error(JSON.stringify({issue:item.issue,steps:item.steps.slice(-5)}));
+      return ['submitted','unknown','failed'].includes(item?.status);
+    },45000),id);
+    assert.equal(outcome.id,added.id);
+    const counts=fixture.counts(id);
+    assert.equal(outcome.status,id===isolatedJobs[0]?'submitted':'unknown');
+    assert.equal(counts.accepted,id===isolatedJobs[1]?0:1);
+    if(id===isolatedJobs[0])assert.deepEqual(counts,{posts:1,accepted:1,confirmations:1,responseDropped:0});
+    if(id===isolatedJobs[1])assert.deepEqual(counts,emptyCounts);
+    isolatedCases.push({jobId:id,status:outcome.status,counts});
+    await dashboard.keyboard.press('Escape');
+  }
+  const lost=isolatedJobs[2],previous=fixture.counts(lost),pid=app.ready.pid;
+  await context.close();context=null;
+  await closeApp();app=await startBackend();
+  assert.notEqual(app.ready.pid,pid);
+  assert.equal(await connect(),profileId);
+  const restored=task(await state(),lost);
+  assert.equal(restored.status,'unknown');
+  await action('task-resume',{taskId:restored.id},400);
+  await action('task-confirm',{taskId:restored.id,purpose:'isolated-submit'},400);
+  await action('resume');
+  await action('verify',{taskId:restored.id});
+  await waitFor('verification only after restart',state,value=>task(value,lost)?.steps.at(-1)?.label==='核对接收结果');
+  assert.deepEqual(fixture.counts(lost),previous);
+  evidence.isolatedExecution={beforeExplicitApproval:'zero writes',cases:isolatedCases,restart:fixture.counts(lost),
+    sameProfile:true,independentBackend:true,productionPaused:true};
+  console.log('PASS isolated real-origin explicit approval and native application protection');
+}
+
 async function runPublicInspection(){
   const url=realOrigin+'/mattermost/jobs/5381946008',id='5381946008';
   const audit={url,readAt:new Date().toISOString(),pageResponses:[],modules:[],requests:[],blockedWrites:[],boardWrites:[],sitePageErrors:[]};
@@ -468,7 +578,7 @@ async function collectPublicRequests(audit){
 }
 async function connect(){
   const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension,
-    ...(inspectionServer?['--host-resolver-rules=MAP job-boards.greenhouse.io 127.0.0.1:4443'+(selectionBaseline?', MAP job-boards.cdn.greenhouse.io ~NOTFOUND':''),'--no-proxy-server',
+    ...((inspectionServer||isolatedExecution)?['--host-resolver-rules=MAP job-boards.greenhouse.io 127.0.0.1:4443'+((selectionBaseline||isolatedExecution)?', MAP job-boards.cdn.greenhouse.io ~NOTFOUND':''),'--no-proxy-server',
       '--ignore-certificate-errors-spki-list='+inspectionCertificate]:[])]});
   context=await chromium.launchPersistentContext(path.join(directory,'browser-profile'),options);
   const observedWorkers=[];
@@ -485,11 +595,11 @@ async function connect(){
   // application POST must use the browser's own connection and retry logic.
   context.on('request',request=>{
     const url=new URL(request.url());
-    if(selectionBaseline&&url.origin==='https://job-boards.cdn.greenhouse.io'){
+    if((selectionBaseline||isolatedExecution)&&url.origin==='https://job-boards.cdn.greenhouse.io'){
       assert.equal(request.method(),'GET');
       return; // The pinned asset hint is observed but DNS is explicitly disabled.
     }
-    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!publicNavigation&&!((purposes||selectionBaseline)&&backendData==='data-inspection'&&url.href===realJobUrl))
+    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!publicNavigation&&!(isolatedExecution&&url.origin===realOrigin)&&!((purposes||selectionBaseline)&&backendData==='data-inspection'&&url.href===realJobUrl))
       evidence.externalRequests.push(url.origin);
   });
   // Let the loopback TLS page use Chrome's actual navigation and permissions.
@@ -523,7 +633,7 @@ async function connect(){
       const url=new URL(response.url());
       if(url.origin==='https://job-boards.cdn.greenhouse.io'&&url.pathname.endsWith('.js')&&response.ok()&&!audit.modules.includes(url.pathname))audit.modules.push(url.pathname);
     });
-  }else await context.route(url=>url.protocol==='https:'&&!(inspectionServer&&url.origin===realOrigin),route=>route.abort('blockedbyclient'));
+  }else await context.route(url=>url.protocol==='https:'&&!((inspectionServer||isolatedExecution)&&url.origin===realOrigin),route=>route.abort('blockedbyclient'));
   context.on('page',page=>page.on('pageerror',error=>{
     const message=redact(error.message);
     if(publicNavigation&&page.url()===publicNavigation.url)publicNavigation.sitePageErrors.push(message);
@@ -697,8 +807,8 @@ function record(name,id,item){
 }
 async function startBackend(){
   const dataDir=path.join(directory,backendData);
-  if(!lifecycle&&!full&&!publicNavigation&&!selectionBaseline)return createApp({dataDir,startFixture:false,testMode:true,testKey});
-  const child=fork(fileURLToPath(new URL('./fixtures/greenhouse-native-gate-backend.mjs',import.meta.url)),[dataDir,testKey,selectionBaseline?'selection-baseline':''],
+  if(!lifecycle&&!full&&!publicNavigation&&!selectionBaseline&&!isolatedExecution)return createApp({dataDir,startFixture:false,testMode:true,testKey});
+  const child=fork(fileURLToPath(new URL('./fixtures/greenhouse-native-gate-backend.mjs',import.meta.url)),[dataDir,testKey,isolatedExecution?'isolated-execution':selectionBaseline?'selection-baseline':'',isolatedMarker],
     {cwd:projectRoot,stdio:['ignore','inherit','inherit','ipc']});
   const handle={child,events:[],exit:null};
   child.on('message',event=>handle.events.push(event));
@@ -716,7 +826,7 @@ async function backendEvent(type,jobId){
   },Boolean,10000);
 }
 async function closeApp(){
-  if(!lifecycle&&!full&&!publicNavigation&&!selectionBaseline){
+  if(!lifecycle&&!full&&!publicNavigation&&!selectionBaseline&&!isolatedExecution){
     const closing=app.close();
     app.server.closeAllConnections();
     await closing;
@@ -813,7 +923,11 @@ async function verifyFaults(){
 }
 
 try{
-  if(selectionBaseline){
+  if(isolatedExecution){
+    await runIsolatedExecution();
+    assert.deepEqual(evidence.externalRequests,[]);
+    assert.deepEqual(workerErrors,[]);
+  }else if(selectionBaseline){
     await runSelectionBaseline();
     assert.deepEqual(evidence.externalRequests,[]);
     assert.deepEqual(workerErrors,[]);
@@ -951,7 +1065,7 @@ try{
   process.exitCode=1;
 }finally{
   const jobs=lifecycle?[fixtureJobs[3],...Object.values(fixtureFaultJobs)]:fixtureJobs;
-  if(fixture)evidence.fixture=Object.fromEntries(jobs.map(id=>[id,fixture.counts(id)]));
+  if(fixture)evidence.fixture=Object.fromEntries((isolatedExecution?isolatedJobs:jobs).map(id=>[id,fixture.counts(id)]));
   evidence.pageErrors=workerErrors;
   await fs.writeFile(path.join(evidenceRoot,'greenhouse-native-gate-mv3.json'),JSON.stringify(evidence,null,2));
   await context?.close();

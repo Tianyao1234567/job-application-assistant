@@ -1,5 +1,5 @@
 // Scoped location source used by the observed English Greenhouse renderer.
-export const PUBLIC_JOB='https://job-boards.greenhouse.io/mattermost/jobs/5381946008';
+import {greenhouseJob} from './greenhouse.mjs';
 const LOCATION_ENDPOINT='https://api-geocode-earth-proxy.greenhouse.io/v1/autocomplete';
 
 function cityName(p){
@@ -41,17 +41,21 @@ async function fetchLimited(url,type,max){
   }finally{await reader.cancel().catch(()=>{});}
   return Buffer.concat(parts).toString('utf8');
 }
-export async function searchGreenhouseLocations(query,{replay=false}={}){
+export async function searchGreenhouseLocations(query,{replay=false,site,taskUrl}={}){
   if(replay){
     const endpoint=new URL('http://127.0.0.1:17322/greenhouse-locations');
     endpoint.searchParams.set('q',query);
     return locationCandidates(JSON.parse(await fetchLimited(endpoint,'application/json',160000)));
   }
-  const html=await fetchLimited(PUBLIC_JOB,'text/html',250000);
+  const jobScope=greenhouseJob(site,taskUrl);
+  if(site.adapter!=='greenhouse-v1'||site.tenant!=='mattermost'||
+     !['https://job-boards.greenhouse.io','https://boards.greenhouse.io'].includes(site.origin))
+    throw new Error('此岗位的地点服务尚未核实');
+  const html=await fetchLimited(jobScope.url,'text/html',250000);
   const payload=html.match(/<script[^>]*>\s*window\.__remixContext\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/)?.[1];
   const data=payload&&JSON.parse(payload).state?.loaderData;
   const config=data?.root?.ENV,job=data?.['routes/$url_token_.jobs_.$job_post_id'];
-  if(job?.urlToken!=='mattermost'||String(job.jobPostId)!=='5381946008'||job.jobPost?.public_url!==PUBLIC_JOB||
+  if(job?.urlToken!==site.tenant||String(job.jobPostId)!==jobScope.jobId||job.jobPost?.public_url!==jobScope.url||
      config?.LOCATION_CONTROL_PROVIDER!=='pelias'||config.LOCATION_CONTROL_BASE_URL!=='https://api-geocode-earth-proxy.greenhouse.io/'||
      typeof config.LOCATION_CONTROL_API_KEY!=='string'||!/^[-\w]{1,200}$/.test(config.LOCATION_CONTROL_API_KEY))
     throw new Error('当前公开岗位的地点服务配置已变化，请重新检查');

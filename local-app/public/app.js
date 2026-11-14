@@ -378,6 +378,7 @@ function taskActions(task) {
   else if (task.status==='submitting') actions.push(el('span',{class:'badge warning',text:'提交已记录，等待回执；不可重新投递'}));
   else {
     if (task.needsConfirmation === true) actions.push(button(task.mode==='real'?'确认检查原申请页':'确认岗位、资料与提交',()=>showTask(task.id),'primary'));
+    else if(task.canConfirmIsolatedExecution)actions.push(button('核对并授权隔离测试提交',()=>showTask(task.id),'primary'));
     else if (task.canResume === true) actions.push(actionButton(task.status==='skipped'?'重新检查并排队':'重新检查并继续','task-resume',{taskId:task.id},'primary'));
     if (['queued','running','waiting_answer','waiting_user'].includes(task.status)) actions.push(actionButton('暂停并接管','task-pause',{taskId:task.id}));
     if (!['skipped','cancelled'].includes(task.status)) actions.push(actionButton('跳过此任务','task-skip',{taskId:task.id},'danger'));
@@ -409,7 +410,7 @@ function renderTaskDialog() {
     el('div',{class:'dialog-body'},el('div',{class:'dialog-meta'},meta('网站',site?.name||'网站已移除'),meta('运行模式',modeLabel(task.mode)),meta('当前步骤',phaseLabels[task.phase]||'等待核实'),meta('资料版本',task.profileVersion?`v${task.profileVersion}`:'执行前锁定'),meta('简历版本',task.resumeVersion?`v${task.resumeVersion}`:'执行前锁定'),meta('岗位编号',task.jobId)),p(task.filterReason,'details-note'),
       task.issue?banner(task.issue.title,task.issue.detail,task.status==='unknown'?'danger':''):null,
       task.status==='unknown'?banner('只核对，不重新提交','没有找到回执也不代表可以重投。登录恢复、重连和重启都不会自动再次提交。','danger'):null,
-      task.needsConfirmation ? taskConfirmationForm(task) : task.confirmation ? p(`确认记录（${task.confirmation.purpose==='inspect'?'检查页面':task.mode==='demo'&&(task.confirmation.purpose==='submit'||task.confirmation.purpose===undefined&&task.confirmation.submitConfirmed===true)?'提交一次虚构申请':'原记录用途未核实'}）：${fmtDate(task.confirmation.confirmedAt)} · 资料 v${task.confirmation.profileVersion} · 简历 v${task.confirmation.resumeVersion} · 仅当前岗位与执行配置`,'details-note') : null,
+      task.needsConfirmation||task.canConfirmIsolatedExecution ? taskConfirmationForm(task) : task.confirmation ? p(`确认记录（${task.confirmation.purpose==='inspect'?'检查页面':task.mode==='demo'&&(task.confirmation.purpose==='submit'||task.confirmation.purpose===undefined&&task.confirmation.submitConfirmed===true)?'提交一次虚构申请':'原记录用途未核实'}）：${fmtDate(task.confirmation.confirmedAt)} · 资料 v${task.confirmation.profileVersion} · 简历 v${task.confirmation.resumeVersion} · 仅当前岗位与执行配置`,'details-note') : null,
       task.result?card('提交结果依据',el('div',{},meta('站点回执',task.result.receiptId),meta('附件',`${task.result.fileName} · ${task.result.fileSize} 字节`),meta('附件 SHA-256',el('span',{class:'hash-text',text:task.result.sha256})),p(task.result.evidence,'details-note'))):null,
       inspectionNotes(task),
       taskActions(task),
@@ -424,7 +425,7 @@ function confirmationContext(task) {
   const site=state.sites.find(item=>item.id===task.siteId);
   return {taskId:task.id,jobId:task.jobId,url:task.url,company:site?.company||task.company,expectedAccount:site?.expectedAccount,
     profileVersion:state.profile.version,resumeVersion:state.resume?.version,resumeSha256:state.resume?.sha256,profileId:state.connection.profileId,
-    purpose:task.mode==='real'?'inspect':'submit'};
+    purpose:task.mode==='real'?(task.canConfirmIsolatedExecution?'isolated-submit':'inspect'):'submit'};
 }
 function taskConfirmationForm(task) {
   const captured=confirmationContext(task), signature=JSON.stringify(captured);
@@ -444,7 +445,7 @@ function taskConfirmationForm(task) {
     checks[id]=draftInput(`${token}:${signature}:${id}`,{type:'checkbox',required:true,'aria-label':label},false);
     form.append(checkLine(label,checks[id]));
   }
-  const submit=submitButton(readOnly?'确认检查原申请页':'确认本次申请并继续',token);
+  const submit=submitButton(readOnly?'确认检查原申请页':captured.purpose==='isolated-submit'?'明确授权隔离测试提交一次':'确认本次申请并继续',token);
   submit.disabled=submit.disabled||!state.connection.connected||!state.resume||!captured.profileVersion;
   form.append(el('div',{class:'form-actions'},submit));
   form.addEventListener('submit',async event=>{
@@ -452,9 +453,9 @@ function taskConfirmationForm(task) {
     try{
       if(!Object.values(checks).every(control=>control.checked))throw new Error('请本人逐项核对岗位、资料、附件与提交动作。');
       const current=state.tasks.find(item=>item.id===task.id);
-      if(!current?.needsConfirmation||JSON.stringify(confirmationContext(current))!==signature)throw new Error('岗位、资料、附件或执行配置已经变化，请重新查看并确认当前版本。');
+      if(!(current?.needsConfirmation||current?.canConfirmIsolatedExecution)||JSON.stringify(confirmationContext(current))!==signature)throw new Error('岗位、资料、附件或执行配置已经变化，请重新查看并确认当前版本。');
       if(!state.connection.connected)throw new Error('请先连接实际执行浏览器，再确认本次申请。');
-      await submitOnce(form,token,()=>perform('task-confirm',{taskId:captured.taskId,jobId:captured.jobId,profileVersion:captured.profileVersion,resumeVersion:captured.resumeVersion,profileId:captured.profileId,purpose:captured.purpose}));
+      await submitOnce(form,token,()=>perform('task-confirm',{taskId:captured.taskId,jobId:captured.jobId,profileVersion:captured.profileVersion,resumeVersion:captured.resumeVersion,resumeSha256:captured.resumeSha256,profileId:captured.profileId,purpose:captured.purpose}));
       for(const id of drafts.keys())if(id.startsWith(`${token}:`))drafts.delete(id);
     }catch(error){errorBox(form,error);}
   });

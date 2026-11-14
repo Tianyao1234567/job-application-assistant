@@ -1,8 +1,10 @@
 // Both functions are serialized by chrome.scripting and execute in the MAIN
 // world of one verified top-level document. The key is never passed via DOM.
-export function installNativeGate({key,source,submitUrl,confirmationUrl}) {
+export function installNativeGate({key,source,submitUrl,confirmationUrl,isolatedMarker}) {
   const controlName='__jobNativeGateControl';
-  if(location.href!==source||location.origin!=='http://127.0.0.1:17322'||
+  const isolated=location.origin==='https://job-boards.greenhouse.io'&&/^\/mattermost\/jobs\/900\d{6}$/.test(location.pathname)&&
+    /^[a-f0-9]{48}$/.test(isolatedMarker||'')&&document.querySelector('meta[name="job-isolated-execution"]')?.content===isolatedMarker;
+  if(location.href!==source||(!isolated&&location.origin!=='http://127.0.0.1:17322')||
     new URL(submitUrl).origin!==location.origin||!globalThis.navigation||
     typeof key!=='string'||!key||Object.hasOwn(globalThis,controlName))return {ok:false};
   const nativeFetch=globalThis.fetch.bind(globalThis);

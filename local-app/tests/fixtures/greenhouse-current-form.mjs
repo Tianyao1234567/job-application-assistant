@@ -18,6 +18,43 @@ export function locationResponse(query){
   return {features:matches.map(place=>({geometry:{type:'Point',coordinates:[place.lon,place.lat]},
     properties:{id:place.id,label:place.label,layer:'locality',region:place.region,country:'Canada',country_code:'CA'}}))};
 }
+export function isolatedControls(){
+  for(const id of ['country','candidate-location','hispanic_ethnicity']){
+    const select=document.getElementById(id),wrap=document.createElement('div'),input=document.createElement('input');
+    select.before(wrap);wrap.className='select';wrap.append(input,select);select.id=id+'-native';select.hidden=true;
+    const label=document.querySelector('label[for="'+id+'"]');
+    if(label)label.setAttribute('for',id);
+    input.id=id;input.setAttribute('role','combobox');
+    const show=()=>{
+      wrap.querySelector('.select__single-value')?.remove();
+      if(!select.value)return;
+      const value=document.createElement('div'),option=select.selectedOptions[0];
+      value.className='select__single-value';value.dataset.optionId=option.value;
+      if(id==='country'){
+        const flag=document.createElement('span');flag.className='iti__flag iti__'+option.value;value.append(flag,option.textContent.match(/\+\d+$/)[0]);
+      }else value.textContent=option.textContent;
+      wrap.append(value);
+    };
+    input.addEventListener('mousedown',()=>{
+      if(wrap.querySelector('[role=listbox]'))return;
+      const list=document.createElement('div');
+      list.id=id+'-choices';list.setAttribute('role','listbox');input.setAttribute('aria-controls',list.id);
+      for(const option of [...select.options].filter(option=>option.value)){
+        const item=document.createElement('div');item.setAttribute('role','option');item.dataset.optionId=option.value;
+        if(id==='country'){
+          const flag=document.createElement('span');flag.className='iti__flag iti__'+option.value;item.append(flag);
+        }
+        item.append(option.textContent);
+        item.addEventListener('click',()=>{select.value=option.value;show();list.remove();input.removeAttribute('aria-controls');
+          select.dispatchEvent(new Event('change',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));});
+        list.append(item);
+      }
+      wrap.append(list);
+    });
+    if(id==='country')select.value='us';
+    show();
+  }
+}
 const escape=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
 function select(name,label,choices,required=false){
   return '<p><label for="'+name+'">'+label+(required?'*':'')+'</label><select id="'+name+'" name="'+name+'"'+(required?' required':'')+'><option value=""></option>'+
@@ -45,11 +82,12 @@ export function currentValues(values,places){
   if(hispanic_ethnicity==='2')rest.race='8';
   return {...rest,location:place.label,latitude:String(place.lat),longitude:String(place.lon),country_short_name:'CA'};
 }
-export function assertCurrentApplication(application,reference,file,id){
+export function assertCurrentApplication(application,reference,file,id,email='fictional@example.invalid'){
   const {race,gender,veteran_status,phone,location,latitude,longitude,country_short_name,...rest}=application;
   assert.equal(gender,undefined);assert.equal(veteran_status,undefined);
-  assert.equal(race,id==='12345674'?'8':'2');
+  assert.equal(race,['12345674','900000013'].includes(id)?'8':'2');
+  assert.equal(rest.email,email);
   assert.equal(phone,'+16135550100');
   assert.deepEqual({location,latitude,longitude,country_short_name},{location:places[0].label,latitude:String(places[0].lat),longitude:String(places[0].lon),country_short_name:'CA'});
-  assertArchived({...rest,phone:'10000000000',location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'},reference,file);
+  assertArchived({...rest,email:'fictional@example.invalid',phone:'10000000000',location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'},reference,file);
 }

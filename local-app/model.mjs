@@ -62,7 +62,8 @@ export function scheduleDecision(settings, lastSchedule, now) {
 }
 
 export class Store {
-  constructor(paths,{now=()=>Date.now()}={}) {
+  constructor(paths,{now=()=>Date.now(),isolatedExecution=null}={}) {
+    this.isolatedExecution=isolatedExecution;
     this.paths=paths;this.clock=now;this.file=insideRoot(path.join(paths.data,'state.json'));this.lastSeen=0;this.connection=null;this.queue=[];this.command=null;this.tickBusy=false;
     this.state=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):{schema:2,version:VERSION,paused:true,running:false,manualPaused:false,settings:{mode:'demo',scheduleEnabled:false,time:'09:00',dailyLimit:3,keywords:[],cities:[],visual:true},sites:[],tasks:[],issues:[],profile:{version:0,data:emptyProfile(),mode:'demo'},resume:null,answers:[],lastSchedule:null};
     // Legacy paused state has no provenance. Preserve it as a user hold rather
@@ -74,7 +75,7 @@ export class Store {
         const confirmation=t.confirmation;
         // Legacy real-site consent predates a trustworthy purpose. Keep its
         // scope and history but remove the old assertion of submission consent.
-        if(confirmation.purpose!=='inspect')confirmation.purpose='unverified';
+        if(confirmation.purpose!=='inspect'&&!(confirmation.purpose==='isolated-submit'&&this.isolatedBinding(t)))confirmation.purpose='unverified';
         delete confirmation.submitConfirmed;
       }
       if(this.hasSubmissionBoundary(t))t.submissionStarted=true;
@@ -100,11 +101,21 @@ export class Store {
   canResumeTask(t){return resumable.has(t.status)&&!this.hasSubmissionBoundary(t);}
   canVerifyTask(t){return t.status!=='submitting'&&this.hasSubmissionBoundary(t);}
   invalidateTask(t){t.revision=(t.revision||0)+1;if(!terminal.has(t.status)&&t.status!=='submitting')t.phase='inspect';}
+  isolatedBinding(task){
+    const scope=this.isolatedExecution;
+    return scope?.urls.includes(task.url)&&/^https:\/\/job-boards\.greenhouse\.io\/mattermost\/jobs\/900\d{6}$/.test(task.url)&&
+      /^[a-f0-9]{48}$/.test(scope.marker)?scope.marker:null;
+  }
+  canExecuteGreenhouse(task,site){
+    return greenhouseReplay(site)||this.confirmationPurpose(task,site)==='isolated-submit';
+  }
   confirmationPurpose(t,site){
     const c=t.confirmation;
     if(!c)return null;
     if(greenhouseReplay(site))return c.purpose==='submit'||(c.purpose===undefined&&c.submitConfirmed===true)?'submit':null;
-    return site.adapter==='greenhouse-v1'&&c.purpose==='inspect'?'inspect':null;
+    if(site.adapter!=='greenhouse-v1')return null;
+    if(c.purpose==='isolated-submit'&&this.isolatedBinding(t)&&c.isolatedRun===this.isolatedBinding(t))return 'isolated-submit';
+    return c.purpose==='inspect'?'inspect':null;
   }
   confirmedTask(t,purpose){
     const site=this.site(t.siteId),c=t.confirmation,email=t.profileSnapshot?.data?.personal?.email;
@@ -115,7 +126,10 @@ export class Store {
   confirmTask(t,body){
     const site=this.site(t.siteId);
     if(!isGreenhouse(site)||this.hasSubmissionBoundary(t))throw new Error('该任务不能重新确认投递；已进入提交阶段时只能核对结果');
-    const replay=greenhouseReplay(site),purpose=replay?'submit':'inspect';
+    const replay=greenhouseReplay(site),isolated=site.adapter==='greenhouse-v1'&&body.purpose==='isolated-submit'&&this.isolatedBinding(t);
+    const purpose=replay?'submit':isolated?'isolated-submit':'inspect';
+    if(isolated&&(!this.confirmedTask(t,'inspect')||t.status!=='waiting_user'||body.resumeSha256!==this.state.resume?.sha256))
+      throw new Error('请先完成只读检查，并重新核对附件摘要');
     const legacyReplay=replay&&body.purpose===undefined&&body.submitConfirmed===true;
     if(!legacyReplay&&(body.purpose!==purpose||Object.hasOwn(body,'submitConfirmed')))
       throw new Error(replay?'请明确确认提交一次虚构申请':'真实站当前仅允许确认检查页面');
@@ -128,8 +142,8 @@ export class Store {
     const versionsChanged=t.profileVersion!==profile.version||t.resumeVersion!==this.state.resume.version;
     t.executionProfileId=body.profileId;t.profileSnapshot=clone(profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=profile.version;t.resumeVersion=this.state.resume.version;
     if(versionsChanged){delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).map(([scope,answer])=>{const key=stableProfileKey(answer);if(!key||answer.leaveBlank===true)return [scope,answer];const before=previousProfile?profileValue(previousProfile,key):null,after=profileValue(profile.data,key);if(JSON.stringify(before||null)!==JSON.stringify(after||null)){const updated={...answer};if(after?.confirmed===true&&[after.zh,after.en].includes(answer.value))delete updated.stale;else updated.stale=true;return [scope,updated];}return [scope,answer];}));t.questions=[];}delete t.answerSupplement;
-    t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,purpose,confirmedAt:this.now()};
-    t.status='queued';t.phase='inspect';this.step(t,replay?'本人已确认提交一次虚构申请':'本人已确认检查原申请页',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；${replay?'填写前仍重新核对原值、结构和岗位。':'真实站当前仅检查页面。'}`);
+    t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,purpose,...(isolated?{isolatedRun:isolated}:{}),confirmedAt:this.now()};
+    t.status='queued';t.phase='inspect';this.step(t,replay||isolated?'本人已确认提交一次虚构申请':'本人已确认检查原申请页',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；${replay?'填写前仍重新核对原值、结构和岗位。':'真实站当前仅检查页面。'}`);
   }
   holdConfirmation(t){
     t.status='waiting_user';t.phase='inspect';
@@ -145,13 +159,14 @@ export class Store {
     if(q.controlKind){
       if(!own?.confirmed||own.stale||!['scope','version','text','source','purpose'].every(key=>own[key]===q[key]))return null;
       if(q.controlKind==='conditional-race'&&(!q.parentScope||own.parentScope!==q.parentScope||t.answers[q.parentScope]?.selectionId!=='0'||t.answers[q.parentScope].stale))return null;
-      if(site.adapter==='greenhouse-v1'){
+      if(site.adapter==='greenhouse-v1'&&!this.canExecuteGreenhouse(t,site)){
         const current=q.selectedId??null;
         // Candidate.13 stored the observed ID on the answer itself. An
         // unidentifiable populated control cannot prove an unchanged baseline.
         const baseline=own.pageBaselineId??own.selectedId??null;
         if(current!==baseline||q.alreadyPopulated&&!current||baseline===null&&own.alreadyPopulated)return null;
-      }else if(q.selectedId&&q.selectedId!==own.selectionId)return null;
+      }else if(q.selectedId&&q.selectedId!==own.selectionId&&
+        !(site.adapter==='greenhouse-v1'&&q.selectedId===(own.pageBaselineId??own.selectedId)))return null;
       if(own.leaveBlank&&!q.required&&!q.alreadyPopulated)return '';
       if(q.controlKind==='location')return own.location?.id===own.selectionId?own.location.label:null;
       return q.options.find(option=>option.id===own.selectionId&&!option.disabled)?.text||null;
@@ -197,7 +212,8 @@ export class Store {
     this.locationSearches ||= new Map();
     const ticket={batchVersion,scope,revision:task.revision,candidates:[]};
     this.locationSearches.set(task.id,ticket);
-    const candidates=await search(query.trim(),{replay:greenhouseReplay(this.site(task.siteId))});
+    const site=this.site(task.siteId);
+    const candidates=await search(query.trim(),{replay:greenhouseReplay(site),site,taskUrl:task.url});
     if(this.locationSearches.get(task.id)!==ticket||this.task(task.id).revision!==ticket.revision||this.answerBatch(this.task(task.id)).version!==batchVersion)
       throw new Error('地点搜索已过期，请在最新缺项中重新搜索');
     ticket.candidates=candidates;
@@ -289,7 +305,9 @@ export class Store {
   }
   snapshot(){
     const s=clone(this.state),connected=this.clock()-this.lastSeen<6000&&this.lastSeen>0;
-    for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));if(t.status==='waiting_answer')t.answerBatch=this.answerBatch(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
+    for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);
+      t.canConfirmIsolatedExecution=!!this.isolatedBinding(t)&&!this.hasSubmissionBoundary(t)&&!t.needsConfirmation&&this.confirmationPurpose(this.task(t.id),this.site(t.siteId))==='inspect'&&t.status==='waiting_user';
+      if(t.confirmation)delete t.confirmation.isolatedRun;t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));if(t.status==='waiting_answer')t.answerBatch=this.answerBatch(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
     const decision=scheduleDecision(s.settings,s.lastSchedule,this.clock());
     let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
     const stats={demo:{submitted:0,today:0},real:{submitted:0,today:0}};
@@ -600,7 +618,7 @@ export class Store {
       const t=this.state.tasks.find(t=>['queued','running'].includes(t.status)&&this.state.sites.some(s=>s.id===t.siteId&&s.enabled&&!s.skipped&&supportedSite(s)&&s.mode===this.state.settings.mode));
       if(t){const site=this.site(t.siteId);
         if(isGreenhouse(site)&&!this.confirmedTask(t)){this.holdConfirmation(t);this.save();return {command:null};}
-        if(isGreenhouse(site)&&!greenhouseReplay(site))t.phase='inspect';
+        if(isGreenhouse(site)&&!this.canExecuteGreenhouse(t,site))t.phase='inspect';
         if(!isGreenhouse(site)&&(site.login?.status!=='ready'||site.login.profileId!==client.profileId))c={id:uid(),op:'check',siteId:site.id,payload:{},control:true};
         else{
           if(!t.profileSnapshot){t.profileSnapshot=clone(this.state.profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=this.state.profile.version;t.resumeVersion=this.state.resume.version;this.step(t,'锁定本次资料版本',`资料 v${t.profileVersion} · 简历 v${t.resumeVersion}`);}
@@ -617,7 +635,7 @@ export class Store {
             c.payload={entries,layout:t.layout};
           }
           if(c.op==='upload'){const f=t.resumeSnapshot;c.payload={file:{name:f.name,mime:f.mime,size:f.size,sha256:f.sha256,base64:fs.readFileSync(insideRoot(f.file)).toString('base64')},layout:t.layout};}
-          if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,selectionId:t.answer.selectionId,location:t.answer.location,confirmed:t.answer.confirmed===true||!isGreenhouse(site),layout:t.layout};
+          if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,selectionId:t.answer.selectionId,pageBaselineId:t.answer.pageBaselineId,location:t.answer.location,confirmed:t.answer.confirmed===true||!isGreenhouse(site),layout:t.layout};
           if(c.op==='preflight')c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};
           if(c.op==='submit'){c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};t.status='submitting';t.submissionStarted=true;t.submitDay=this.day();this.step(t,'提交阶段已记录','先保存提交边界，再允许明确的提交操作；结果不明不重试');}
         }
@@ -627,24 +645,20 @@ export class Store {
     c.clientId=client.clientId;c.profileId=client.profileId;c.extensionId=client.extensionId;c.claimedAt=this.clock();if(c.taskId)c.revision=this.task(c.taskId).revision||0;this.command=c;this.save();
     const site=clone(this.site(c.siteId)),task=c.taskId?this.task(c.taskId):null;
     delete site.login;
-    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.profileId===client.profileId:this.confirmedTask(task),confirmationPurpose:this.confirmationPurpose(task,site),confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true&&answer.stale!==true).map(answer=>clone(answer)),confirmedProfileEntries:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>['personal.email','personal.phone','personal.location'].includes(e.key)&&e.confirmed&&e.value.trim()).map(e=>({key:e.key,value:e.key==='personal.email'?site.expectedAccount:e.value,confirmed:true})),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
+    return {command:{id:c.id,op:c.op,site,payload:c.payload,task:task?{id:task.id,jobId:task.jobId,url:task.url,company:task.company,title:task.title,mode:task.mode,tabId:task.tabId,...(isGreenhouse(site)?{executionProfileId:task.executionProfileId,applicantConfirmed:c.op==='verify'?task.executionProfileId===client.profileId&&task.confirmation?.profileId===client.profileId:this.confirmedTask(task),confirmationPurpose:this.confirmationPurpose(task,site),isolatedMarker:this.confirmationPurpose(task,site)==='isolated-submit'?this.isolatedBinding(task):undefined,confirmation:clone(task.confirmation),confirmedAnswers:Object.values(task.answers||{}).filter(answer=>answer.confirmed===true&&answer.stale!==true).map(answer=>clone(answer)),confirmedProfileEntries:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>['personal.email','personal.phone','personal.location'].includes(e.key)&&e.confirmed&&e.value.trim()).map(e=>({key:e.key,value:e.key==='personal.email'?site.expectedAccount:e.value,confirmed:true})),confirmedProfileKeys:flattenProfile(task.profileSnapshot?.data||emptyProfile()).filter(e=>e.confirmed&&e.value.trim()).map(e=>e.key)}:{})}:undefined}};
   }
   authorize({clientId,commandId,captureOnly=false}){
     this.expireCommand();
     const c=this.command;if(!c||c.id!==commandId||c.clientId!==clientId||!sameClient(c,this.connection))return {allowed:false};
-    if(c.taskId&&c.op!=='inspect'&&c.op!=='preflight'&&c.op!=='verify'){
-      const site=this.site(c.siteId);
-      if(isGreenhouse(site)&&!greenhouseReplay(site))return {allowed:false};
-    }
     if(c.op==='verify')return {allowed:!!c.taskId&&this.canVerifyTask(this.task(c.taskId))&&(!isGreenhouse(this.site(c.siteId))||this.task(c.taskId).executionProfileId===this.connection.profileId)};
     if(!c.taskId){const site=this.site(c.siteId);return {allowed:c.op==='open'||c.op==='check'||(!this.state.paused&&site.enabled&&!site.skipped&&site.mode===this.state.settings.mode)};}
     const t=this.task(c.taskId),site=this.site(t.siteId);
     const local=t.mode==='demo'&&site.origin===FIXTURE&&site.adapter==='local-v1'&&t.profileSnapshot?.mode==='demo'&&t.resumeSnapshot?.mode==='demo';
     const readOnly=c.op==='inspect'||c.op==='preflight';
-    const purpose=greenhouseReplay(site)?'submit':'inspect';
-    const greenhouse=isGreenhouse(site)&&(readOnly||purpose==='submit')&&this.confirmedTask(t,purpose)&&t.mode===site.mode;
+    const executable=isGreenhouse(site)&&this.canExecuteGreenhouse(t,site);
+    const greenhouse=isGreenhouse(site)&&(readOnly||executable)&&this.confirmedTask(t)&&t.mode===site.mode;
     const allowed=(t.revision||0)===c.revision&&!this.state.paused&&!site.skipped&&site.enabled&&['running','submitting'].includes(t.status)&&t.mode===this.state.settings.mode&&(local||greenhouse);
-    if(captureOnly===true)return {allowed:allowed&&c.op==='submit'&&greenhouseReplay(site)};
+    if(captureOnly===true)return {allowed:allowed&&c.op==='submit'&&executable};
     if(allowed&&c.op==='submit'){t.submitAuthorizedAt=this.now();this.save();}
     return {allowed};
   }
@@ -732,7 +746,7 @@ export class Store {
           const questions=Array.isArray(r.questions)&&r.questions.length<=60?r.questions.map(q=>greenhouseQuestion(site,t,q,{allowIncomplete:true})):null;
           if(!questions||questions.some(q=>!q)||new Set(questions.map(q=>q.scope)).size!==questions.length){t.status='waiting_user';this.issue(t,'structure','申请问题证据不完整','请核对当次原题、选项、用途、来源及结构版本，不会猜测答案');this.save();return {ok:true};}
           t.layout=r.layout;t.questions=questions;t.question=questions[0]||null;t.phase='fill';delete t.answer;
-          if(!greenhouseReplay(site)){
+          if(!this.canExecuteGreenhouse(t,site)){
             t.inspectionAttachments=(Array.isArray(r.fields)?r.fields.slice(0,60):[]).filter(field=>field?.type==='file'&&['resume','cover_letter'].includes(field.key)).flatMap(field=>{
               const question=greenhouseQuestion(site,t,field);
               if(!question)return [];
@@ -764,7 +778,7 @@ export class Store {
         else{t.questions=(t.questions||[]).filter(q=>q.scope!==t.question?.scope);this.selectGreenhouseQuestion(t);}
       }else t.phase='preflight';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
       else if(c.op==='preflight'){
-        if(isGreenhouse(site)&&!greenhouseReplay(site)){
+        if(isGreenhouse(site)&&!this.canExecuteGreenhouse(t,site)){
           t.status='waiting_user';t.phase='preflight';
           this.issue(t,'manual','真实投递暂未开放','已读取原申请表。真实站当前仅检查页面，未填写、上传或提交；已保留原任务和确认资料。');
           this.step(t,'页面检查完成，真实提交暂停','未消耗提交额度，恢复时重新检查原申请。');

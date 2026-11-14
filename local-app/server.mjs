@@ -59,8 +59,8 @@ function keyMatches(actual, expected) {
 
 export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), port = 17321,
   fixturePort = 17322, startFixture = true, testMode = false, testKey, now,
-  browserOpen, browserClose, testLocationSearch} = {}) {
-  const paths = initializePaths(dataDir), store = new Store(paths, now ? {now} : {});
+  browserOpen, browserClose, testLocationSearch, testIsolatedExecution} = {}) {
+  const paths = initializePaths(dataDir), store = new Store(paths,{now,isolatedExecution:testMode?testIsolatedExecution:null});
   const installation=path.join(paths.runtime,'installation.json');
   if(fs.existsSync(installation)&&JSON.parse(fs.readFileSync(installation,'utf8')).migration?.pending){store.pause();store.save();}
   const key = localKey(paths.data);
