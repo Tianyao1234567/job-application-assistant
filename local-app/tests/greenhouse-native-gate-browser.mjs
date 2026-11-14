@@ -318,7 +318,7 @@ async function runSelectionBaseline(){
 
 async function runIsolatedExecution(){
   const credentials=await inspectionCredentials();
-  fixture=await startNativeFixture(directory,resume,{full:true,dynamic:true,isolated:{...credentials,marker:isolatedMarker}});
+  fixture=await startNativeFixture(directory,{...resume,name:'synthetic-inspection.txt'},{full:true,dynamic:true,isolated:{...credentials,marker:isolatedMarker}});
   backendData='data-isolated-execution';
   app=await startBackend();
   const profileId=await connect();

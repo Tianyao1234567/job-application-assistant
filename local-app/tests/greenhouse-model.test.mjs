@@ -297,6 +297,15 @@ test('changing the confirmed self-identification branch invalidates its earlier 
   assert.equal(env.store.dailyUsed(),0);
 });
 
+test('normal real settings cannot grant the isolated submission purpose',t=>{
+  const env=setup(t,{production:true});
+  env.confirm();
+  const inspect=env.task.confirmation;
+  assert.throws(()=>env.confirm({purpose:'isolated-submit',resumeSha256:env.store.state.resume.sha256}),/仅允许确认检查页面/);
+  assert.deepEqual(env.task.confirmation,inspect);
+  assert.equal(env.store.snapshot().tasks[0].canConfirmIsolatedExecution,false);
+});
+
 test('legacy real confirmation does not grant either new permission and preserves historical unknown',t=>{
   const env=setup(t,{production:true});begin(env);
   const original=env.task.confirmation;

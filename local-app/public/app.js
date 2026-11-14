@@ -160,7 +160,7 @@ async function perform(action, payload = {}) {
     if (action === 'answer') for (const id of drafts.keys()) if (id === `answer-${payload.taskId}` || id === `save-answer-${payload.taskId}` || id.startsWith(`answer-${payload.taskId}:`) || id.startsWith(`save-answer-${payload.taskId}:`)) drafts.delete(id);
     if (action === 'add') drafts.delete('add-url');
     const messages = {answers:result.needsConfirmation?'答案及个人事实已保存；请核对该岗位的新资料版本，已答内容无需重填。':'缺项已集中保存，将先核对页面后继续原任务。',demo:'已载入虚构资料，仅供本地测试站演示。', run:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', discover:'已请求发现并投递，符合条件的岗位会进入自动申请；进度以实际浏览器回报为准。', pause:'已全局暂停，后续动作会检查停止授权。', resume:'已请求继续，执行前会重新检查页面。', add:result.duplicate?'这个岗位已在队列中，未创建重复任务。':'已加入队列。', answer:'答案已确认，将继续同一任务。', verify:'已请求核对接收记录，不会再次提交。', 'site-check':'已请求读取实际页面登录状态。', 'site-open':'已请求在投递浏览器打开网站准备入口。', 'site-skip':'已暂时跳过该网站，原任务保留。', 'site-resume':'已请求重新检查该网站。', 'task-pause':result.pauseOutcome==='authorization-already-issued'?'最终提交授权已发出，无法保证撤回；仅核对结果，不会重投。':result.pauseOutcome==='authorization-revoked'?'后续提交授权已撤销；提交历史保留，仅核对结果。':'任务已暂停，可在浏览器接管。', 'task-resume':'已请求继续原任务，先重新检查。', 'task-skip':'任务已跳过，记录保留。', 'browser-open':'已请求打开专用投递浏览器。'};
-    Object.assign(messages, {'task-confirm':payload.purpose==='inspect'?'已确认只读检查原申请页。':'已确认提交一次虚构申请；执行前仍会核对页面。','memory-update':'已修改此限定范围的确认答案。','memory-revoke':'已撤销记忆；后续不会再自动套用该答案。'});
+    Object.assign(messages, {'task-confirm':payload.purpose==='inspect'?'已确认只读检查原申请页。':payload.purpose==='isolated-submit'?'已确认本次隔离测试提交。':'已确认提交一次虚构申请；执行前仍会核对页面。','memory-update':'已修改此限定范围的确认答案。','memory-revoke':'已撤销记忆；后续不会再自动套用该答案。'});
     toast(messages[action] || '操作已保存。');
     await refresh(true);
     return result;
@@ -430,10 +430,10 @@ function confirmationContext(task) {
 function taskConfirmationForm(task) {
   const captured=confirmationContext(task), signature=JSON.stringify(captured);
   const token=`confirm-${task.id}`;
-  const form=el('form',{'aria-label':`${captured.purpose==='inspect'?'确认页面检查':'确认投递'}：${task.title}`});
+  const form=el('form',{'aria-label':`${captured.purpose==='inspect'?'确认页面检查':captured.purpose==='isolated-submit'?'确认隔离测试提交':'确认投递'}：${task.title}`});
   const name=state.profile.data?.personal?.name;
   const readOnly=captured.purpose==='inspect';
-  form.append(banner('请亲自核对本次申请',readOnly?'确认后将检查原申请页。真实投递暂停，当前不会填写、上传或提交。':'确认后允许在本岗位填写、附加所选简历并提交一次。招聘网站可能即时收到申请；未知结果只核对，不会重发。','warning'),
+  form.append(banner('请亲自核对本次申请',readOnly?'确认后将检查原申请页。真实投递暂停，当前不会填写、上传或提交。':captured.purpose==='isolated-submit'?'确认后可在本机隔离站点填写、上传并提交一次虚构申请。':'确认后允许在本岗位填写、附加所选简历并提交一次。招聘网站可能即时收到申请；未知结果只核对，不会重发。','warning'),
     meta('公司 / 岗位',`${captured.company||'公司待核实'} · ${task.title} · ${captured.jobId}`),meta('岗位页面',task.url),
     meta('申请人',`${name?.zh||name?.en||'姓名待确认'} · ${captured.expectedAccount||'申请邮箱待配置'}`),
     meta('本次资料',`资料 v${captured.profileVersion} · ${modeLabel(state.profile.mode)}`),link('查看并核对完整资料','#profile','button text'),
@@ -455,7 +455,7 @@ function taskConfirmationForm(task) {
       const current=state.tasks.find(item=>item.id===task.id);
       if(!(current?.needsConfirmation||current?.canConfirmIsolatedExecution)||JSON.stringify(confirmationContext(current))!==signature)throw new Error('岗位、资料、附件或执行配置已经变化，请重新查看并确认当前版本。');
       if(!state.connection.connected)throw new Error('请先连接实际执行浏览器，再确认本次申请。');
-      await submitOnce(form,token,()=>perform('task-confirm',{taskId:captured.taskId,jobId:captured.jobId,profileVersion:captured.profileVersion,resumeVersion:captured.resumeVersion,resumeSha256:captured.resumeSha256,profileId:captured.profileId,purpose:captured.purpose}));
+      await submitOnce(form,token,()=>perform('task-confirm',{taskId:captured.taskId,jobId:captured.jobId,profileVersion:captured.profileVersion,resumeVersion:captured.resumeVersion,...(captured.purpose==='isolated-submit'?{resumeSha256:captured.resumeSha256}:{}),profileId:captured.profileId,purpose:captured.purpose}));
       for(const id of drafts.keys())if(id.startsWith(`${token}:`))drafts.delete(id);
     }catch(error){errorBox(form,error);}
   });

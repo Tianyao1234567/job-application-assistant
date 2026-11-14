@@ -106,6 +106,9 @@ export class Store {
     return scope?.urls.includes(task.url)&&/^https:\/\/job-boards\.greenhouse\.io\/mattermost\/jobs\/900\d{6}$/.test(task.url)&&
       /^[a-f0-9]{48}$/.test(scope.marker)?scope.marker:null;
   }
+  isolatedInspectionReady(task){
+    return task.status==='waiting_user'&&task.phase==='inspect'&&!!task.layout&&task.issue?.title==='答案已保存，真实投递暂未开放';
+  }
   canExecuteGreenhouse(task,site){
     return greenhouseReplay(site)||this.confirmationPurpose(task,site)==='isolated-submit';
   }
@@ -128,7 +131,7 @@ export class Store {
     if(!isGreenhouse(site)||this.hasSubmissionBoundary(t))throw new Error('该任务不能重新确认投递；已进入提交阶段时只能核对结果');
     const replay=greenhouseReplay(site),isolated=site.adapter==='greenhouse-v1'&&body.purpose==='isolated-submit'&&this.isolatedBinding(t);
     const purpose=replay?'submit':isolated?'isolated-submit':'inspect';
-    if(isolated&&(!this.confirmedTask(t,'inspect')||t.status!=='waiting_user'||body.resumeSha256!==this.state.resume?.sha256))
+    if(isolated&&(!this.confirmedTask(t,'inspect')||!this.isolatedInspectionReady(t)||body.resumeSha256!==this.state.resume?.sha256))
       throw new Error('请先完成只读检查，并重新核对附件摘要');
     const legacyReplay=replay&&body.purpose===undefined&&body.submitConfirmed===true;
     if(!legacyReplay&&(body.purpose!==purpose||Object.hasOwn(body,'submitConfirmed')))
@@ -143,7 +146,7 @@ export class Store {
     t.executionProfileId=body.profileId;t.profileSnapshot=clone(profile);t.resumeSnapshot=clone(this.state.resume);t.profileVersion=profile.version;t.resumeVersion=this.state.resume.version;
     if(versionsChanged){delete t.answer;t.answers=Object.fromEntries(Object.entries(t.answers||{}).map(([scope,answer])=>{const key=stableProfileKey(answer);if(!key||answer.leaveBlank===true)return [scope,answer];const before=previousProfile?profileValue(previousProfile,key):null,after=profileValue(profile.data,key);if(JSON.stringify(before||null)!==JSON.stringify(after||null)){const updated={...answer};if(after?.confirmed===true&&[after.zh,after.en].includes(answer.value))delete updated.stale;else updated.stale=true;return [scope,updated];}return [scope,answer];}));t.questions=[];}delete t.answerSupplement;
     t.confirmation={jobId:t.jobId,url:t.url,company:site.company,expectedAccount:site.expectedAccount,profileVersion:t.profileVersion,resumeVersion:t.resumeVersion,resumeSha256:t.resumeSnapshot.sha256,profileId:body.profileId,purpose,...(isolated?{isolatedRun:isolated}:{}),confirmedAt:this.now()};
-    t.status='queued';t.phase='inspect';this.step(t,replay||isolated?'本人已确认提交一次虚构申请':'本人已确认检查原申请页',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；${replay?'填写前仍重新核对原值、结构和岗位。':'真实站当前仅检查页面。'}`);
+    t.status='queued';t.phase='inspect';this.step(t,replay||isolated?'本人已确认提交一次虚构申请':'本人已确认检查原申请页',`岗位 ${t.jobId} · 资料 v${t.profileVersion} · 附件 v${t.resumeVersion}；${replay||isolated?'填写前仍重新核对原值、结构和岗位。':'真实站当前仅检查页面。'}`);
   }
   holdConfirmation(t){
     t.status='waiting_user';t.phase='inspect';
@@ -306,7 +309,8 @@ export class Store {
   snapshot(){
     const s=clone(this.state),connected=this.clock()-this.lastSeen<6000&&this.lastSeen>0;
     for(const t of s.tasks){t.canResume=this.canResumeTask(t);t.canVerify=this.canVerifyTask(t);
-      t.canConfirmIsolatedExecution=!!this.isolatedBinding(t)&&!this.hasSubmissionBoundary(t)&&!t.needsConfirmation&&this.confirmationPurpose(this.task(t.id),this.site(t.siteId))==='inspect'&&t.status==='waiting_user';
+      t.canConfirmIsolatedExecution=!!this.isolatedBinding(t)&&!this.hasSubmissionBoundary(t)&&!t.needsConfirmation&&
+        this.confirmationPurpose(this.task(t.id),this.site(t.siteId))==='inspect'&&this.isolatedInspectionReady(t);
       if(t.confirmation)delete t.confirmation.isolatedRun;t.needsConfirmation=isGreenhouse(this.site(t.siteId))&&!this.hasSubmissionBoundary(t)&&!this.confirmedTask(this.task(t.id));if(t.status==='waiting_answer')t.answerBatch=this.answerBatch(this.task(t.id));delete t.profileSnapshot;delete t.resumeSnapshot;delete t.answer;delete t.answers;}
     const decision=scheduleDecision(s.settings,s.lastSchedule,this.clock());
     let nextRun=null;if(s.settings.scheduleEnabled&&!s.manualPaused){const day=decision.day;let target=new Date(`${day}T${s.settings.time}:00+08:00`);if(target.getTime()<=this.clock()&&s.lastSchedule?.day===day)target=new Date(target.getTime()+86400000);nextRun=target.toISOString();}
@@ -699,7 +703,7 @@ export class Store {
     const network=isGreenhouse(site)&&validNetworkReceipt(site,t,r);
     if(isGreenhouse(site)&&!network&&(!greenhouseReplay(site)||r?.kind!=='greenhouse-replay'||r?.tenant!==site.tenant))return false;
     if(!r||typeof r.id!=='string'||!r.id||r.jobId!==t.jobId||r.account!==this.site(t.siteId).expectedAccount||r.fileName!==t.resumeSnapshot?.name||Number(r.fileSize)!==t.resumeSnapshot?.size||r.sha256!==t.resumeSnapshot?.sha256)return false;
-    t.status='submitted';t.phase='done';t.submissionStarted=true;t.result={receiptId:r.id,jobId:r.jobId,fileName:r.fileName,fileSize:Number(r.fileSize),sha256:r.sha256,evidence:network?(greenhouseReplay(site)?'受控回放网络回执，非生产企业结果':(r.evidence.fileBinding==='native-upload-reference'?'目标站对本岗位、邮箱及已上传附件引用的 POST 返回2xx，并到达对应确认页；原生上传文件摘要及成功响应已核对，提交引用与该上传的精确对象摘要一致；未回读服务端附件字节，非企业申请编号':'目标站对绑定本次岗位、邮箱及附件字节的实际 POST 返回2xx，并到达对应确认页；网络受理证据不是企业申请编号')):isGreenhouse(site)?'Greenhouse 结构本地受控回放的合成回执；实际接收附件名称、大小、摘要一致，不是生产企业回执':'来自目标测试站的实际接收记录，文件名称、大小和摘要与任务版本一致'};t.submittedAt ||= this.now();this.resolveTask(t);this.step(t,'已核对接收记录',`回执 ${r.id} · 附件 ${r.fileSize} 字节 · 摘要一致`);return true;
+    t.status='submitted';t.phase='done';t.submissionStarted=true;t.result={receiptId:r.id,jobId:r.jobId,fileName:r.fileName,fileSize:Number(r.fileSize),sha256:r.sha256,evidence:network?(this.confirmationPurpose(t,site)==='isolated-submit'?'隔离测试站网络回执':greenhouseReplay(site)?'受控回放网络回执，非生产企业结果':(r.evidence.fileBinding==='native-upload-reference'?'目标站对本岗位、邮箱及已上传附件引用的 POST 返回2xx，并到达对应确认页；原生上传文件摘要及成功响应已核对，提交引用与该上传的精确对象摘要一致；未回读服务端附件字节，非企业申请编号':'目标站对绑定本次岗位、邮箱及附件字节的实际 POST 返回2xx，并到达对应确认页；网络受理证据不是企业申请编号')):isGreenhouse(site)?'Greenhouse 结构本地受控回放的合成回执；实际接收附件名称、大小、摘要一致，不是生产企业回执':'来自目标测试站的实际接收记录，文件名称、大小和摘要与任务版本一致'};t.submittedAt ||= this.now();this.resolveTask(t);this.step(t,'已核对接收记录',`回执 ${r.id} · 附件 ${r.fileSize} 字节 · 摘要一致`);return true;
   }
   result({clientId,commandId,result:r}){
     this.expireCommand();
