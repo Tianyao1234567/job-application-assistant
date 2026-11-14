@@ -348,7 +348,24 @@ async function runIsolatedExecution(){
     await consent('确认检查原申请页');
     await waitFor('isolated inspection permission',state,value=>task(value,id)?.confirmation?.purpose==='inspect');
     await action('resume');
-    const pending=task(await waitFor('isolated page answers',state,value=>{
+    if(officialControls){
+      // Initial inspection can read the server HTML while React mounts.
+      // A second read of the same task starts only once all controls exist.
+      const page=await waitFor('isolated applicant tab',()=>context.pages().find(page=>page.url()===url),Boolean);
+      await page.locator('#country[aria-labelledby="country-label"]').waitFor({timeout:6000});
+      await page.locator('#resume').waitFor({state:'attached',timeout:6000});
+    }
+    let mountingRetry=false;
+    const pending=task(await waitFor('isolated page answers',async()=>{
+      const value=await state(),item=task(value,id);
+      if(officialControls&&!mountingRetry&&item?.status==='waiting_user'&&
+         item.issue?.kind==='structure'&&item.issue?.detail==='未找到唯一且已识别的 Greenhouse 申请表。'){
+        mountingRetry=true;
+        await action('task-resume',{taskId:added.id});
+        return state();
+      }
+      return value;
+    },value=>{
       const item=task(value,id);
       if(item?.status==='waiting_user'||workerErrors.length)throw new Error(JSON.stringify({issue:item?.issue,steps:item?.steps.slice(-4),pageErrors:workerErrors}));
       return item?.status==='waiting_answer';
@@ -373,10 +390,6 @@ async function runIsolatedExecution(){
         else await form.getByLabel(q.text+'：本次留空',{exact:true}).check();
       }
       await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
-    }
-    if(officialControls){
-      const actual=context.pages().find(page=>page.url()===url);
-      await actual.locator('#country[aria-labelledby="country-label"]').waitFor({timeout:6000});
     }
     await answerBatch(pending);
     if(id!==isolatedJobs[2]){

@@ -44,7 +44,7 @@ function applicationPage(id,full,dynamic,isolated){
     'const loader=window.__remixContext.state.loaderData["routes/$url_token_.jobs_.$job_post_id"];',
     'const form=document.querySelector("form"),input=form.elements.resume;',
     ...(isolated?.renderer?['import {installOfficialControls} from "/official-controls.js";',
-      'const officialValues=await installOfficialControls(form,loader.jobPost); form.hidden=false;']:isolated?['('+isolatedControls.toString()+')();']:[]),
+      'const officialValues=await installOfficialControls(form,loader.jobPost);']:isolated?['('+isolatedControls.toString()+')();']:[]),
     ...(full&&!dynamic?['const location='+JSON.stringify({location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'})+';']:[]),
     ...(dynamic?['const places='+JSON.stringify(places)+';',
       ...(!isolated?.renderer?['const ethnicity=form.querySelector(\'select[name="hispanic_ethnicity"]\'),slot=document.querySelector("#race-slot");',
@@ -72,12 +72,13 @@ function applicationPage(id,full,dynamic,isolated){
     '    fingerprint:'+(full?'loader.jobPost.fingerprint':'loader.fingerprint')+',jobApplicationRequestToken:loader.jobApplicationRequestToken});',
     '    if(response.ok)window.location.assign(loader.confirmationPath);',
     '  }catch{form.dataset.nativeSubmitOutcome="rejected";}',
-    '});'
+    '});',
+    ...(isolated?.renderer?['input.id="resume";']:[])
   ].join('\n');
   const fixtureEnvironment=isolated?.renderer?'<script>window.ENV={ASSET_URL:location.origin,LOCATION_CONTROL_PROVIDER:"pelias",LOCATION_CONTROL_BASE_URL:location.origin+"/",LOCATION_CONTROL_API_KEY:"fixture"};</script>':'';
   const body=fixtureEnvironment+(isolated?'<meta name="job-isolated-execution" content="'+isolated.marker+'"><link rel="modulepreload" href="https://job-boards.cdn.greenhouse.io/assets/entry.client-HYmR2EDs.js">':'')+'<h1>Fictional native vacancy '+id+'</h1><p class="job-location">Fictional Test City</p>'+
-    '<form '+(isolated?.renderer?'id="application-form" hidden ':'')+'data-greenhouse-replay data-tenant="'+fixtureTenant+'" data-job-id="'+id+'" method="post" action="'+submit+'">'+
-    (dynamic?currentFields():full?fullFields():input('first_name','text')+input('last_name','text')+input('email','email')+input('phone','tel')+
+    '<form '+(isolated?.renderer?'id="application-form" ':'')+'data-greenhouse-replay data-tenant="'+fixtureTenant+'" data-job-id="'+id+'" method="post" action="'+submit+'">'+
+    (dynamic?(isolated?.renderer?currentFields().replace('id="resume"','id="pending-resume"'):currentFields()):full?fullFields():input('first_name','text')+input('last_name','text')+input('email','email')+input('phone','tel')+
     '<fieldset class="file-upload"><legend id="upload-label-resume">Resume/CV*</legend><label for="resume">Attach</label>'+
     '<input id="resume" name="resume" type="file" accept=".txt" required></fieldset>'+
     '<p><label for="question_123">'+labels.question_123+'*</label><textarea id="question_123" name="question_123" required></textarea></p>')+
