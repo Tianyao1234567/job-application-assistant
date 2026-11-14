@@ -28,7 +28,7 @@ const selectionBaseline=process.env.GREENHOUSE_SELECTION_BASELINE==='1';
 const isolatedExecution=process.env.GREENHOUSE_ISOLATED_EXECUTION==='1';
 const isolatedHosts=['job-boards.greenhouse.io','boards.greenhouse.io',new URL(nativeUploadOrigin).hostname,'api-geocode-earth-proxy.greenhouse.io'];
 let networkProxy;
-const officialControls=process.env.GREENHOUSE_OFFICIAL_CONTROLS==='1';
+const officialControls=isolatedExecution||process.env.GREENHOUSE_OFFICIAL_CONTROLS==='1';
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
@@ -462,6 +462,8 @@ async function runIsolatedExecution(){
       assert.equal(session.nativeResponse.status,200);
       assert.ok(session.confirmedAt>=session.request.startedAt);
       assert.match(outcome.result.evidence,/原生上传文件摘要/);
+      assert.equal(new URL(session.spec.submitUrl).hostname,'boards.greenhouse.io');
+      assert.equal(new URL(session.spec.source).hostname,'job-boards.greenhouse.io');
     }
     if(id===isolatedJobs[1]){
       assert.deepEqual(counts,emptyCounts);
@@ -494,7 +496,7 @@ async function runIsolatedExecution(){
   assert.deepEqual(fixture.counts(lost),previous);
   assert.equal(task(await state(),lost).status,'unknown');
   assert.deepEqual((await storage(['localSubmissionAttempts'])).localSubmissionAttempts,ledgerBefore);
-  evidence.isolatedExecution={beforeExplicitApproval:'zero uploads and applications',cases:isolatedCases,restart:fixture.counts(lost),
+  evidence.isolatedExecution={beforeExplicitApproval:'zero uploads and applications',confirmationInvalidated:evidence.confirmationInvalidated,cases:isolatedCases,restart:fixture.counts(lost),
     sameProfile:true,independentBackend:true,ledgerPreserved:true,normalProductStartup:true,officialControls:true,nativeLocationSearches:fixture.locationRequests()};
   console.log('PASS isolated real-origin explicit approval and native application protection');
 }

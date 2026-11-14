@@ -335,6 +335,41 @@ test('normal real settings cannot grant the isolated submission purpose',t=>{
   assert.equal(env.store.snapshot().tasks[0].executionOffer,null);
 });
 
+test('explicit execution requires the latest inspection and rejects a different document before writes',t=>{
+  const env=setup(t,{production:true});begin(env);
+  const inspection={ok:true,layout:'observed-layout',formVersion:'a'.repeat(64),executionVersion:'b'.repeat(64),
+    tabId:9,documentId:'inspected-document',questions:[],login:env.login};
+  env.send(env.take(),inspection);
+  function execution(){
+    return {purpose:'execute',url:env.task.url,company:env.site.company,expectedAccount:env.site.expectedAccount,
+      resumeSha256:env.store.state.resume.sha256,executionOffer:env.store.snapshot().tasks[0].executionOffer};
+  }
+  const offer=execution();
+  assert.ok(offer.executionOffer);
+  assert.throws(()=>env.confirm({...offer,resumeSha256:'c'.repeat(64)}),/已失效/);
+  env.confirm(offer);
+  const verified=env.take();
+  assert.equal(verified.op,'inspect');
+  assert.equal(verified.task.confirmationPurpose,'execute');
+  env.send(verified,{...inspection,documentId:'replacement-document'});
+  assert.equal(env.task.confirmation.purpose,'inspect');
+  assert.equal(env.store.snapshot().tasks[0].executionOffer,null);
+  assert.equal(env.take(),null);
+  assert.equal(env.store.dailyUsed(),0);
+});
+
+test('a saved write confirmation returns to inspection after a backend restart before any attempt',t=>{
+  const env=setup(t,{production:true});begin(env);
+  env.send(env.take(),{ok:true,layout:'observed-layout',formVersion:'a'.repeat(64),executionVersion:'b'.repeat(64),
+    tabId:9,documentId:'inspected-document',questions:[],login:env.login});
+  env.confirm({purpose:'execute',url:env.task.url,company:env.site.company,expectedAccount:env.site.expectedAccount,
+    resumeSha256:env.store.state.resume.sha256,executionOffer:env.store.snapshot().tasks[0].executionOffer});
+  const restored=new Store(env.paths,{now:env.clock});
+  assert.equal(restored.task(env.task.id).confirmation.purpose,'inspect');
+  assert.equal(restored.snapshot().tasks[0].executionOffer,null);
+  assert.equal(restored.poll(client).command?.op,'inspect');
+});
+
 test('legacy real confirmation does not grant either new permission and preserves historical unknown',t=>{
   const env=setup(t,{production:true});begin(env);
   const original=env.task.confirmation;

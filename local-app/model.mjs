@@ -104,7 +104,9 @@ export class Store {
   canVerifyTask(t){return t.status!=='submitting'&&this.hasSubmissionBoundary(t);}
   invalidateTask(t){t.revision=(t.revision||0)+1;if(!terminal.has(t.status)&&t.status!=='submitting')t.phase='inspect';}
   executionOffer(task){
+    const site=this.site(task.siteId);
     if(task.status!=='waiting_user'||task.phase!=='inspect'||task.issue?.kind!=='execution-ready'||
+       !site.enabled||site.skipped||this.state.settings.mode!==task.mode||
        this.hasSubmissionBoundary(task)||!this.confirmedTask(task,'inspect'))return null;
     const inspection=task.executionInspection;
     return inspection&&inspection.profileId===this.connection?.profileId&&inspection.extensionId===this.connection?.extensionId&&
@@ -717,6 +719,11 @@ export class Store {
     // Production success needs the browser's scoped POST/body/response evidence
     // and corresponding confirmation navigation; page text alone never proves it.
     const network=isGreenhouse(site)&&validNetworkReceipt(site,t,r);
+    if(site.adapter==='greenhouse-v1'&&t.confirmation?.purpose==='execute'&&
+       (!this.hasSubmissionBoundary(t)||!t.submitAuthorizedAt||
+        r?.evidence?.fileBinding!=='native-upload-reference'||
+        r.evidence.uploadBinding?.documentId!==t.confirmation.inspection?.documentId||
+        !/^[a-f0-9]{64}$/.test(r.evidence.nativeRequestSha256||'')))return false;
     if(isGreenhouse(site)&&!network&&(!greenhouseReplay(site)||r?.kind!=='greenhouse-replay'||r?.tenant!==site.tenant))return false;
     if(!r||typeof r.id!=='string'||!r.id||r.jobId!==t.jobId||r.account!==this.site(t.siteId).expectedAccount||r.fileName!==t.resumeSnapshot?.name||Number(r.fileSize)!==t.resumeSnapshot?.size||r.sha256!==t.resumeSnapshot?.sha256)return false;
     t.status='submitted';t.phase='done';t.submissionStarted=true;t.result={receiptId:r.id,jobId:r.jobId,fileName:r.fileName,fileSize:Number(r.fileSize),sha256:r.sha256,evidence:network?(greenhouseReplay(site)?'受控回放网络回执，非生产企业结果':(r.evidence.fileBinding==='native-upload-reference'?'目标站对本岗位、邮箱及已上传附件引用的 POST 返回2xx，并到达对应确认页；原生上传文件摘要及成功响应已核对，提交引用与该上传的精确对象摘要一致；未回读服务端附件字节，非企业申请编号':'目标站对绑定本次岗位、邮箱及附件字节的实际 POST 返回2xx，并到达对应确认页；网络受理证据不是企业申请编号')):isGreenhouse(site)?'Greenhouse 结构本地受控回放的合成回执；实际接收附件名称、大小、摘要一致，不是生产企业回执':'来自目标测试站的实际接收记录，文件名称、大小和摘要与任务版本一致'};t.submittedAt ||= this.now();this.resolveTask(t);this.step(t,'已核对接收记录',`回执 ${r.id} · 附件 ${r.fileSize} 字节 · 摘要一致`);return true;

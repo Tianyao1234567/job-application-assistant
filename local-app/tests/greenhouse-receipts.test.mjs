@@ -35,7 +35,7 @@ test('real listener ordering binds a task request, excludes tokens from storage 
  const sender={id,url,tab:{id:1}},send=message=>new Promise(resolve=>events.message(message,sender,resolve));
  assert.equal((await send({type:'greenhouse-receipt-arm',spec})).ok,true);
  const app=application();app['g-recaptcha-enterprise-token']='FICTIONAL_PROVIDER_SECRET';
- const raw=new TextEncoder().encode(JSON.stringify(app)).buffer,now=Date.now()+1;
+ const raw=new TextEncoder().encode(JSON.stringify(app)).buffer,now=stored.greenhouseReceiptSessions[spec.taskId].armedAt;
  events.before({method:'POST',tabId:8,url:spec.submitUrl,requestId:'unrelated',timeStamp:now,requestBody:{raw:[{bytes:raw}]}});
  events.before({method:'POST',tabId:7,url:spec.submitUrl,requestId:'actual',timeStamp:now,requestBody:{raw:[{bytes:raw}]}});
  events.complete({method:'POST',url:spec.submitUrl,requestId:'actual',statusCode:200});
