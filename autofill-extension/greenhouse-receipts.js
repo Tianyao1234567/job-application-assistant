@@ -5,7 +5,7 @@ export function receiptScope(spec) {
   try{
     const source=new URL(spec.source),submit=new URL(spec.submitUrl),confirmation=new URL(spec.confirmationUrl);
     const prefix=(spec.replay?'/greenhouse':'')+'/'+spec.tenant+'/jobs/'+spec.jobId;
-    const allowed=spec.replay?source.origin==='http://127.0.0.1:17322':source.origin==='https://job-boards.greenhouse.io'&&spec.tenant==='mattermost';
+    const allowed=spec.replay?source.origin==='http://127.0.0.1:17322':['https://job-boards.greenhouse.io','https://boards.greenhouse.io'].includes(source.origin)&&spec.tenant==='mattermost';
     return allowed&&source.pathname===prefix&&!source.username&&!source.password&&submit.pathname===prefix&&!submit.username&&!submit.password&&(submit.origin===source.origin||!spec.replay&&submit.origin==='https://boards.greenhouse.io')&&confirmation.origin===source.origin&&confirmation.pathname===prefix+'/confirmation';
   }catch{return false;}
 }
@@ -24,9 +24,8 @@ export function verifiedUpload(spec,proof=spec?.uploadProof) {
 // React state, DOM filename or caller-supplied URL can create this proof.
 export function captureUploadReference(options) {
   return new Promise(resolve=>{
-    const {file,replay,nonce,isolatedMarker}=options;
-    const isolated=!replay&&location.origin==='https://job-boards.greenhouse.io'&&/^\/mattermost\/jobs\/900\d{6}$/.test(location.pathname)&&
-      /^[a-f0-9]{48}$/.test(isolatedMarker||'')&&document.querySelector('meta[name="job-isolated-execution"]')?.content===isolatedMarker;
+    const {file,replay,nonce,source}=options;
+    if(source&&location.href!==source)return resolve({ok:false});
     const originalOpen=XMLHttpRequest.prototype.open,originalSend=XMLHttpRequest.prototype.send;
     const requests=new WeakMap(),ready='data-job-upload-'+nonce,cancel='job-upload-cancel-'+nonce;
     const digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
@@ -48,7 +47,7 @@ export function captureUploadReference(options) {
           let url,reference;
           try{
             url=new URL(request.url);
-            const allowed=isolated?url.origin===location.origin&&url.pathname==='/greenhouse-upload':replay?url.origin==='http://127.0.0.1:17322'&&url.pathname==='/greenhouse-upload':url.protocol==='https:'&&/^(?:[a-z0-9.-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname);
+            const allowed=replay?url.origin==='http://127.0.0.1:17322'&&url.pathname==='/greenhouse-upload':url.protocol==='https:'&&/^(?:[a-z0-9.-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname);
             reference=request.url+'/'+key;
             const object=new URL(reference);
             if(!allowed||url.username||url.password||url.search||url.hash||object.search||object.hash||/[\x00-\x1f]/.test(reference)||reference.length>2048)throw new Error('scope');
@@ -83,8 +82,7 @@ export async function boundApplication(spec,body) {
   if(verifiedUpload(spec)&&application.resume_url_filename===spec.file.name&&typeof application.resume_url==='string'&&application.resume_url.length<=2048&&!application.resume){
     try{
       const url=new URL(application.resume_url);
-      const allowed=spec.isolated===true&&!spec.replay&&/^900\d{6}$/.test(spec.jobId)?
-        url.origin===new URL(spec.source).origin&&/^\/greenhouse-upload\/[a-z0-9-]+$/.test(url.pathname):spec.replay?url.origin==='http://127.0.0.1:17322'&&/^\/greenhouse-upload\/[a-z0-9-]+$/.test(url.pathname):url.protocol==='https:'&&/^(?:[a-z0-9.-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname);
+      const allowed=spec.replay?url.origin==='http://127.0.0.1:17322'&&/^\/greenhouse-upload\/[a-z0-9-]+$/.test(url.pathname):url.protocol==='https:'&&/^(?:[a-z0-9.-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname);
       return allowed&&!url.username&&!url.password&&!url.hash&&!url.search&&await hex(new TextEncoder().encode(application.resume_url))===spec.uploadProof.referenceSha256;
     }catch{return false;}
   }
@@ -118,7 +116,7 @@ export function registerGreenhouseReceipts(chrome) {
       if(sender.tab?.id!==runnerTabId)return {ok:false};
       if(message.type==='greenhouse-receipt-arm'){
         const spec=message.spec;if(!receiptScope(spec)||spec.uploadedResumeConfirmed===true&&!verifiedUpload(spec))return {ok:false};
-        if(spec.nativeRequestSha256&&(!spec.replay&&!(spec.isolated===true&&/^900\d{6}$/.test(spec.jobId))||!verifiedUpload(spec)||!/^[a-f0-9]{64}$/.test(spec.nativeRequestSha256)))return {ok:false};
+        if(spec.nativeRequestSha256&&(!verifiedUpload(spec)||!/^[a-f0-9]{64}$/.test(spec.nativeRequestSha256)))return {ok:false};
         return update(sessions=>{
           const old=sessions[spec.taskId];
           if(old&&JSON.stringify(old.spec)!==JSON.stringify(spec))return {ok:false};

@@ -78,9 +78,10 @@ async function read(tab,expect,op='inspect') {
   await inject(tab,expect);
   const results=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(operation,context,greenhouse)=>greenhouse?JobGreenhouse.read(operation,context):JobLocal.read(operation,context),args:[op,expect,!!expect.adapter]});
   const current=await chrome.tabs.get(tab.id);
-  return {...results[0]?.result,tabId:tab.id,url:safeUrl(current.url,expect)};
+  return {...results[0]?.result,documentId:results[0]?.documentId,tabId:tab.id,url:safeUrl(current.url,expect)};
 }
 async function mutate(command,tab,expect,method,...args) {
+  if(expect.execute&&tab.id!==expect.tabId)return fail('structure','原授权文档所属标签页已变化。');
   // Session requests and hashing must finish BEFORE authorization. commit has no await
   // before its one DOM write and rechecks the live form and original value synchronously.
   await inject(tab,expect);
@@ -90,12 +91,12 @@ async function mutate(command,tab,expect,method,...args) {
   return commitMutation(tab,expect,prepared.token);
 }
 async function prepareMutation(tab,expect,method,args) {
-  const results=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(method,context,args,greenhouse)=>greenhouse?JobGreenhouse.prepare(method,context,args):JobLocal.prepare(method,context,args),args:[method,expect,args,!!expect.adapter]});
+  const results=await chrome.scripting.executeScript({target:{tabId:tab.id,...(expect.documentId?{documentIds:[expect.documentId]}:{})},world:'ISOLATED',func:(method,context,args,greenhouse)=>greenhouse?JobGreenhouse.prepare(method,context,args):JobLocal.prepare(method,context,args),args:[method,expect,args,!!expect.adapter]});
   return results[0]?.result || fail('failure','页面预检没有返回结果。');
 }
 async function commitMutation(tab,expect,token) {
   // Only an opaque one-use token crosses worlds; no key is exposed to the page.
-  const results=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:(context,token,greenhouse)=>greenhouse?JobGreenhouse.commit(context,token):JobLocal.commit(context,token),args:[expect,token,!!expect.adapter]});
+  const results=await chrome.scripting.executeScript({target:{tabId:tab.id,...(expect.documentId?{documentIds:[expect.documentId]}:{})},world:'ISOLATED',func:(context,token,greenhouse)=>greenhouse?JobGreenhouse.commit(context,token):JobLocal.commit(context,token),args:[expect,token,!!expect.adapter]});
   return results[0]?.result || fail('failure','执行端没有返回页面处理结果。');
 }
 async function uploadProofFor(command,tab,file) {
@@ -114,9 +115,11 @@ async function observedGreenhouseUpload(command,tab,expect,file) {
   const {greenhouseUploadProofs={}}=await chrome.storage.local.get('greenhouseUploadProofs');
   delete greenhouseUploadProofs[command.task.id];await chrome.storage.local.set({greenhouseUploadProofs});
   const nonce=crypto.randomUUID(),metadata={name:file.name,size:file.size,sha256:file.sha256};
-  const pending=chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:captureUploadReference,args:[{file:metadata,replay:expect.replay,isolatedMarker:expect.isolatedMarker,nonce}]}).catch(()=>[]);
+  if(expect.execute&&tab.id!==expect.tabId)return fail('structure','原授权文档所属标签页已变化。');
+  const target={tabId:tab.id,...(expect.documentId?{documentIds:[expect.documentId]}:{})};
+  const pending=chrome.scripting.executeScript({target,world:'MAIN',func:captureUploadReference,args:[{file:metadata,replay:expect.replay,source:command.task.url,nonce}]}).catch(()=>[]);
   try{
-    const readiness=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'ISOLATED',func:async nonce=>{
+    const readiness=await chrome.scripting.executeScript({target,world:'ISOLATED',func:async nonce=>{
       for(let n=0;n<40;n++){if(document.documentElement.hasAttribute('data-job-upload-'+nonce))return true;await new Promise(resolve=>setTimeout(resolve,50));}return false;
     },args:[nonce]});
     if(!readiness[0]?.result)return fail('manual','未能建立本次附件对象核验，未开始自动上传。');
@@ -129,7 +132,7 @@ async function observedGreenhouseUpload(command,tab,expect,file) {
     const current=(await chrome.storage.local.get('greenhouseUploadProofs')).greenhouseUploadProofs||{};
     current[command.task.id]=proof;await chrome.storage.local.set({greenhouseUploadProofs:current});return uploaded;
   }finally{
-    await chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:nonce=>document.dispatchEvent(new Event('job-upload-cancel-'+nonce)),args:[nonce]}).catch(()=>{});
+    await chrome.scripting.executeScript({target,world:'MAIN',func:nonce=>document.dispatchEvent(new Event('job-upload-cancel-'+nonce)),args:[nonce]}).catch(()=>{});
     await pending;
   }
 }
@@ -174,13 +177,17 @@ function greenhouseExpected(command) {
   if(task&&(!/^\d{1,30}$/.test(task.jobId)||task.mode!==(replay?'demo':'real')))throw new Stop('structure','Greenhouse 岗位身份或任务模式不符。');
   const applicantConfirmed=!!task&&task.applicantConfirmed===true&&task.executionProfileId===bridge.profileId;
   const confirmationPurpose=task?.confirmationPurpose;
-  const isolatedMarker=!replay&&confirmationPurpose==='isolated-submit'&&/^[a-f0-9]{48}$/.test(task?.isolatedMarker||'')&&
-    /^900\d{6}$/.test(task.jobId)&&origin==='https://job-boards.greenhouse.io'?task.isolatedMarker:null;
-  if(task&&!['inspect','verify'].includes(command.op)&&confirmationPurpose!==(replay?'submit':isolatedMarker?'isolated-submit':'inspect'))
+  const confirmation=task?.confirmation;
+  const execute=!replay&&confirmationPurpose==='execute'&&applicantConfirmed&&
+    confirmation?.purpose==='execute'&&confirmation.extensionId===chrome.runtime.id&&confirmation.inspection?.profileId===bridge.profileId&&
+    confirmation.inspection?.extensionId===chrome.runtime.id&&confirmation.jobId===task.jobId&&confirmation.url===task.url&&
+    confirmation.company===site.company&&confirmation.expectedAccount===site.expectedAccount&&
+    typeof confirmation.inspection?.documentId==='string'&&Number.isInteger(confirmation.inspection.tabId);
+  if(task&&!['inspect','verify'].includes(command.op)&&confirmationPurpose!==(replay?'submit':execute?'execute':'inspect'))
     throw new Stop('manual',replay?'请在后台明确确认提交一次虚构申请。':'请在后台确认只读检查原申请页。');
   if(task&&!['inspect','verify'].includes(command.op)&&!applicantConfirmed)throw new Stop('manual','请先在后台确认本岗位、申请资料、附件及提交动作，并使用同一投递浏览器。');
   return {adapter:site.adapter,origin,replay,tenant:site.tenant,company:site.company,expectedAccount:site.expectedAccount,jobId:task?.jobId,applicantConfirmed,confirmationPurpose,
-    isolatedMarker,profileFields:Array.isArray(task?.confirmedProfileEntries)?greenhouseEntries(task.confirmedProfileEntries).map(entry=>entry.name):[],
+    execute,source:task?.url,documentId:execute?confirmation.inspection.documentId:undefined,tabId:execute?confirmation.inspection.tabId:undefined,profileFields:Array.isArray(task?.confirmedProfileEntries)?greenhouseEntries(task.confirmedProfileEntries).map(entry=>entry.name):[],
     profileValues:Object.fromEntries(Array.isArray(task?.confirmedProfileEntries)?greenhouseEntries(task.confirmedProfileEntries).map(entry=>[entry.name,entry.value]):[]),
     confirmedAnswers:Array.isArray(task?.confirmedAnswers)?task.confirmedAnswers:[]};
 }
@@ -231,8 +238,8 @@ async function nativeScript(target,world,func,...args) {
 async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
   const {confirmation}=command.task,file=greenhouseFileIdentity(payload.file);
   const protocol=checked.submissionProtocol;
-  if(!(expect.replay||expect.isolatedMarker)||!file||checked.layout!==payload.layout||
-    expect.confirmationPurpose!==(expect.replay?'submit':'isolated-submit')||!confirmation||confirmation.profileId!==bridge.profileId||
+  if(!(expect.replay||expect.execute)||!file||checked.layout!==payload.layout||
+    expect.confirmationPurpose!==(expect.replay?'submit':'execute')||!confirmation||confirmation.profileId!==bridge.profileId||
     confirmation.jobId!==expect.jobId||confirmation.url!==command.task.url||
     confirmation.company!==expect.company||confirmation.expectedAccount!==expect.expectedAccount||
     confirmation.resumeSha256!==file.sha256||typeof confirmation.confirmedAt!=='string'||
@@ -240,7 +247,7 @@ async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
     !Number.isInteger(confirmation.resumeVersion)||confirmation.resumeVersion<1)
     return fail('manual','缺少同一岗位、申请人、资料和附件版本的明确确认。');
   const uploadProof=await uploadProofFor(command,tab,file);
-  if(!uploadProof)return fail('manual','缺少同一文档的原生精确附件证明，未放行提交。');
+  if(!uploadProof||expect.execute&&uploadProof.documentId!==expect.documentId)return fail('manual','缺少同一文档的原生精确附件证明，未放行提交。');
   const target={tabId:tab.id,documentIds:[uploadProof.documentId]};
   const readState=(captured=false)=>nativeScript(target,'ISOLATED',
     (context,layout,file,captured)=>JobGreenhouse.nativeState(context,layout,file,captured),expect,payload.layout,file,captured);
@@ -253,13 +260,13 @@ async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
   if(!prepared?.ok||!prepared.token)return prepared||fail('manual','提交预检未完成。');
   const spec={taskId:command.task.id,profileId:bridge.profileId,tabId:tab.id,documentId:uploadProof.documentId,
     source:command.task.url,tenant:expect.tenant,jobId:expect.jobId,account:expect.expectedAccount,
-    replay:expect.replay,isolated:!!expect.isolatedMarker,file,uploadProof,authorizationId:command.id,profileVersion:confirmation.profileVersion,
+    replay:expect.replay,file,uploadProof,authorizationId:command.id,profileVersion:confirmation.profileVersion,
     resumeVersion:confirmation.resumeVersion,stateVersion:await sha256(JSON.stringify(state)),
     schemaSha256:await sha256(JSON.stringify(state.schema)),...(state.clientSha256?{clientSha256:state.clientSha256}:{}),...protocol};
-  const capture=createNativeCapture({spec,expected:state.expected,scope:'managed-replay',bindReferenceByDigest:true});
+  const capture=createNativeCapture({spec,expected:state.expected,scope:expect.replay?'managed-replay':'managed-application',bindReferenceByDigest:true});
   const key=crypto.randomUUID();
   const control=(action,value=null)=>nativeScript(target,'MAIN',controlNativeGate,key,action,value);
-  const installed=await nativeScript(target,'MAIN',installNativeGate,{key,source:spec.source,isolatedMarker:expect.isolatedMarker,...protocol});
+  const installed=await nativeScript(target,'MAIN',installNativeGate,{key,source:spec.source,tenant:spec.tenant,jobId:spec.jobId,replay:spec.replay,...protocol});
   if(!installed?.ok)return fail('manual','未能保护原生申请入口，未点击提交。');
   try{
     if(!await recordGreenhouseAttempt(command,ledgerKey))return fail('unknown','已记录提交尝试，仅允许核对。');
@@ -274,7 +281,7 @@ async function nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey) {
     catch{return fail('unknown','原生请求未通过已确认内容及附件核对，未放行。');}
     const watched=await chrome.runtime.sendMessage({type:'greenhouse-receipt-arm',
       spec:{taskId:spec.taskId,profileId:spec.profileId,tabId:spec.tabId,documentId:spec.documentId,
-        source:spec.source,tenant:spec.tenant,jobId:spec.jobId,account:spec.account,replay:expect.replay,isolated:!!expect.isolatedMarker,file,uploadProof,
+        source:spec.source,tenant:spec.tenant,jobId:spec.jobId,account:spec.account,replay:expect.replay,file,uploadProof,
         uploadedResumeConfirmed:true,nativeRequestSha256:frozen.bodySha256,...protocol}});
     if(!watched?.ok)return fail('unknown','原生请求的网络核验尚未就绪，未放行请求。');
     const fresh=await readState(true);
@@ -339,7 +346,7 @@ async function executeGreenhouse(command,expect,payload) {
     if(!tab||new URL(tab.url).pathname!==new URL(target).pathname)tab=await navigate(command,expect,target,'detail',tab);
     return read(tab,expect,'inspect');
   }
-  if(!expect.replay&&!expect.isolatedMarker&&command.op!=='preflight')return fail('manual','真实站当前仅检查页面，未填写、上传或提交。');
+  if(!expect.replay&&!expect.execute&&command.op!=='preflight')return fail('manual','真实站当前仅检查页面，未填写、上传或提交。');
   if(!tab)throw new Stop('structure','原 Greenhouse 表单已关闭，请重新检查原任务。');
   safeUrl(tab.url,expect,'apply');
   if(typeof payload.layout!=='string'||!payload.layout||payload.layout.length>250000)throw new Stop('structure','缺少 Greenhouse 原表单结构版本。');
@@ -377,11 +384,11 @@ async function executeGreenhouse(command,expect,payload) {
     return {...result,tabId:tab.id,url:tab.url};
   }
   if(command.op==='answer'){
-    if(payload.customControl&&(payload.optionsComplete||expect.isolatedMarker&&payload.controlKind==='location')){
+    if(payload.customControl&&(payload.optionsComplete||expect.execute&&payload.controlKind==='location')){
       const observed=await read(tab,expect,'inspect');
       if(!observed.ok)return observed;
       if(observed.questions?.some(question=>question.key===payload.key&&(!question.alreadyPopulated||
-        expect.isolatedMarker&&question.controlKind&&question.selectedId!==payload.selectionId))){
+        expect.execute&&question.controlKind&&question.selectedId!==payload.selectionId))){
         const opened=await mutate(command,tab,expect,'openChoice',payload);if(!opened.ok)return opened;
       }
     }
@@ -389,13 +396,13 @@ async function executeGreenhouse(command,expect,payload) {
   }
   if(command.op==='preflight'){
     const inspected=await read(tab,expect,'inspect');if(!inspected.ok)return inspected;
-    if(!expect.replay&&!expect.isolatedMarker)return {ok:true,tabId:tab.id,url:tab.url};
+    if(!expect.replay&&!expect.execute)return {ok:true,tabId:tab.id,url:tab.url};
     // A conditional field can appear after the previous answer. Reinspect the
     // same task before crossing the submit boundary, so it is recorded and
     // answered rather than treated as a completed form.
     if(inspected.questions?.length)return fail('questions_changed','申请表出现尚未确认的问题，将重新检查当前任务。');
     if(inspected.submissionProtocol)return nativeGreenhouse(command,expect,tab,inspected,payload,ledgerKey);
-    if(expect.isolatedMarker||inspected.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
+    if(expect.execute||inspected.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
     if((!expect.replay||inspected.uploadedResumeConfirmed)&&!await uploadProofFor(command,tab,payload.file))return fail('manual','缺少绑定本任务、执行资料及源文件的精确上传对象证据，已暂停，未提交申请。');
     await inject(tab,expect);
     const prepared=await prepareMutation(tab,expect,'submit',[payload.layout,greenhouseFileIdentity(payload.file)]);
@@ -405,7 +412,7 @@ async function executeGreenhouse(command,expect,payload) {
     const checked=await read(tab,expect,'inspect');
     if(!checked.ok||checked.receipt)return checked;
     if(checked.submissionProtocol)return nativeGreenhouse(command,expect,tab,checked,payload,ledgerKey);
-    if(expect.isolatedMarker||checked.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
+    if(expect.execute||checked.nativeProtocolDetected||greenhouseUploadProofs[command.task.id])return fail('structure','原生提交协议无法核对；未提交申请。');
     if(checked.layout!==payload.layout)return fail('structure','提交前 Greenhouse 表单已变化。');
     const uploadProof=await uploadProofFor(command,tab,payload.file);
     if((!expect.replay||checked.uploadedResumeConfirmed)&&!uploadProof)return fail('manual','本次附件精确对象尚未核实，未进入提交边界；请核对原任务。');

@@ -86,7 +86,7 @@ export function currentValues(values,places,city){
 export function assertCurrentApplication(application,reference,file,id,email='fictional@example.invalid'){
   const {race,gender,veteran_status,phone,location,latitude,longitude,country_short_name,...rest}=application;
   assert.equal(gender,undefined);assert.equal(veteran_status,undefined);
-  assert.equal(race,['12345674','900000013'].includes(id)?'8':'2');
+  assert.equal(race,['12345674','817260013'].includes(id)?'8':'2');
   assert.equal(rest.email,email);
   assert.equal(phone,'+16135550100');
   assert.deepEqual({location,latitude,longitude,country_short_name},{location:places[0].label,latitude:String(places[0].lat),longitude:String(places[0].lon),country_short_name:'CA'});

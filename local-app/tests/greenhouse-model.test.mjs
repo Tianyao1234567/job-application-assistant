@@ -157,7 +157,7 @@ test('only exact synthetic replay receipt can mark replay submitted; unknown out
 test('paused production only inspects, including a previously queued submit phase',t=>{
   const env=setup(t,{production:true});
   for(const patch of [{purpose:'submit'},{purpose:undefined,submitConfirmed:true},{purpose:'inspect',submitConfirmed:true}])
-    assert.throws(()=>env.confirm(patch),/仅允许确认检查页面/);
+    assert.throws(()=>env.confirm(patch),/明确选择只读检查/);
   begin(env);
   assert.equal(env.task.confirmation.purpose,'inspect');
   assert.equal(Object.hasOwn(env.task.confirmation,'submitConfirmed'),false);
@@ -330,9 +330,9 @@ test('normal real settings cannot grant the isolated submission purpose',t=>{
   const env=setup(t,{production:true});
   env.confirm();
   const inspect=env.task.confirmation;
-  assert.throws(()=>env.confirm({purpose:'isolated-submit',resumeSha256:env.store.state.resume.sha256}),/仅允许确认检查页面/);
+  assert.throws(()=>env.confirm({purpose:'isolated-submit',resumeSha256:env.store.state.resume.sha256}),/明确选择只读检查/);
   assert.deepEqual(env.task.confirmation,inspect);
-  assert.equal(env.store.snapshot().tasks[0].canConfirmIsolatedExecution,false);
+  assert.equal(env.store.snapshot().tasks[0].executionOffer,null);
 });
 
 test('legacy real confirmation does not grant either new permission and preserves historical unknown',t=>{

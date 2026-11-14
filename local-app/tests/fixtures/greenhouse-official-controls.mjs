@@ -24,10 +24,11 @@ export async function loadOfficialControls(){
   return new Map([
     ['/official-controls.js',`import {r as React,j as jsx,i as i18n,a as reactTranslation,fixtureReactDOM,fixtureLocation}
        from "/${vendorName}";
-       import {fixtureBoard,fixtureCountry,fixtureCity,fixtureEthnicity} from "/${entryName}";
+       import {fixtureBoard,fixtureCountry,fixtureCity,fixtureEthnicity,fixtureUploadManager} from "/${entryName}";
        const en=${JSON.stringify(JSON.parse(locale))};
-       export ${installOfficialControls.toString()}`],
-    ['/'+entryName,entry.replace(startup,'')+'\nexport {Ct as fixtureBoard,za as fixtureCountry,To as fixtureCity,Fo as fixtureEthnicity};'],
+       export ${installOfficialControls.toString()}
+       export async function fixtureUpload(job,pathname){const manager=new fixtureUploadManager();await manager.fetchFields(manager.inputFilesFrom(job.questions),pathname);return manager;}`],
+    ['/'+entryName,entry.replace(startup,'')+'\nexport {Ct as fixtureBoard,za as fixtureCountry,To as fixtureCity,Fo as fixtureEthnicity,Vo as fixtureUploadManager};'],
     ['/'+vendorName,vendor+'\nexport {Sd as fixtureReactDOM,L0 as fixtureLocation};']
   ]);
 }

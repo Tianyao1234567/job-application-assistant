@@ -2,16 +2,15 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {createApp} from '../../server.mjs';
-import {fixtureFaultJobs,isolatedJobs,isolatedJobURL} from './greenhouse-native-gate-fixture.mjs';
+import {fixtureFaultJobs} from './greenhouse-native-gate-fixture.mjs';
 import {locationCandidates} from '../../greenhouse-location.mjs';
 import {locationResponse} from './greenhouse-current-form.mjs';
 
 assert.ok(process.send,'The fixture backend needs a parent test process');
-const [dataDir,testKey,scenario,marker]=process.argv.slice(2);
+const [dataDir,testKey,scenario]=process.argv.slice(2);
 assert.ok(dataDir&&testKey,'The fixture backend needs isolated data and a test key');
 const app=await createApp({dataDir,startFixture:false,testMode:true,testKey,
-  ...(['selection-baseline','isolated-execution'].includes(scenario)?{testLocationSearch:async query=>locationCandidates(locationResponse(query))}:{}),
-  ...(scenario==='isolated-execution'?{testIsolatedExecution:{marker,urls:isolatedJobs.map(isolatedJobURL)}}:{})});
+  ...(scenario==='selection-baseline'?{testLocationSearch:async query=>locationCandidates(locationResponse(query))}:{})});
 const pending=new Map(),heldJobs=new Set(Object.values(fixtureFaultJobs));
 
 // Delay delivery of the real final authorization. The backend has already

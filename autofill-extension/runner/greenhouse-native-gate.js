@@ -1,14 +1,19 @@
 // Both functions are serialized by chrome.scripting and execute in the MAIN
 // world of one verified top-level document. The key is never passed via DOM.
-export function installNativeGate({key,source,submitUrl,confirmationUrl,isolatedMarker}) {
+export function installNativeGate({key,source,submitUrl,confirmationUrl,tenant,jobId,replay}) {
   const controlName='__jobNativeGateControl';
-  const isolated=location.origin==='https://job-boards.greenhouse.io'&&/^\/mattermost\/jobs\/900\d{6}$/.test(location.pathname)&&
-    /^[a-f0-9]{48}$/.test(isolatedMarker||'')&&document.querySelector('meta[name="job-isolated-execution"]')?.content===isolatedMarker;
-  if(location.href!==source||(!isolated&&location.origin!=='http://127.0.0.1:17322')||
-    new URL(submitUrl).origin!==location.origin||!globalThis.navigation||
+  // Runner has validated consent and injects this gate into the locked document.
+  // Check the exact allowed native transport again in MAIN.
+  const target=new URL(submitUrl),confirmation=new URL(confirmationUrl);
+  const boardOrigins=['https://job-boards.greenhouse.io','https://boards.greenhouse.io'];
+  const path=(replay?'/greenhouse':'')+'/'+tenant+'/jobs/'+jobId;
+  const sourceAllowed=replay?location.origin==='http://127.0.0.1:17322':boardOrigins.includes(location.origin)&&tenant==='mattermost';
+  if(location.href!==source||!sourceAllowed||!/^\d{1,30}$/.test(jobId||'')||location.pathname!==path||
+    target.pathname!==path||!(target.origin===location.origin||!replay&&target.origin===boardOrigins[1])||
+    confirmation.origin!==location.origin||confirmation.pathname!==path+'/confirmation'||
+    [target,confirmation].some(url=>url.username||url.password||url.search||url.hash)||!globalThis.navigation||
     typeof key!=='string'||!key||Object.hasOwn(globalThis,controlName))return {ok:false};
   const nativeFetch=globalThis.fetch.bind(globalThis);
-  const target=new URL(submitUrl);
   const failure=()=>new TypeError('Managed application request was not released');
   let phase='idle',pending,deadline,resolveCapture;
   const capture=new Promise(resolve=>{resolveCapture=resolve;});
@@ -27,7 +32,7 @@ export function installNativeGate({key,source,submitUrl,confirmationUrl,isolated
       return nativeFetch(input,init);
     }
     const method=String(init?.method??(input instanceof Request?input.method:'GET')).toUpperCase();
-    if(url.origin!==target.origin||url.pathname!==target.pathname||['GET','HEAD'].includes(method))return nativeFetch(input,init);
+    if((url.origin!==target.origin&&url.origin!==location.origin)||url.pathname!==target.pathname||['GET','HEAD'].includes(method))return nativeFetch(input,init);
     const keys=init?Object.keys(init).sort().join(','):'';
     if(phase!=='idle'||url.href!==submitUrl||location.href!==source||typeof input!=='string'||
       keys!=='body,headers,method'||init.method!=='POST'||typeof init.body!=='string'||

@@ -13,7 +13,9 @@ export const fixtureAccount='fictional@example.invalid';
 export const fixtureJobs=['12345671','12345672','12345673','12345674'];
 export const fixtureFaultJobs={replaced:'12345675',disabled:'12345676'};
 const allJobs=[...fixtureJobs,...Object.values(fixtureFaultJobs)];
-export const isolatedJobs=['900000011','900000012','900000013'];
+export const isolatedJobs=['817260011','817260012','817260013'];
+export const nativeUploadOrigin='https://fictional-resumes.s3.us-east-1.amazonaws.com';
+const nativeSubmitOrigin='https://boards.greenhouse.io';
 export const isolatedAccount='isolated-applicant@example.test';
 export const isolatedOrigin='https://job-boards.greenhouse.io';
 export const isolatedJobURL=id=>isolatedOrigin+'/mattermost/jobs/'+id;
@@ -34,16 +36,19 @@ const page=(title,body)=>'<!doctype html><meta charset="utf-8"><title>'+title+' 
 const input=(key,type)=>'<p><label for="'+key+'">'+labels[key]+'*</label><input id="'+key+'" name="'+key+'" type="'+type+'" required></p>';
 
 function applicationPage(id,full,dynamic,isolated){
-  const url=isolated?isolatedJobURL(id):jobURL(id),submit=new URL(url).pathname,confirmation=submit+'/confirmation';
+  const url=isolated?isolatedJobURL(id):jobURL(id),pathname=new URL(url).pathname,confirmation=pathname+'/confirmation';
+  const submit=isolated?nativeSubmitOrigin+pathname:pathname;
   const jobPost={public_url:url,...(isolated?{language:'en',title:'Fictional native vacancy '+id,company_name:'Mattermost'}:{}),...(dynamic?currentQuestions:{questions:full?archivedSchema.questions:questions}),...(full?{fingerprint}: {})};
   const loader={urlToken:isolated?'mattermost':fixtureTenant,jobPostId:id,submitPath:submit,confirmationPath:confirmation,jobPost,
     csrfToken:csrf,jobApplicationRequestToken:requestToken,...(full?{clientSha256:dynamic?currentClientSha:archivedClientSha}:{fingerprint})};
-  const remix={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':loader}}};
+  const remix={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':loader,...(isolated?{root:{ENV:{
+    LOCATION_CONTROL_PROVIDER:'pelias',LOCATION_CONTROL_BASE_URL:'https://api-geocode-earth-proxy.greenhouse.io/',LOCATION_CONTROL_API_KEY:'fictional-key'
+  }}}:{})}}};
   const script=[
     'import {buildApplication,nativeSubmit} from "/native-fixture-client.js";',
     'const loader=window.__remixContext.state.loaderData["routes/$url_token_.jobs_.$job_post_id"];',
     'const form=document.querySelector("form"),input=form.elements.resume;',
-    ...(isolated?.renderer?['import {installOfficialControls} from "/official-controls.js";',
+    ...(isolated?.renderer?['import {installOfficialControls,fixtureUpload} from "/official-controls.js";',
       'const officialValues=await installOfficialControls(form,loader.jobPost);']:isolated?['('+isolatedControls.toString()+')();']:[]),
     ...(full&&!dynamic?['const location='+JSON.stringify({location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'})+';']:[]),
     ...(dynamic?['const places='+JSON.stringify(places)+';',
@@ -51,6 +56,16 @@ function applicationPage(id,full,dynamic,isolated){
         'ethnicity.addEventListener("change",()=>{slot.replaceChildren();if(ethnicity.value==="0")slot.append(document.querySelector("#race-template").content.cloneNode(true));});',
         'slot.addEventListener("change",event=>{if(event.target.value==="8"){ethnicity.value="2";slot.replaceChildren();}});']:[])]:[]),
     'let resume;',
+    ...(isolated?.renderer?[
+      'const manager=await fixtureUpload(loader.jobPost,location.pathname);',
+      'input.addEventListener("change",async()=>{const file=input.files[0],uploader=manager.uploaders.resume;',
+      '  await uploader.uploadFile(file,()=>{});',
+      '  resume={name:file.name,url:'+(id===isolatedJobs[1]?JSON.stringify(nativeUploadOrigin+'/other-fictional-object'):'uploader.fileUrl()')+'};',
+      '  const group=input.closest("fieldset"),label=document.createElement("div");',
+      '  label.className="file-upload__filename";label.textContent=file.name;',
+      '  group.querySelector("label").remove();input.remove();group.append(label);',
+      '});'
+    ]:[
     'input.addEventListener("change",()=>{',
     '  const xhr=new XMLHttpRequest(),body=new FormData(),file=input.files[0],key='+JSON.stringify(uploadKey(id))+';',
     '  body.append("key",key);body.append("file",file);',
@@ -62,7 +77,7 @@ function applicationPage(id,full,dynamic,isolated){
     '    group.querySelector("label").remove();input.remove();group.append(label);',
     '  });',
     '  xhr.send(body);',
-    '});',
+    '});']),
     'form.addEventListener("submit",async event=>{',
     '  event.preventDefault();form.dataset.nativeSubmitCalls=String(Number(form.dataset.nativeSubmitCalls||0)+1);',
     '  const values=Object.fromEntries([...form.elements].filter(input=>input.name).map(input=>[input.name,input.value]));',
@@ -76,7 +91,7 @@ function applicationPage(id,full,dynamic,isolated){
     ...(isolated?.renderer?['input.id="resume";']:[])
   ].join('\n');
   const fixtureEnvironment=isolated?.renderer?'<script>window.ENV={ASSET_URL:location.origin,LOCATION_CONTROL_PROVIDER:"pelias",LOCATION_CONTROL_BASE_URL:location.origin+"/",LOCATION_CONTROL_API_KEY:"fixture"};</script>':'';
-  const body=fixtureEnvironment+(isolated?'<meta name="job-isolated-execution" content="'+isolated.marker+'"><link rel="modulepreload" href="https://job-boards.cdn.greenhouse.io/assets/entry.client-HYmR2EDs.js">':'')+'<h1>Fictional native vacancy '+id+'</h1><p class="job-location">Fictional Test City</p>'+
+  const body=fixtureEnvironment+(isolated?'<link rel="modulepreload" href="https://job-boards.cdn.greenhouse.io/assets/entry.client-HYmR2EDs.js">':'')+'<h1>Fictional native vacancy '+id+'</h1><p class="job-location">Fictional Test City</p>'+
     '<form '+(isolated?.renderer?'id="application-form" ':'')+'data-greenhouse-replay data-tenant="'+fixtureTenant+'" data-job-id="'+id+'" method="post" action="'+submit+'">'+
     (dynamic?(isolated?.renderer?currentFields().replace('id="resume"','id="pending-resume"'):currentFields()):full?fullFields():input('first_name','text')+input('last_name','text')+input('email','email')+input('phone','tel')+
     '<fieldset class="file-upload"><legend id="upload-label-resume">Resume/CV*</legend><label for="resume">Attach</label>'+
@@ -102,7 +117,7 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
   const origin=isolated?isolatedOrigin:fixtureOrigin;
   const jobs=isolated?isolatedJobs:allJobs,lostJob=isolated?isolatedJobs[2]:fixtureJobs[3];
   let uploadRequests=0,locationRequests=0;
-  const ref=key=>origin+'/greenhouse-upload/'+key;
+  const ref=key=>isolated?nativeUploadOrigin+'/'+key:origin+'/greenhouse-upload/'+key;
   const client=dynamic?currentClient:await fs.readFile(new URL('./greenhouse-native-client.js',import.meta.url));
   const uploads=new Map([['other-fictional-object',{name:resume.name,sha256:digest(Buffer.alloc(resume.bytes.length,88)),size:resume.bytes.length}]]);
   const state=Object.fromEntries(jobs.map(id=>[id,{posts:0,accepted:0,confirmations:0,responseDropped:0}]));
@@ -118,19 +133,27 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
       if(!connections.has(request.socket))connections.set(request.socket,{id:++nextConnection,requests:0});
       const connection=connections.get(request.socket);
       const reused=connection.requests++>0;
-      const url=new URL(request.url,origin);
+      const url=new URL('https://'+request.headers.host+request.url);
+      if(isolated&&request.method==='OPTIONS')return respond(response,204,'',{
+        'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'Content-Type','Access-Control-Allow-Methods':'POST'
+      });
+      if(isolated&&url.pathname.endsWith('/uncacheable_attributes/presigned_fields')&&request.method==='GET'){
+        const id=url.pathname.split('/')[3];assert.ok(jobs.includes(id));
+        return respond(response,200,JSON.stringify({url:nativeUploadOrigin,resume:{fields:{policy:'fictional'},key:uploadKey(id)},
+          cover_letter:{fields:{policy:'fictional'},key:'cover-'+id}}),{'Content-Type':'application/json'});
+      }
       if(isolated?.renderer?.has(url.pathname)&&request.method==='GET')
         return respond(response,200,isolated.renderer.get(url.pathname),{'Content-Type':'text/javascript; charset=utf-8'});
       if(dynamic&&['/greenhouse-locations','/v1/autocomplete'].includes(url.pathname)&&request.method==='GET'){
-        if(url.pathname==='/v1/autocomplete')locationRequests++;
+        if(url.pathname==='/v1/autocomplete'&&url.origin===isolatedOrigin)locationRequests++;
         return respond(response,200,JSON.stringify(locationResponse(url.searchParams.get('q')||url.searchParams.get('text'))),{'Content-Type':'application/json'});
       }
       if(url.pathname==='/native-fixture-client.js'&&request.method==='GET')
         return respond(response,200,client,{'Content-Type':'text/javascript'});
-      if(url.pathname==='/greenhouse-upload'&&request.method==='POST'){
+      if((isolated?url.origin===nativeUploadOrigin&&url.pathname==='/':url.pathname==='/greenhouse-upload')&&request.method==='POST'){
         uploadRequests++;
         assert.equal(request.headers.origin,origin);
-        assert.equal(request.headers.cookie,cookie);
+        if(!isolated)assert.equal(request.headers.cookie,cookie);
         const form=await new Request(origin,{method:'POST',headers:{'Content-Type':request.headers['content-type']},body:await read(request)}).formData();
         assert.equal(form.getAll('key').length,1);
         assert.equal(form.getAll('file').length,1);
@@ -141,7 +164,7 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
         assert.equal(file.name,resume.name);
         assert.deepEqual(bytes,resume.bytes);
         uploads.set(key,{name:file.name,sha256:digest(bytes),size:bytes.length});
-        return respond(response,204);
+        return respond(response,204,'',isolated?{'Access-Control-Allow-Origin':origin}:{});
       }
       const match=(isolated?/^\/mattermost\/jobs\/(\d+)(\/confirmation)?$/:/^\/greenhouse\/native-gate\/jobs\/(\d+)(\/confirmation|\/receipt)?$/).exec(url.pathname);
       if(!match||!Object.hasOwn(state,match[1]))return respond(response,404,'Fictional path missing');
@@ -157,7 +180,7 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
       if(suffix||request.method!=='POST')return respond(response,405);
       counts.posts++;
       assert.equal(request.headers.origin,origin);
-      assert.equal(request.headers.cookie,cookie);
+      if(!isolated)assert.equal(request.headers.cookie,cookie);
       assert.equal(request.headers['content-type'],'application/json');
       const bytes=await read(request),body=JSON.parse(bytes),key=uploadKey(id),file=uploads.get(key);
       assert.ok(file);
@@ -191,7 +214,7 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
         request.socket.destroy();
         return;
       }
-      respond(response,200,'{"accepted":true}',{'Content-Type':'application/json'});
+      respond(response,200,'{"accepted":true}',{'Content-Type':'application/json',...(isolated?{'Access-Control-Allow-Origin':origin}:{})});
     }catch(error){
       console.error('Fictional receiver rejected request: '+error.message);
       respond(response,400,'Fictional application rejected');

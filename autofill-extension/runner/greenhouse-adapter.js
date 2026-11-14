@@ -148,7 +148,7 @@
     if(!loader)return null;
     try{
       const submit=new URL(loader.submitPath,location.href),confirmation=new URL(loader.confirmationPath,location.href),base=(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId;
-      if(submit.pathname!==base||submit.username||submit.password||!(submit.origin===expected.origin||!expected.replay&&submit.origin==='https://boards.greenhouse.io')||confirmation.origin!==expected.origin||confirmation.pathname!==base+'/confirmation')return null;
+      if(submit.pathname!==base||submit.username||submit.password||submit.search||submit.hash||!(submit.origin===expected.origin||!expected.replay&&submit.origin==='https://boards.greenhouse.io')||confirmation.origin!==expected.origin||confirmation.pathname!==base+'/confirmation'||confirmation.username||confirmation.password||confirmation.search||confirmation.hash)return null;
       return {submitUrl:submit.href,confirmationUrl:confirmation.href,rule:'greenhouse-response-ok-v1'};
     }catch{return null;}
   }
@@ -269,7 +269,7 @@
     if(node.tagName==='SELECT')return node.value||null;
     if(field.controlKind==='location'){
       const selection=locationSelections.get(node);
-      if(!isolatedDocument(record.expected)||!selection||selection.label!==selectedChoice(node))return null;
+      if(!executionDocument(record.expected)||!selection||selection.label!==selectedChoice(node))return null;
       return selection.id;
     }
     if(field.controlKind==='phone-country'){
@@ -310,7 +310,7 @@
       const id=specialChoice(record);
       if(!id||answer.selectionId!==id)return false;
       if(q.controlKind!=='location')return q.options.some(option=>option.id===id&&option.text===answer.value);
-      const option=record.node.selectedOptions?.[0]||(isolatedDocument(expected)&&record.node.closest('.select')?.querySelector('.select__single-value'));
+      const option=record.node.selectedOptions?.[0]||(executionDocument(expected)&&record.node.closest('.select')?.querySelector('.select__single-value'));
       return answer.location?.id===id&&!!option&&text(option)===answer.location.label;
     }
     if(!q.required&&!q.alreadyPopulated&&expected.confirmedAnswers.some(answer=>answer?.confirmed===true&&answer.leaveBlank===true&&['key','scope','version','text','source','purpose'].every(key=>answer[key]===q[key])))return true;
@@ -330,10 +330,9 @@
     const actual=controlValue(record);
     return typeof actual==='string'&&(q.key==='email'?actual.trim().toLowerCase()===value.trim().toLowerCase():actual===value);
   }
-  function isolatedDocument(expected){
-    return expected?.confirmationPurpose==='isolated-submit'&&/^[a-f0-9]{48}$/.test(expected.isolatedMarker||'')&&
-      expected.origin==='https://job-boards.greenhouse.io'&&/^900\d{6}$/.test(expected.jobId)&&
-      document.querySelector('meta[name="job-isolated-execution"]')?.content===expected.isolatedMarker;
+  function executionDocument(expected){
+    return expected?.confirmationPurpose==='execute'&&expected.execute===true&&expected.applicantConfirmed&&
+      location.href===expected.source&&!!submissionProtocol(expected);
   }
   async function confirmedQuestions(expected,current) {
     for(const record of current.records){
@@ -399,12 +398,12 @@
       const ethnicity=fields.find(field=>field.controlKind==='hispanic');
       const visibleRace=fields.find(field=>field.controlKind==='conditional-race');
       if(visibleRace&&ethnicity)visibleRace.parentScope=ethnicity.scope;
-      const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&(!(expected.replay||isolatedDocument(expected))||!ownedAnswer(expected,field,result.records[index])));
+      const questions=fields.filter((field,index)=>field.type!=='file'&&!(field.attachmentAlternative&&!field.alreadyPopulated)&&!profileFact(expected,field,result.records[index],true)&&(!(expected.replay||executionDocument(expected))||!ownedAnswer(expected,field,result.records[index])));
       if(control&&!fields.some(field=>field.key==='race')){
         const parent=fields.find(field=>field.key==='hispanic_ethnicity');
         const parentAnswer=parent&&expected.confirmedAnswers?.find(answer=>answer.scope===parent.scope&&answer.selectionId==='0'&&answer.confirmed===true);
         const source=control.job.eeoc_sections.flatMap(section=>section.questions).find(q=>q.fields[0].name==='race');
-        if(parentAnswer&&!(expected.replay||isolatedDocument(expected))){
+        if(parentAnswer&&!(expected.replay||executionDocument(expected))){
           const options=source.fields[0].values.filter(item=>item.value!=='4').map(item=>({id:item.value,text:item.label,disabled:false}));
           const race={key:'race',text:control.controls.raceLabel,options,optionsComplete:true,type:'select-one',
             controlKind:'conditional-race',purpose:'voluntary-sensitive',required:false,source:parent.source,parentScope:parent.scope};
@@ -413,7 +412,9 @@
           questions.push(race);
         }
       }
-      return {ok:true,login:current.login,jobMetadata,submissionProtocol:submissionProtocol(expected),nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
+      const protocol=submissionProtocol(expected);
+      return {ok:true,login:current.login,jobMetadata,submissionProtocol:protocol,executionVersion:!expected.replay&&control&&protocol?
+        await sha(JSON.stringify([control.clientSha256,control.controls.questionsSha,control.controls.eeocSha,protocol])):null,nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
   function matchingChoices(node,field,selected,value) {
@@ -427,10 +428,10 @@
     if(records.length!==1)return fail('structure','字段不存在或不唯一，不能自动填写。');
     const record=records[0],{node,field}=record;
     if(field.controlKind){
-      if(!(expected.replay||isolatedDocument(expected))||!explicit||!editable(node)||!answer?.selectionId)
+      if(!(expected.replay||executionDocument(expected))||!explicit||!editable(node)||!answer?.selectionId)
         return fail('manual','未核实此控件的受管选择方式。');
       const selected=field.controlKind==='location'?answer.location:field.options.find(option=>option.id===answer.selectionId&&option.text===value);
-      if(isolatedDocument(expected)&&field.customControl){
+      if(executionDocument(expected)&&field.customControl){
         const selectedId=specialChoice(record),baseline=answer.pageBaselineId??answer.selectedId??null;
         if(!selected||selectedChoice(node)&&!selectedId||selectedId&&selectedId!==answer.selectionId&&selectedId!==baseline)
           return fail('manual','保留原网页选择，请重新核对。');
@@ -475,7 +476,7 @@
     if(records.length!==1||records[0].node.disabled||records[0].node.multiple)return fail('structure','未识别到唯一的简历附件控件。');
     return {ok:true,...records[0]};
   }
-  const sameExpected=(a,b)=>['origin','tenant','jobId','company','expectedAccount','replay','applicantConfirmed','confirmationPurpose','isolatedMarker'].every(key=>a[key]===b[key])&&JSON.stringify(a.confirmedAnswers||[])===JSON.stringify(b.confirmedAnswers||[])&&JSON.stringify(a.profileValues||{})===JSON.stringify(b.profileValues||{});
+  const sameExpected=(a,b)=>['origin','tenant','jobId','company','expectedAccount','replay','applicantConfirmed','confirmationPurpose','source','documentId'].every(key=>a[key]===b[key])&&JSON.stringify(a.confirmedAnswers||[])===JSON.stringify(b.confirmedAnswers||[])&&JSON.stringify(a.profileValues||{})===JSON.stringify(b.profileValues||{});
   // Values stay in this isolated world only. They must not be serialized into
   // layout, task reports, or logs; submission binds the form state seen before
   // asynchronous hashing and authorization to the final synchronous click.
@@ -546,11 +547,11 @@
   // require independent confirmation before they can enter this lane.
   api.nativeState=async(expected,layout,locked,captured)=>{
     try{
-      if(!(expected.replay||isolatedDocument(expected)))return fail('manual','原生真实提交保持暂停。');
+      if(!(expected.replay||executionDocument(expected)))return fail('manual','原生真实提交保持暂停。');
       const loader=applicationLoader(expected),control=await publicControlSchema(expected,loader);
       const current=checked(expected,layout,true,control);if(!current.ok)return current;
       const values=captureValues(current),job=loader?.jobPost,schema=job?.questions;
-      if(isolatedDocument(expected)&&!control)return fail('structure','当前隔离执行未匹配已核实的原生结构。');
+      if(executionDocument(expected)&&!control)return fail('structure','当前执行未匹配已核实的原生结构。');
       if(!schema?.length||schema.length>60||!control&&job.eeoc_sections?.length||job.demographic_questions?.questions?.length)
         return fail('manual','当前原生申请结构缺少独立确认来源。');
       const versioned=schema.some(question=>question.fields?.some(field=>field.name==='candidate_location'));
@@ -693,17 +694,17 @@
       const payload=['answer','openChoice'].includes(method)?args[0]:null,layout=payload?.layout||args[0];
       const control=await publicControlSchema(expected);
       const current=checked(expected,layout,true,control);if(!current.ok)return current;
-      if(!expected.replay&&!isolatedDocument(expected))return fail('manual','真实站当前仅允许检查。');
+      if(!expected.replay&&(!executionDocument(expected)||!control))return fail('manual','当前页面缺少有效的执行确认或可核实的表单版本。');
       const prepared={method,expected:{...expected},layout,control,form:current.form,at:Date.now()};
       if(method==='openChoice'){
         const target=current.records.find(record=>record.field.key===payload.key);
-        if(!target?.field.customControl||!(target.field.optionsComplete||isolatedDocument(expected)&&target.field.controlKind==='location')||!editable(target.node)||
-          selectedChoice(target.node)&&!(isolatedDocument(expected)&&target.field.controlKind&&specialChoice(target)&&
+        if(!target?.field.customControl||!(target.field.optionsComplete||executionDocument(expected)&&target.field.controlKind==='location')||!editable(target.node)||
+          selectedChoice(target.node)&&!(executionDocument(expected)&&target.field.controlKind&&specialChoice(target)&&
           specialChoice(target)===(payload.pageBaselineId??payload.selectedId??null)))return fail('manual','此选项应由本人在页面选择。');
         const q=await question(expected,target);if(payload.confirmed!==true||q.scope!==payload.scope||q.version!==payload.version||q.text!==payload.text||!(q.options.some(option=>option.text===payload.answer&&!option.disabled)||
-          q.controlKind==='location'&&isolatedDocument(expected)&&payload.location?.id===payload.selectionId))return fail('structure','原题或确认选项已变化。');
+          q.controlKind==='location'&&executionDocument(expected)&&payload.location?.id===payload.selectionId))return fail('structure','原题或确认选项已变化。');
         Object.assign(prepared,{key:payload.key,node:target.node,original:target.node.value,raw:target.raw,selection:selectedChoice(target.node),
-          ...(isolatedDocument(expected)&&target.field.controlKind&&{answer:payload.answer,location:payload.location})});
+          ...(executionDocument(expected)&&target.field.controlKind&&{answer:payload.answer,location:payload.location})});
       }else if(method==='fillField'||method==='answer'){
         let key=method==='answer'?payload.key:args[1],value=method==='answer'?payload.answer:args[2];
         const target=fieldTarget(current,expected,key,value,method==='answer',payload);if(!target.ok)return target;
@@ -765,7 +766,7 @@
   }
   api.commit=(expected,token,nativeGate=false)=>{
     const prepared=pending.get(token);pending.delete(token);
-    if(!prepared||!sameExpected(expected,prepared.expected)||!expected.replay&&!isolatedDocument(expected)||Date.now()-prepared.at>30000)return fail('structure','操作预检已过期或用途已变化，请重新检查。');
+    if(!prepared||!sameExpected(expected,prepared.expected)||!expected.replay&&!executionDocument(expected)||Date.now()-prepared.at>30000)return fail('structure','操作预检已过期或用途已变化，请重新检查。');
     try{
       const current=checked(expected,prepared.layout,true,prepared.control);if(!current.ok)return current;
       if(current.form!==prepared.form)return fail('structure','申请表已被替换，请重新检查。');
