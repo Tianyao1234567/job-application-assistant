@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {createWindowsBrowserControl} from '../scripts/windows-browser-control.mjs';
 import {ROOT, initializePaths, insideRoot} from './paths.mjs';
 import {Store} from './model.mjs';
+import {searchGreenhouseLocations} from './greenhouse-location.mjs';
 import {extractResume} from './resume-import.mjs';
 import {createFixture} from './fixture.mjs';
 
@@ -219,6 +220,9 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
           json(res, 200, {ok: true, ready: true}); return;
         }
         json(res, 200, store.action(body)); return;
+      }
+      if(url.pathname==='/api/greenhouse/locations'){
+        json(res,200,{ok:true,...await store.findGreenhouseLocations(body,searchGreenhouseLocations)});return;
       }
       if (url.pathname === '/api/settings') store.setSettings(body);
       else if (url.pathname === '/api/profile') {if(!Number.isInteger(body.baseVersion))throw new RequestError(409,'资料版本缺失，请刷新并重新核对');store.setProfile(body);}

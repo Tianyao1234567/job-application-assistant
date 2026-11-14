@@ -142,6 +142,14 @@ export class Store {
   applicableAnswer(t,q){
     if(!this.validQuestion(t,q))return null;
     const site=this.site(t.siteId),own=t.answers?.[q.scope],memory=this.state.answers.find(a=>a.siteId===site.id&&a.scope===q.scope&&a.confirmed===true);
+    if(q.controlKind){
+      if(!own?.confirmed||own.stale||!['scope','version','text','source','purpose'].every(key=>own[key]===q[key]))return null;
+      if(q.controlKind==='conditional-race'&&!Object.values(t.answers).some(parent=>parent.controlKind==='hispanic'&&parent.selectionId==='0'&&!parent.stale))return null;
+      if(own.leaveBlank&&!q.required&&!q.alreadyPopulated)return '';
+      if(q.selectedId&&q.selectedId!==own.selectionId)return null;
+      if(q.controlKind==='location')return own.location?.id===own.selectionId?own.location.label:null;
+      return q.options.find(option=>option.id===own.selectionId&&!option.disabled)?.text||null;
+    }
     for(const candidate of [own,own?.stale===true?null:memory])if(candidate&&candidate.confirmed===true&&candidate.stale!==true&&['scope','version','text','source','purpose'].every(key=>candidate[key]===q[key])&&(!q.alreadyPopulated||q.currentValue===candidate.value||q.manualSelection&&q.options?.length===1&&q.options[0].text===candidate.value)){if(candidate.leaveBlank===true&&!q.required&&!q.alreadyPopulated)return '';try{return greenhouseAnswer(q,candidate.value);}catch{}}
     const fact=profileFactAnswer(q,t.profileSnapshot?.data||this.state.profile.data);
     if(fact!==null){try{return greenhouseAnswer(q,fact);}catch{}}
@@ -172,8 +180,22 @@ export class Store {
     t.question=t.questions?.[0]||null;delete t.answer;
     if(!t.question){t.phase='preflight';return;}
     const q=t.question,value=this.applicableAnswer(t,q);
-    if(value!==null){t.answer={...q,value,confirmed:true};t.answers ||= {};t.answers[q.scope]=clone(t.answer);t.phase='answer';return;}
+    if(value!==null){t.answers ||= {};t.answer={...t.answers[q.scope],...q,value,confirmed:true};t.answers[q.scope]=clone(t.answer);t.phase='answer';return;}
     t.status='waiting_answer';this.issue(t,'answer','集中补充当前申请缺项',q.text,q);this.step(t,'等待补充答案','当前已收集缺项将在待处理清单中集中展示。');
+  }
+  async findGreenhouseLocations({taskId,batchVersion,scope,query},search){
+    const task=this.task(taskId),batch=this.answerBatch(task),question=batch.questions.find(q=>q.scope===scope&&q.controlKind==='location');
+    if(task.status!=='waiting_answer'||this.hasSubmissionBoundary(task)||!this.confirmedTask(task)||batchVersion!==batch.version||!question||
+      typeof query!=='string'||query.trim().length<2||query.trim().length>100||/[\x00-\x1f]/.test(query))
+      throw new Error('请选择当前任务的地点问题并输入城市名称');
+    this.locationSearches ||= new Map();
+    const ticket={batchVersion,scope,revision:task.revision,candidates:[]};
+    this.locationSearches.set(task.id,ticket);
+    const candidates=await search(query.trim(),{replay:greenhouseReplay(this.site(task.siteId))});
+    if(this.locationSearches.get(task.id)!==ticket||this.task(task.id).revision!==ticket.revision||this.answerBatch(this.task(task.id)).version!==batchVersion)
+      throw new Error('地点搜索已过期，请在最新缺项中重新搜索');
+    ticket.candidates=candidates;
+    return {candidates};
   }
   saveAnswerBatch(t,body){
     if(t.status!=='waiting_answer'||this.hasSubmissionBoundary(t))throw new Error('本任务当前不能保存缺项答案；已提交阶段只允许核对结果');
@@ -184,11 +206,23 @@ export class Store {
       if(!q||input.version!==q.version||!this.validQuestion(t,q)||!['task','scope','profile'].includes(input.save))throw new Error('问题版本或保存用途不适用，尚未保存任何答案');
       const leaveBlank=input.leaveBlank===true;
       if(leaveBlank&&(q.required||q.alreadyPopulated||input.save!=='task'))throw new Error('只有尚未填写的选填问题可以选择本次留空');
-      const value=leaveBlank?'':isGreenhouse(site)?greenhouseAnswer(q,input.answer):short(input.answer,5000);
+      let selection,location;
+      if(q.controlKind){
+        if(input.save!=='task')throw new Error('此选择仅用于当前任务');
+        if(!leaveBlank&&q.controlKind==='location'){
+          const search=this.locationSearches?.get(t.id);
+          location=search?.batchVersion===batch.version&&search.scope===q.scope&&search.candidates.find(candidate=>candidate.id===input.selectionId&&candidate.label===input.answer);
+          if(!location)throw new Error('地点选择已过期，请从当前搜索结果重新选择');
+        }else if(!leaveBlank){
+          selection=q.options.find(option=>option.id===input.selectionId&&!option.disabled&&option.text===input.answer);
+          if(!selection)throw new Error('请确认当前原题的实际选项');
+        }
+      }
+      const value=leaveBlank?'':location?location.label:isGreenhouse(site)?greenhouseAnswer(q,input.answer):short(input.answer,5000);
       if(!value&&!leaveBlank)throw new Error('当前申请缺项不能为空');
       const profileKey=stableProfileKey(q);
       if(input.save==='profile'&&!profileKey)throw new Error('该问题不属于可跨岗位复用的稳定个人事实');
-      return {q,value,input,profileKey,leaveBlank};
+      return {q,value,input,profileKey,leaveBlank,selectionId:selection?.id||location?.id,location};
     });
     const profile=clone(this.state.profile.data);let changed=false;
     for(const {q,value,input,profileKey}of checked)if(input.save==='profile'){
@@ -199,11 +233,15 @@ export class Store {
     validateProfile(profile);
     if(changed&&this.state.profile.mode==='real'&&Object.values(profile.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
     t.answers ||= {};
-    for(const {q,value,input,leaveBlank}of checked){
-      const answer={...q,value,confirmed:true,...(leaveBlank?{leaveBlank:true}:{})};delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
+    for(const {q,value,input,leaveBlank,selectionId,location}of checked){
+      const answer={...q,value,confirmed:true,...(leaveBlank?{leaveBlank:true}:{}),...(selectionId?{selectionId}:{}),...(location?{location}: {})};
+      if(q.controlKind==='hispanic')for(const previous of Object.values(t.answers)){
+        if(previous.controlKind==='hispanic'&&previous.scope!==q.scope||previous.controlKind==='conditional-race'&&selectionId!=='0')previous.stale=true;
+      }delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
       if(!isGreenhouse(site))t.answer=answer;
       if(input.save==='scope'){this.state.answers=this.state.answers.filter(a=>!(a.scope===q.scope&&a.siteId===site.id));this.state.answers.push({...clone(answer),siteId:site.id,confirmedAt:this.now()});}
     }
+    this.locationSearches?.delete(t.id);
     this.invalidateTask(t);this.resolveTask(t);t.status='queued';t.phase='inspect';
     if(changed){
       this.state.profile={...this.state.profile,data:profile,version:this.state.profile.version+1,updatedAt:this.now()};
@@ -569,7 +607,7 @@ export class Store {
             c.payload={entries,layout:t.layout};
           }
           if(c.op==='upload'){const f=t.resumeSnapshot;c.payload={file:{name:f.name,mime:f.mime,size:f.size,sha256:f.sha256,base64:fs.readFileSync(insideRoot(f.file)).toString('base64')},layout:t.layout};}
-          if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,confirmed:t.answer.confirmed===true||!isGreenhouse(site),layout:t.layout};
+          if(c.op==='answer')c.payload={...t.question,answer:t.answer.value,selectionId:t.answer.selectionId,location:t.answer.location,confirmed:t.answer.confirmed===true||!isGreenhouse(site),layout:t.layout};
           if(c.op==='preflight')c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};
           if(c.op==='submit'){c.payload={layout:t.layout,file:{name:t.resumeSnapshot.name,size:t.resumeSnapshot.size,sha256:t.resumeSnapshot.sha256}};t.status='submitting';t.submissionStarted=true;t.submitDay=this.day();this.step(t,'提交阶段已记录','先保存提交边界，再允许明确的提交操作；结果不明不重试');}
         }
@@ -709,7 +747,12 @@ export class Store {
           if(isGreenhouse(site))this.selectGreenhouseQuestion(t);
           else if(t.question&&!t.answer){t.status='waiting_answer';this.issue(t,'answer','需要补充一个答案',t.question.text,t.question);this.step(t,'等待补充答案',t.question.text);}
           else t.phase=t.question?'answer':'preflight';}
-      }else if(c.op==='answer'){if(r.layout)t.layout=r.layout;if(isGreenhouse(site)){t.questions=(t.questions||[]).filter(q=>q.scope!==t.question?.scope);this.selectGreenhouseQuestion(t);}else t.phase='preflight';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
+      }else if(c.op==='answer'){if(r.layout)t.layout=r.layout;if(isGreenhouse(site)){
+        if(t.question?.controlKind==='hispanic'&&t.answer?.selectionId==='0'||t.question?.controlKind==='conditional-race'&&t.answer?.selectionId==='8'){
+          t.phase='inspect';delete t.answer;
+        }
+        else{t.questions=(t.questions||[]).filter(q=>q.scope!==t.question?.scope);this.selectGreenhouseQuestion(t);}
+      }else t.phase='preflight';this.step(t,'限定用途答案已填写','原问题与用途一致，继续同一任务');}
       else if(c.op==='preflight'){
         if(isGreenhouse(site)&&!greenhouseReplay(site)){
           t.status='waiting_user';t.phase='preflight';

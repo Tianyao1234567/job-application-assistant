@@ -17,7 +17,7 @@ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 function gitBlob(source,name){const result=spawnSync('git',['show',source+':'+name],{cwd:ROOT,maxBuffer:8*1024*1024});assert.equal(result.status,0,'packaging fixture must come from the stated committed source');return result.stdout;}
 
 test('candidate12 retains accepted candidate5/6/8/10 and requires profile import runtime modules',async()=>{
- assert.equal(VERSION,'0.2.0-candidate.12');
+ assert.equal(VERSION,'0.2.0-candidate.13');
  assert.deepEqual(UPDATE_BASELINES,['3856a49a78852c4729a6be4d64f01f19acdcd1c3','38714f7ea7ccb1837b899ba8d9cb1f9d537e60ac',accepted8,accepted10]);
  const baseline=await baselineManifest(ROOT,accepted8);assert.equal(baseline.source,accepted8);assert.equal(baseline.version,'0.2.0-candidate.8');
  for(const name of newRuntime){assert.ok(SOURCE_PATHS.includes(name));assert.equal(baseline.files.some(file=>file.path===name),false,'candidate8 needs the new runtime file supplied by the delta');}
@@ -25,7 +25,8 @@ test('candidate12 retains accepted candidate5/6/8/10 and requires profile import
 });
 
 test('the committed single-file delta recognizes exact accepted candidate8 and candidate10 installations',async t=>{
- const {bundle,report}=await buildUpdate({projectRoot:ROOT});assert.equal(bundle.target.version,'0.2.0-candidate.12');assert.equal(report.baselines.length,4);assert.equal(validateBundle(bundle),bundle);
+ const {bundle,report}=await buildUpdate({projectRoot:ROOT});assert.equal(bundle.target.version,'0.2.0-candidate.13');assert.equal(report.baselines.length,5);
+ assert.ok(report.baselines.some(item=>item.version==='0.2.0-candidate.12'&&item.source==='950e9e2fe375868e0e576de7f34fb92a8d70dd02'));assert.equal(validateBundle(bundle),bundle);
  assert.doesNotThrow(()=>validateBundle({...bundle,baselines:bundle.baselines.slice(0,2)}),'existing two-baseline bundles remain supported');
  assert.throws(()=>validateBundle({...bundle,baselines:bundle.baselines.slice(0,1)}),/UPDATE_PACKAGE_INVALID/);
  assert.throws(()=>validateBundle({...bundle,baselines:[...bundle.baselines,bundle.baselines[0]]}),/UPDATE_PACKAGE_INVALID/);

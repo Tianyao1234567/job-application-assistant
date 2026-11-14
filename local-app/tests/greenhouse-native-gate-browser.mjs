@@ -19,6 +19,7 @@ const lifecycle=process.env.GREENHOUSE_NATIVE_GATE_LIFECYCLE==='1';
 const full=process.env.GREENHOUSE_NATIVE_FULL_FLOW==='1';
 const purposes=process.env.GREENHOUSE_CONFIRMATION_PURPOSE==='1';
 const publicInspection=process.env.GREENHOUSE_PUBLIC_INSPECTION==='1';
+const dynamic=process.env.GREENHOUSE_DYNAMIC_CONTROLS==='1';
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
@@ -207,19 +208,29 @@ async function runPublicInspection(){
   assert.equal(authorization.required,true);
   assert.deepEqual(authorization.options.map(option=>option.text),['Yes','No']);
   assert.ok(!batch.some(q=>['email','phone','first_name','last_name'].includes(q.key)));
-  assert.ok(current.questions.some(q=>q.key==='candidate-location'&&q.unresolved));
+  assert.ok(current.questions.some(q=>q.key==='candidate-location'&&(dynamic?q.controlKind==='location':q.unresolved)));
   assert.ok(current.inspectionAttachments.some(q=>q.key==='resume'&&q.required&&q.manualTextAlternative));
   assert.ok(current.inspectionAttachments.some(q=>q.key==='cover_letter'&&!q.required&&q.manualTextAlternative));
 
   await dashboard.getByRole('dialog').getByRole('button',{name:'去补充答案',exact:true}).click();
   const form=dashboard.getByRole('form',{name:'集中补充答案：'+current.title});
   await form.waitFor();
-  assert.ok(await form.getByText('原题版本 '+authorization.version,{exact:true}).isVisible());
-  assert.ok(await form.getByText(/地点与坐标的可靠绑定/).isVisible());
+  await form.locator('details').filter({hasText:authorization.version}).locator('summary').click();
+  assert.ok(await form.getByText(authorization.version,{exact:true}).isVisible());
   assert.equal(await form.getByRole('link',{name:'查看原岗位问题来源'}).first().getAttribute('href'),url);
   const answers=new Map();
   for(const q of batch){
     const input=form.getByLabel(q.text+'：答案',{exact:true});
+    if(q.controlKind==='location'){
+      const row=form.locator('fieldset').filter({has:input});
+      await row.getByLabel(q.text+'：搜索城市',{exact:true}).fill('Springfield');
+      await row.getByRole('button',{name:'搜索地点',exact:true}).click();
+      await input.locator('option').filter({hasText:/Springfield/}).first().waitFor();
+      const place=(await input.locator('option').allTextContents()).find(label=>label.includes('Springfield'));
+      await input.selectOption({label:place});
+      answers.set(q.scope,{value:place,leaveBlank:false});
+      continue;
+    }
     if(q.options.length)assert.deepEqual(await input.locator('option').allTextContents(),
       ['请选择已核实的原文选项',...q.options.map(option=>option.text)]);
     await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
@@ -240,6 +251,8 @@ async function runPublicInspection(){
     assert.equal(saved.answers[scope].value,answer.value);
     assert.equal(saved.answers[scope].confirmed,true);
     assert.equal(saved.answers[scope].leaveBlank===true,answer.leaveBlank);
+    if(saved.answers[scope].controlKind==='location')assert.ok(saved.answers[scope].location?.id&&saved.answers[scope].location?.latitude);
+    if(saved.answers[scope].controlKind==='phone-country')assert.equal(saved.answers[scope].selectionId,'us');
   }
   const verifyEmpty=async()=>{
     const page=context.pages().find(page=>page.url()===url);
@@ -372,6 +385,7 @@ async function connect(){
 async function configure(){
   const profile=JSON.parse(await fs.readFile(path.join(projectRoot,'autofill-extension/profile.example.json'),'utf8'));
   profile.personal.email.zh=profile.personal.email.en=fixtureAccount;
+  if(dynamic)profile.personal.phone.zh=profile.personal.phone.en='+16135550100';
   profile.personal.location.confirmed=full;
   if(full)profile.personal.location.zh=profile.personal.location.en='Fictional Test City';
   const current=await state();
@@ -438,7 +452,7 @@ async function runFullForm(id){
   evidence.flow.push({id,stage:'inspected',status:current.status,issue:current.issue?.detail,questions:current.answerBatch?.questions?.map(q=>q.key)});
   assert.equal(current.status,'waiting_answer',JSON.stringify(current.issue));
   assert.equal(current.id,original.id);
-  assert.ok(!current.answerBatch.questions.some(q=>['phone','email','candidate-location','resume_text'].includes(q.key)));
+  assert.ok(!current.answerBatch.questions.some(q=>['phone','email','resume_text',...(!dynamic?['candidate-location']:[])].includes(q.key)));
   await dashboard.goto(BASE+'/#issues');
   const form=dashboard.getByRole('form',{name:'集中补充答案：'+current.title});
   await form.waitFor();
@@ -446,6 +460,20 @@ async function runFullForm(id){
   await form.waitFor();
   for(const q of current.answerBatch.questions){
     await form.getByText(q.text,{exact:true}).waitFor();
+    if(dynamic&&q.key==='candidate-location'){
+      const row=form.locator('fieldset').filter({has:form.getByLabel(q.text+'：答案',{exact:true})});
+      await row.getByLabel(q.text+'：搜索城市',{exact:true}).fill('Twin City');
+      await row.getByRole('button',{name:'搜索地点',exact:true}).click();
+      const select=row.getByLabel(q.text+'：答案',{exact:true});
+      await select.locator('option[value="fiction-place-a"]').waitFor({state:'attached'});
+      await select.selectOption('fiction-place-a');
+      continue;
+    }
+    if(dynamic&&['country','hispanic_ethnicity'].includes(q.key)){
+      const label=q.key==='country'?'Canada +1':id===fixtureJobs[3]?'Decline To Self Identify':'No';
+      await form.getByLabel(q.text+'：答案',{exact:true}).selectOption({label});
+      continue;
+    }
     if(!q.required&&!Object.hasOwn(flowAnswers,q.key)){
       await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
       await form.getByLabel(q.text+'：本次留空',{exact:true}).check();
@@ -460,6 +488,15 @@ async function runFullForm(id){
     await form.getByLabel(q.text+'：保存用途',{exact:true}).selectOption('task');
   }
   await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
+  if(dynamic&&id!==fixtureJobs[3]){
+    const branch=task(await waitFor('explicit No exposes the Race question',state,value=>task(value,id)?.answerBatch?.questions.some(q=>q.key==='race')),id);
+    assert.deepEqual(branch.answerBatch.questions.map(q=>q.key),['race']);
+    const race=branch.answerBatch.questions[0];
+    const answerForm=dashboard.getByRole('form',{name:'集中补充答案：'+current.title});
+    assert.ok(race.options.every(option=>option.id!=='4'));
+    await answerForm.getByLabel(race.text+'：答案',{exact:true}).selectOption({label:'Asian'});
+    await answerForm.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
+  }
   const after=await waitFor('same application completes or reports a hold',state,value=>
     ['submitted','unknown','failed','waiting_user'].includes(task(value,id)?.status));
   const item=task(after,id);
@@ -470,8 +507,14 @@ async function runFullForm(id){
   for(const question of current.answerBatch.questions){
     const answer=savedTask.answers[question.scope];
     assert.equal(answer.confirmed,true);
-    assert.equal(answer.value,flowAnswers[question.key]??'');
-    if(!Object.hasOwn(flowAnswers,question.key))assert.equal(answer.leaveBlank,true);
+    if(dynamic&&question.controlKind){
+      if(question.key==='candidate-location')assert.equal(answer.location.id,'fiction-place-a');
+      else if(question.key==='country')assert.equal(answer.selectionId,'ca');
+      else if(question.key==='hispanic_ethnicity')assert.equal(answer.selectionId,id===fixtureJobs[3]?'2':'0');
+    }else{
+      assert.equal(answer.value,flowAnswers[question.key]??'');
+      if(!Object.hasOwn(flowAnswers,question.key))assert.equal(answer.leaveBlank,true);
+    }
   }
   await dashboard.goto(BASE+'/#queue');
   await dashboard.reload();
@@ -613,7 +656,7 @@ async function verifyFaults(){
 try{
   if(publicInspection)await runPublicInspection();
   if(purposes)await runReadOnlyConfirmation();
-  fixture=await startNativeFixture(directory,resume,{full});
+  fixture=await startNativeFixture(directory,resume,{full,dynamic});
   app=await startBackend();
   const profileId=await connect();
   await configure();

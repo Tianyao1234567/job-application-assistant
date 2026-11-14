@@ -72,7 +72,7 @@ async function navigate(command,expect,url,kind,existing) {
 async function inject(tab,expect) {
   const current=await waitTab(tab.id);
   safeUrl(current.url,expect);
-  await chrome.scripting.executeScript({target:{tabId:tab.id},files:['content/guard.js','content/scan.js','content/fill.js',expect.adapter?'runner/greenhouse-adapter.js':'runner/local-adapter.js'],world:'ISOLATED'});
+  await chrome.scripting.executeScript({target:{tabId:tab.id},files:['content/guard.js','content/scan.js','content/fill.js',...(expect.adapter?['runner/greenhouse-public-controls.js','runner/greenhouse-adapter.js']:['runner/local-adapter.js'])],world:'ISOLATED'});
 }
 async function read(tab,expect,op='inspect') {
   await inject(tab,expect);

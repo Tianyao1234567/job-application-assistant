@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createHash} from 'node:crypto';
+import {fullFields,assertFullApplication as assertArchived} from './greenhouse-native-full-form.mjs';
+
+export const currentQuestions=JSON.parse(fs.readFileSync(new URL('./greenhouse-current-questions.json',import.meta.url),'utf8'));
+const source=JSON.parse(fs.readFileSync(new URL('./greenhouse-current-source.json',import.meta.url),'utf8'));
+export const currentClientSha=source.sourceSha256;
+export const currentClient=fs.readFileSync(new URL('./greenhouse-current-client.js',import.meta.url));
+assert.equal(createHash('sha256').update(currentClient).digest('hex'),source.fixtureSha256);
+
+export const places=[
+  {id:'fiction-place-a',label:'Fictional Twin City, Province A, Canada',region:'Province A',lat:46.01,lon:-72.01},
+  {id:'fiction-place-b',label:'Fictional Twin City, Province B, Canada',region:'Province B',lat:49.01,lon:-79.01}
+];
+export function locationResponse(query){
+  const matches=query==='other'?places.slice(1):places;
+  return {features:matches.map(place=>({geometry:{type:'Point',coordinates:[place.lon,place.lat]},
+    properties:{id:place.id,label:place.label,layer:'locality',region:place.region,country:'Canada',country_code:'CA'}}))};
+}
+const escape=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
+function select(name,label,choices,required=false){
+  return '<p><label for="'+name+'">'+label+(required?'*':'')+'</label><select id="'+name+'" name="'+name+'"'+(required?' required':'')+'><option value=""></option>'+
+    choices.map(([id,text])=>'<option value="'+id+'">'+escape(text)+'</option>').join('')+'</select></p>';
+}
+export function currentFields(){
+  const original=fullFields(currentQuestions.questions);
+  const voluntary=currentQuestions.eeoc_sections.flatMap(section=>section.questions);
+  const menu=key=>voluntary.find(question=>question.fields[0].name===key).fields[0].values.map(item=>[item.value,item.label]);
+  const location=select('candidate-location','Location (City)',places.map(place=>[place.id,place.label]),true);
+  const locationIndex=original.indexOf('id="candidate-location"');
+  const before=original.lastIndexOf('<p',locationIndex),after=original.indexOf('</p>',locationIndex)+4;
+  return original.slice(0,before)+location+original.slice(after)+
+    select('country','Country',[['us','United States +1'],['ca','Canada +1'],['jp','Japan +81']],true)+
+    select('gender','Gender',menu('gender'))+
+    select('hispanic_ethnicity','Are you Hispanic/Latino?',[['1','Yes'],['0','No'],['2','Decline To Self Identify']])+
+    '<div id="race-slot"></div><template id="race-template">'+select('race','Please identify your race',menu('race').filter(([id])=>id!=='4'))+'</template>'+
+    select('veteran_status','Veteran Status',menu('veteran_status'));
+}
+export function currentValues(values,places){
+  const {hispanic_ethnicity, 'candidate-location':locationId, country, ...rest}=values;
+  const place=places.find(item=>item.id===locationId);
+  if(!place||!rest.phone.startsWith('+1')||country!=='ca')throw Error('Fictional country/location not matched');
+  if(hispanic_ethnicity==='1')rest.race='4';
+  if(hispanic_ethnicity==='2')rest.race='8';
+  return {...rest,location:place.label,latitude:String(place.lat),longitude:String(place.lon),country_short_name:'CA'};
+}
+export function assertCurrentApplication(application,reference,file,id){
+  const {race,gender,veteran_status,phone,location,latitude,longitude,country_short_name,...rest}=application;
+  assert.equal(gender,undefined);assert.equal(veteran_status,undefined);
+  assert.equal(race,id==='12345674'?'8':'2');
+  assert.equal(phone,'+16135550100');
+  assert.deepEqual({location,latitude,longitude,country_short_name},{location:places[0].label,latitude:String(places[0].lat),longitude:String(places[0].lon),country_short_name:'CA'});
+  assertArchived({...rest,phone:'10000000000',location:'Fictional Test City',latitude:'35.0001',longitude:'139.0001',country_short_name:'JP'},reference,file);
+}

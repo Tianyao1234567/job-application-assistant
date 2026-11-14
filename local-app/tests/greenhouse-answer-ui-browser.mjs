@@ -19,6 +19,7 @@ if(process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_WORKFLOW==='Fictional
     if(subject.includes('[native-full-flow]'))process.env.GREENHOUSE_NATIVE_FULL_FLOW='1';
     if(subject.includes('[confirmation-purpose]'))process.env.GREENHOUSE_CONFIRMATION_PURPOSE='1';
     if(subject.includes('[public-inspection]'))process.env.GREENHOUSE_PUBLIC_INSPECTION='1';
+    if(subject.includes('[dynamic-controls]'))process.env.GREENHOUSE_DYNAMIC_CONTROLS='1';
     await import('./greenhouse-native-gate-browser.mjs');
     const report=JSON.parse(await fs.readFile(path.join(evidenceRoot,'greenhouse-native-gate-mv3.json'),'utf8'));
     const summary={environment:{mode:report.mode,node:report.node,browser:report.chromium},results:report.checks,

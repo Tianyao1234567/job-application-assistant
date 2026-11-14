@@ -493,23 +493,55 @@ function legacyAnswerForm(issue,task) {
   }catch(error){errorBox(form,error);}});
   return form;
 }
+function locationInput(question,task,batch,id){
+  const search=draftInput(id+'-search',{'aria-label':question.text+'：搜索城市',maxlength:100});
+  const select=el('select',{'data-focus':id,required:true});
+  const cacheKey=id+'-results';
+  const show=(candidates,selected='')=>{
+    const initial=el('option',{value:'',text:'选择搜索结果',disabled:true,selected:true});
+    select.replaceChildren(initial,...candidates.map(place=>el('option',{value:place.id,text:place.label})));
+    select.value=candidates.some(place=>place.id===selected)?selected:'';
+  };
+  const prior=drafts.get(cacheKey);
+  if(prior?.batchVersion===batch.version)show(prior.candidates,prior.selected);
+  const status=p('请输入城市名称，然后确认本次结果。','subtle');
+  const buttonSearch=button('搜索地点',async()=>{
+    const query=search.value.trim();
+    select.replaceChildren();buttonSearch.disabled=true;
+    try{
+      const result=await api('/api/greenhouse/locations',{taskId:task.id,batchVersion:batch.version,scope:question.scope,query});
+      if(search.value.trim()!==query)return;
+      drafts.set(cacheKey,{batchVersion:batch.version,candidates:result.candidates});
+      show(result.candidates);
+      status.textContent=result.candidates.length?'请核对城市与地区。':'未找到匹配地点，请调整搜索。';
+    }catch(error){status.textContent=error.message;}
+    finally{buttonSearch.disabled=false;}
+  },'button small');
+  search.addEventListener('input',()=>{drafts.delete(cacheKey);select.replaceChildren();});
+  select.addEventListener('change',()=>{const cached=drafts.get(cacheKey);if(cached)cached.selected=select.value;});
+  search.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();buttonSearch.click();}});
+  return {node:select,search:el('div',{},field('搜索城市',search),buttonSearch,status),
+    valid:()=>!!select.value,value:()=>select.selectedOptions[0]?.textContent||'',selectionId:()=>select.value};
+}
 function answerForm(issue,task) {
   if(!task.answerBatch)return legacyAnswerForm(issue,task);
   const batch=task.answerBatch,form=el('form',{'aria-label':`集中补充答案：${task.title}`}),rows=[];
   form.append(p(`当前有 ${batch.questions.length} 项可补答。已有适用资料不再提问。`,'details-note'));
   const notes=inspectionNotes(task);if(notes)form.append(notes);
   for(const q of batch.questions){
-    const id=`batch-${task.id}-${q.scope}`,input=questionInput(q,id,q.importedDraft?.value??q.currentValue??q.priorAnswer?.value??'');
+    const id=`batch-${task.id}-${q.scope}`,input=q.controlKind==='location'?locationInput(q,task,batch,id):
+      questionInput(q,id,q.importedDraft?.value??q.currentValue??q.priorAnswer?.value??'');
     input.node.setAttribute('aria-label',q.text+'：答案');
-    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null,q.required?p('必填','subtle'):null,task.mode==='real'&&q.version?p('原题版本 '+q.version,'subtle'):null,q.priorAnswer?p('此前回答已保留；资料发生变化，请核对后确认本次答案。','warning'):null);
+    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null,q.required?p('必填','subtle'):null,q.version?el('details',{},el('summary',{text:'原题版本'}),p(q.version,'subtle')):null,q.priorAnswer?p('此前回答已保留；资料发生变化，请核对后确认本次答案。','warning'):null);
     if(q.importedDraft)group.append(banner('来自已匹配资料文件的待核对答案','仅为此任务原问题预填草稿；请连同其余缺项核对后保存，不会自动执行申请。'),q.importedDraft.source_text?p('原始依据：'+q.importedDraft.source_text,'subtle'):null);
     if(input.blocked){group.append(input.node);form.append(group);continue;}
     const stable=q.profileKey,existing=q.existingFact?.zh||q.existingFact?.en||'';
-    const purpose=el('select',{'aria-label':q.text+'：保存用途'},stable?el('option',{value:'profile',text:'保存到个人资料，后续适用岗位复用'}):null,el('option',{value:'scope',text:'保存到本站当前岗位原题的答案库'}),el('option',{value:'task',text:'仅用于这次任务'}));
+    const purpose=el('select',{'aria-label':q.text+'：保存用途'},stable?el('option',{value:'profile',text:'保存到个人资料，后续适用岗位复用'}):null,q.controlKind?null:el('option',{value:'scope',text:'保存到本站当前岗位原题的答案库'}),el('option',{value:'task',text:'仅用于这次任务'}));
     purpose.value=drafts.get(id+'-save')||(stable&&!existing?'profile':'task');purpose.addEventListener('change',()=>drafts.set(id+'-save',purpose.value));
     const replace=draftInput(id+'-replace',{type:'checkbox','aria-label':q.text+'：明确替换原资料'},false);
     const leaveBlank=!q.required&&!q.alreadyPopulated?draftInput(id+'-blank',{type:'checkbox','aria-label':q.text+'：本次留空'},false):null;
     if(leaveBlank){const sync=()=>{input.node.required=!leaveBlank.checked;};leaveBlank.addEventListener('change',sync);sync();}
+    if(input.search)group.append(input.search);
     group.append(field('你的答案',input.node),leaveBlank?checkLine('选填，本次留空',leaveBlank):null,existing?p('当前资料：'+existing,'subtle'):null,field('回答后如何保存',purpose),stable&&existing?checkLine('若答案与原资料不同，我明确选择替换这一项个人资料。',replace):null,stable?p('个人资料可在“资料与简历”修改或移除；仅相同含义的字段适用。','subtle'):p('限定当前网站、岗位和原问题，不会跨岗位套用。','subtle'));
     rows.push({q,input,purpose,replace,leaveBlank});form.append(group);
   }
@@ -517,7 +549,7 @@ function answerForm(issue,task) {
   form.addEventListener('submit',async event=>{event.preventDefault();try{
     const current=state.tasks.find(t=>t.id===task.id);if(current?.answerBatch?.version!==batch.version)throw new Error('当前缺项或原题已变化，请核对最新清单；已输入草稿仍保留。');
     if(rows.length!==batch.questions.length||rows.some(row=>!row.leaveBlank?.checked&&!row.input.valid()))throw new Error('请先在实际页面核对未知控件，并为所有当前缺项提供有效答案或选择本次留空。');
-    await submitOnce(form,`answers-${task.id}`,()=>perform('answers',{taskId:task.id,batchVersion:batch.version,answers:rows.map(({q,input,purpose,replace,leaveBlank})=>({scope:q.scope,version:q.version,answer:input.node.value,save:leaveBlank?.checked?'task':purpose.value,replace:replace.checked,leaveBlank:leaveBlank?.checked===true}))}));
+    await submitOnce(form,`answers-${task.id}`,()=>perform('answers',{taskId:task.id,batchVersion:batch.version,answers:rows.map(({q,input,purpose,replace,leaveBlank})=>({scope:q.scope,version:q.version,answer:input.value?input.value():input.node.value,selectionId:input.selectionId?input.selectionId():q.controlKind?q.options.find(option=>option.text===input.node.value)?.id:undefined,save:leaveBlank?.checked?'task':purpose.value,replace:replace.checked,leaveBlank:leaveBlank?.checked===true}))}));
     for(const id of [...drafts.keys()])if(id.startsWith(`batch-${task.id}-`))drafts.delete(id);
   }catch(error){errorBox(form,error);}});return form;
 }

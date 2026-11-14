@@ -1,0 +1,362 @@
+{
+  "questions": [
+    {
+      "required": true,
+      "label": "First Name",
+      "description": null,
+      "fields": [
+        {
+          "name": "first_name",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "required": true,
+      "label": "Last Name",
+      "description": null,
+      "fields": [
+        {
+          "name": "last_name",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "required": false,
+      "label": "Preferred First Name",
+      "description": null,
+      "fields": [
+        {
+          "name": "preferred_name",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "required": true,
+      "label": "Email",
+      "description": null,
+      "fields": [
+        {
+          "name": "email",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "required": true,
+      "label": "Phone",
+      "description": null,
+      "fields": [
+        {
+          "name": "phone",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "required": true,
+      "label": "Candidate Location",
+      "description": null,
+      "fields": [
+        {
+          "name": "candidate_location",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "required": true,
+      "label": "Resume/CV",
+      "description": null,
+      "fields": [
+        {
+          "name": "resume",
+          "type": "input_file",
+          "allowed_filetypes": [
+            "pdf",
+            "doc",
+            "docx",
+            "txt",
+            "rtf"
+          ]
+        },
+        {
+          "name": "resume_text",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "required": false,
+      "label": "Cover Letter",
+      "description": null,
+      "fields": [
+        {
+          "name": "cover_letter",
+          "type": "input_file",
+          "allowed_filetypes": [
+            "pdf",
+            "doc",
+            "docx",
+            "txt",
+            "rtf"
+          ]
+        },
+        {
+          "name": "cover_letter_text",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "required": true,
+      "label": "How did you hear about Mattermost?",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18195688008",
+          "type": "input_text"
+        }
+      ],
+      "multi_select_style": "checkbox"
+    },
+    {
+      "required": true,
+      "label": "Why are you interested in this role at Mattermost?",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18195689008",
+          "type": "input_text"
+        }
+      ],
+      "multi_select_style": "checkbox"
+    },
+    {
+      "required": false,
+      "label": "LinkedIn Profile",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18195686008",
+          "type": "input_text"
+        }
+      ],
+      "multi_select_style": "checkbox"
+    },
+    {
+      "required": true,
+      "label": "Are you legally authorized to work in Japan?",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18195692008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ],
+      "multi_select_style": "checkbox"
+    },
+    {
+      "required": true,
+      "label": "Do you now, or will you in the future, require employer sponsorship to obtain or maintain work authorization in Japan (e.g., Work Visa, Specified Skilled Worker Visa, Engineer/Specialist in Humanities/International Services Visa, or other residence status permitting employment)?",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18195693008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ],
+      "multi_select_style": "checkbox"
+    },
+    {
+      "required": true,
+      "label": "Are you a native Japanese speaker? ",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18196782008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ],
+      "multi_select_style": "checkbox"
+    },
+    {
+      "required": true,
+      "label": "Do you have strong English proficiency for business reading and writing?",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18196783008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ],
+      "multi_select_style": "checkbox"
+    },
+    {
+      "required": true,
+      "label": "Have you directly served defense, national security, or critical infrastructure customers in a technical capacity?",
+      "description": null,
+      "fields": [
+        {
+          "name": "question_18196784008",
+          "type": "multi_value_single_select",
+          "values": [
+            {
+              "value": 1,
+              "label": "Yes"
+            },
+            {
+              "value": 0,
+              "label": "No"
+            }
+          ]
+        }
+      ],
+      "multi_select_style": "checkbox"
+    }
+  ],
+  "eeoc_sections": [
+    {
+      "questions": [
+        {
+          "required": false,
+          "label": "Gender",
+          "fields": [
+            {
+              "name": "gender",
+              "type": "multi_value_single_select",
+              "values": [
+                {
+                  "label": "Male",
+                  "value": "1"
+                },
+                {
+                  "label": "Female",
+                  "value": "2"
+                },
+                {
+                  "label": "Decline To Self Identify",
+                  "value": "3"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "required": false,
+          "label": "Race",
+          "fields": [
+            {
+              "name": "race",
+              "type": "multi_value_single_select",
+              "values": [
+                {
+                  "label": "American Indian or Alaskan Native",
+                  "value": "1"
+                },
+                {
+                  "label": "Asian",
+                  "value": "2"
+                },
+                {
+                  "label": "Black or African American",
+                  "value": "3"
+                },
+                {
+                  "label": "Hispanic or Latino",
+                  "value": "4"
+                },
+                {
+                  "label": "White",
+                  "value": "5"
+                },
+                {
+                  "label": "Native Hawaiian or Other Pacific Islander",
+                  "value": "6"
+                },
+                {
+                  "label": "Two or More Races",
+                  "value": "7"
+                },
+                {
+                  "label": "Decline To Self Identify",
+                  "value": "8"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "questions": [
+        {
+          "required": false,
+          "label": "Veteran Status",
+          "fields": [
+            {
+              "name": "veteran_status",
+              "type": "multi_value_single_select",
+              "values": [
+                {
+                  "label": "I am not a protected veteran",
+                  "value": "1"
+                },
+                {
+                  "label": "I identify as one or more of the classifications of a protected veteran",
+                  "value": "2"
+                },
+                {
+                  "label": "I don't wish to answer",
+                  "value": "3"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,8 +14,8 @@ export const flowAnswers={first_name:'Fictional',last_name:'Applicant',
   question_18196783008:'Yes',question_18196784008:'No'};
 const escape=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
 
-export function fullFields(){
-  return archivedSchema.questions.map(({label,required,fields})=>{
+export function fullFields(questions=archivedSchema.questions){
+  return questions.map(({label,required,fields})=>{
     const title=escape(label.trim())+(required?'*':'');
     if(fields[0].type==='input_file'){
       const [file,alternate]=fields;
