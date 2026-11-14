@@ -227,6 +227,7 @@ test('dynamic answers bind exact country and most recent locality candidate rath
     {scope:country.scope,version:country.version,answer:'Canada +1',selectionId:'ca',save:'task'},
     {scope:location.scope,version:location.version,answer:'Twin City',selectionId:'place-2',save:'task'}
   ]};
+  assert.equal(batch.questions[1].profileKey,null);
   const request={taskId:env.task.id,batchVersion:batch.version,scope:location.scope,query:'Twin City'};
   const makePlace=(id,latitude)=>({id,label:'Twin City',latitude,longitude:'-75',country:'CA'});
   const one=makePlace('place-1','40'),two=makePlace('place-2','41');
@@ -235,6 +236,7 @@ test('dynamic answers bind exact country and most recent locality candidate rath
   assert.throws(()=>env.store.action(body),/过期/);
   await env.store.findGreenhouseLocations(request,async()=>[one,two]);
   assert.throws(()=>env.store.action({...body,answers:[{...body.answers[0],selectionId:'us'},body.answers[1]]}),/实际选项/);
+  assert.throws(()=>env.store.action({...body,answers:[body.answers[0],{...body.answers[1],save:'profile'}]}),/仅用于当前任务/);
   assert.equal(env.store.action(body).saved,2);
   const restored=new Store(env.paths,{now:env.clock}),task=restored.task(env.task.id);
   assert.deepEqual(task.answers[location.scope].location,two);
@@ -243,6 +245,34 @@ test('dynamic answers bind exact country and most recent locality candidate rath
   assert.equal(restored.applicableAnswer(task,{...country,selectedId:'us'}),null);
   assert.equal(restored.applicableAnswer(task,location),'Twin City');
   assert.equal(restored.dailyUsed(),0);
+});
+
+test('real saved intention survives the same observed country, but a later page change needs review',t=>{
+  const env=setup(t,{production:true});begin(env);
+  const q=question(env,'country',{controlKind:'phone-country',type:'select-one',alreadyPopulated:true,selectedId:'us',options:[
+    {id:'us',dial:'1',text:'United States +1'},{id:'ca',dial:'1',text:'Canada +1'},{id:'jp',dial:'81',text:'Japan +81'}]});
+  const report=question=>({ok:true,layout:'layout',questions:[question],login:env.login});
+  env.send(env.take(),report(q));
+  const batch=env.store.answerBatch(env.task);
+  env.store.action({action:'answers',taskId:env.task.id,batchVersion:batch.version,answers:[
+    {scope:q.scope,version:q.version,value:'Canada +1',answer:'Canada +1',selectionId:'ca',save:'task'}
+  ]});
+  const resumed=new Store(env.paths,{now:env.clock}),task=resumed.task(env.task.id);
+  assert.equal(task.answers[q.scope].selectionId,'ca');
+  assert.equal(task.answers[q.scope].pageBaselineId,'us');
+  const finish=question=>{
+    const read=resumed.poll(client).command;assert.equal(read.op,'inspect');
+    resumed.result({clientId:client.clientId,commandId:read.id,result:report(question)});
+  };
+  finish(q);
+  assert.equal(task.status,'waiting_user');assert.match(task.issue.title,/答案已保存/);
+  resumed.action({action:'task-resume',taskId:task.id});finish({...q,selectedId:'jp'});
+  const changed=resumed.answerBatch(task);
+  assert.equal(task.status,'waiting_answer');
+  assert.equal(changed.questions[0].observedChoice,'Japan +81');
+  assert.equal(changed.questions[0].priorAnswer.value,'Canada +1');
+  assert.equal(resumed.applicableAnswer(task,{...q,selectedId:undefined,alreadyPopulated:false}),null);
+  assert.equal(resumed.dailyUsed(),0);
 });
 
 test('changing the confirmed self-identification branch invalidates its earlier Race answer',t=>{

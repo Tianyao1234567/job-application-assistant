@@ -59,7 +59,7 @@ function keyMatches(actual, expected) {
 
 export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), port = 17321,
   fixturePort = 17322, startFixture = true, testMode = false, testKey, now,
-  browserOpen, browserClose} = {}) {
+  browserOpen, browserClose, testLocationSearch} = {}) {
   const paths = initializePaths(dataDir), store = new Store(paths, now ? {now} : {});
   const installation=path.join(paths.runtime,'installation.json');
   if(fs.existsSync(installation)&&JSON.parse(fs.readFileSync(installation,'utf8')).migration?.pending){store.pause();store.save();}
@@ -222,7 +222,7 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
         json(res, 200, store.action(body)); return;
       }
       if(url.pathname==='/api/greenhouse/locations'){
-        json(res,200,{ok:true,...await store.findGreenhouseLocations(body,searchGreenhouseLocations)});return;
+        json(res,200,{ok:true,...await store.findGreenhouseLocations(body,testMode&&testLocationSearch||searchGreenhouseLocations)});return;
       }
       if (url.pathname === '/api/settings') store.setSettings(body);
       else if (url.pathname === '/api/profile') {if(!Number.isInteger(body.baseVersion))throw new RequestError(409,'资料版本缺失，请刷新并重新核对');store.setProfile(body);}

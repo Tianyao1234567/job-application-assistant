@@ -145,8 +145,14 @@ export class Store {
     if(q.controlKind){
       if(!own?.confirmed||own.stale||!['scope','version','text','source','purpose'].every(key=>own[key]===q[key]))return null;
       if(q.controlKind==='conditional-race'&&(!q.parentScope||own.parentScope!==q.parentScope||t.answers[q.parentScope]?.selectionId!=='0'||t.answers[q.parentScope].stale))return null;
+      if(site.adapter==='greenhouse-v1'){
+        const current=q.selectedId??null;
+        // Candidate.13 stored the observed ID on the answer itself. An
+        // unidentifiable populated control cannot prove an unchanged baseline.
+        const baseline=own.pageBaselineId??own.selectedId??null;
+        if(current!==baseline||q.alreadyPopulated&&!current||baseline===null&&own.alreadyPopulated)return null;
+      }else if(q.selectedId&&q.selectedId!==own.selectionId)return null;
       if(own.leaveBlank&&!q.required&&!q.alreadyPopulated)return '';
-      if(q.selectedId&&q.selectedId!==own.selectionId)return null;
       if(q.controlKind==='location')return own.location?.id===own.selectionId?own.location.label:null;
       return q.options.find(option=>option.id===own.selectionId&&!option.disabled)?.text||null;
     }
@@ -157,7 +163,7 @@ export class Store {
   }
   answerBatch(t){
     const site=this.site(t.siteId),questions=isGreenhouse(site)?(t.questions||[]).filter(q=>!q.unresolved&&this.applicableAnswer(t,q)===null):t.question&&!t.answer?[t.question]:[];
-    return {version:hash(Buffer.from(JSON.stringify({questions,layout:t.layout,revision:t.revision,profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version}))),questions:questions.map(q=>{const draft=t.importedAnswerDrafts?.[q.scope],prior=t.answers?.[q.scope];return {...clone(q),profileKey:stableProfileKey(q),existingFact:stableProfileKey(q)?clone(profileValue(this.state.profile.data,stableProfileKey(q))||null):null,...(prior?.stale===true&&['scope','version','text','source','purpose'].every(key=>prior[key]===q[key])?{priorAnswer:{value:prior.value,confirmed:false}}:{}),...(draft&&draft.version===q.version&&draft.text===q.text&&draft.source===q.source&&this.validQuestion(t,q)?{importedDraft:{value:draft.value,source_text:draft.source_text,confirmed:false}}:{})};})};
+    return {version:hash(Buffer.from(JSON.stringify({questions,layout:t.layout,revision:t.revision,profileVersion:this.state.profile.version,resumeVersion:this.state.resume?.version}))),questions:questions.map(q=>{const draft=t.importedAnswerDrafts?.[q.scope],prior=t.answers?.[q.scope];return {...clone(q),profileKey:stableProfileKey(q),existingFact:stableProfileKey(q)?clone(profileValue(this.state.profile.data,stableProfileKey(q))||null):null,...(prior?.confirmed===true&&['scope','version','text','source','purpose'].every(key=>prior[key]===q[key])&&(prior.stale===true||q.controlKind)?{priorAnswer:{value:prior.value,confirmed:false},...(q.controlKind&&q.selectedId?{observedChoice:q.options.find(option=>option.id===q.selectedId)?.text}: {})}:{}),...(draft&&draft.version===q.version&&draft.text===q.text&&draft.source===q.source&&this.validQuestion(t,q)?{importedDraft:{value:draft.value,source_text:draft.source_text,confirmed:false}}:{})};})};
   }
   finishGreenhouseInspection(t){
     this.resolveTask(t);
@@ -236,7 +242,7 @@ export class Store {
     if(changed&&this.state.profile.mode==='real'&&Object.values(profile.personal).some(v=>/虚构|测试|example\.invalid/.test((v.zh||'')+' '+v.source)))throw new Error('测试资料不能保存为真实投递资料');
     t.answers ||= {};
     for(const {q,value,input,leaveBlank,selectionId,location}of checked){
-      const answer={...q,value,confirmed:true,...(leaveBlank?{leaveBlank:true}:{}),...(selectionId?{selectionId}:{}),...(location?{location}: {})};
+      const answer={...q,value,confirmed:true,...(leaveBlank?{leaveBlank:true}:{}),...(selectionId?{selectionId}:{}),...(q.controlKind?{pageBaselineId:q.selectedId??null}:{}),...(location?{location}: {})};
       if(q.controlKind==='hispanic')for(const previous of Object.values(t.answers)){
         if(previous.controlKind==='hispanic'&&previous.scope!==q.scope||previous.controlKind==='conditional-race'&&selectionId!=='0')previous.stale=true;
       }

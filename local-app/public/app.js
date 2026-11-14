@@ -532,12 +532,12 @@ function answerForm(issue,task) {
     const id=`batch-${task.id}-${q.scope}`,input=q.controlKind==='location'?locationInput(q,task,batch,id):
       questionInput(q,id,q.importedDraft?.value??q.currentValue??q.priorAnswer?.value??'');
     input.node.setAttribute('aria-label',q.text+'：答案');
-    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null,q.required?p('必填','subtle'):null,q.version?el('details',{},el('summary',{text:'原题版本'}),p(q.version,'subtle')):null,q.priorAnswer?p('此前回答已保留；资料发生变化，请核对后确认本次答案。','warning'):null);
+    const group=el('fieldset',{class:'question-block'},el('legend',{text:q.text}),q.source?link('查看原岗位问题来源',q.source,'button text'):null,q.required?p('必填','subtle'):null,q.version?el('details',{},el('summary',{text:'原题版本'}),p(q.version,'subtle')):null,q.observedChoice?p('网页当前选择：'+q.observedChoice,'subtle'):null,q.priorAnswer?p('此前回答已保留，请核对当前页面后再次确认。','warning'):null);
     if(q.importedDraft)group.append(banner('来自已匹配资料文件的待核对答案','仅为此任务原问题预填草稿；请连同其余缺项核对后保存，不会自动执行申请。'),q.importedDraft.source_text?p('原始依据：'+q.importedDraft.source_text,'subtle'):null);
     if(input.blocked){group.append(input.node);form.append(group);continue;}
-    const stable=q.profileKey,existing=q.existingFact?.zh||q.existingFact?.en||'';
+    const stable=q.controlKind?null:q.profileKey,existing=stable?(q.existingFact?.zh||q.existingFact?.en||''):'';
     const purpose=el('select',{'aria-label':q.text+'：保存用途'},stable?el('option',{value:'profile',text:'保存到个人资料，后续适用岗位复用'}):null,q.controlKind?null:el('option',{value:'scope',text:'保存到本站当前岗位原题的答案库'}),el('option',{value:'task',text:'仅用于这次任务'}));
-    purpose.value=drafts.get(id+'-save')||(stable&&!existing?'profile':'task');purpose.addEventListener('change',()=>drafts.set(id+'-save',purpose.value));
+    purpose.value=q.controlKind?'task':drafts.get(id+'-save')||(stable&&!existing?'profile':'task');purpose.addEventListener('change',()=>drafts.set(id+'-save',purpose.value));
     const replace=draftInput(id+'-replace',{type:'checkbox','aria-label':q.text+'：明确替换原资料'},false);
     const leaveBlank=!q.required&&!q.alreadyPopulated?draftInput(id+'-blank',{type:'checkbox','aria-label':q.text+'：本次留空'},false):null;
     if(leaveBlank){const sync=()=>{input.node.required=!leaveBlank.checked;};leaveBlank.addEventListener('change',sync);sync();}

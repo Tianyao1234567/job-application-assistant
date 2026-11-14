@@ -9,6 +9,7 @@ import {createRequire} from 'node:module';
 import path from 'node:path';
 import {browserOptions,testDirectory,removeTestDirectory,evidenceRoot,projectRoot} from '../../autofill-extension/tests/runtime.mjs';
 import {createApp} from '../server.mjs';
+import {currentQuestions} from './fixtures/greenhouse-current-form.mjs';
 import {flowAnswers} from './fixtures/greenhouse-native-full-form.mjs';
 import {fixtureOrigin,fixtureTenant,fixtureCompany,fixtureAccount,fixtureAnswers,fixtureJobs,fixtureFaultJobs,jobURL,startNativeFixture} from './fixtures/greenhouse-native-gate-fixture.mjs';
 
@@ -20,6 +21,7 @@ const full=process.env.GREENHOUSE_NATIVE_FULL_FLOW==='1';
 const purposes=process.env.GREENHOUSE_CONFIRMATION_PURPOSE==='1';
 const publicInspection=process.env.GREENHOUSE_PUBLIC_INSPECTION==='1';
 const dynamic=process.env.GREENHOUSE_DYNAMIC_CONTROLS==='1';
+const selectionBaseline=process.env.GREENHOUSE_SELECTION_BASELINE==='1';
 const directory=await testDirectory('native-gate');
 const testKey=randomBytes(24).toString('base64url');
 const resume={name:'fictional-native.txt',bytes:Buffer.from('Fictional native application fixture. No actual applicant.\n')};
@@ -61,6 +63,23 @@ const realPage='<!doctype html><title>Fictional inspection at Mattermost</title>
   '<label for="email">Email*</label><input id="email" type="email" required>'+
   '<fieldset><legend>Resume/CV*</legend><label for="resume">Attach</label><input id="resume" type="file" required></fieldset>'+
   '<button type="submit">Submit application</button></form>';
+function baselinePage(){
+  const loader={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':{
+    urlToken:'mattermost',jobPostId:realJobId,
+    jobPost:{...currentQuestions,language:'en',title:'Fictional inspection',company_name:'Mattermost',public_url:realJobUrl}
+  }}}};
+  return '<!doctype html><title>Fictional inspection at Mattermost</title>'+
+    '<link rel="modulepreload" href="https://job-boards.cdn.greenhouse.io/assets/entry.client-HYmR2EDs.js">'+
+    '<h1>Fictional inspection</h1><form>'+
+    '<label for="first_name">First Name*</label><input id="first_name" required>'+
+    '<label for="email">Email*</label><input id="email" type="email" required>'+
+    '<div class="select"><label for="country">Country*</label><input id="country" role="combobox" required>'+
+    '<div class="select__single-value"><span class="iti__flag iti__us"></span>+1</div></div>'+
+    '<label for="candidate-location">Location (City)*</label><input id="candidate-location" role="combobox" required>'+
+    '<label for="question_18195686008">LinkedIn Profile</label><input id="question_18195686008">'+
+    '<fieldset><legend>Resume/CV*</legend><label for="resume">Attach</label><input id="resume" type="file"></fieldset>'+
+    '<button type="submit">Submit application</button></form><script>window.__remixContext = '+JSON.stringify(loader)+';</script>';
+}
 let backendData='data',publicNavigation;
 const realPageMethods=[];
 let inspectionServer,inspectionCertificate;
@@ -75,7 +94,7 @@ async function startInspectionSite(){
     if(request.url!==new URL(realJobUrl).pathname){response.writeHead(404).end();return;}
     realPageMethods.push(request.method);
     if(request.method!=='GET'){response.writeHead(405).end();return;}
-    response.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store'}).end(realPage);
+    response.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store'}).end(selectionBaseline?baselinePage():realPage);
   });
   await new Promise((resolve,reject)=>{
     inspectionServer.once('error',reject);
@@ -90,6 +109,10 @@ async function configureInspection(){
     if(item.zh)item.zh=item.zh.replace(/虚构|测试|example\.invalid/g,'Fictional');
   }
   profile.personal.email.zh=profile.personal.email.en=realAccount;
+  if(selectionBaseline){
+    delete profile.personal.location;
+    delete profile.links.linkedin;
+  }
   profile.personal.firstName={zh:'Sample',en:null,source:'Isolated browser check',confirmed:true};
   profile.personal.lastName={zh:'Applicant',en:null,source:'Isolated browser check',confirmed:true};
   await api('/profile',{data:profile,mode:'real',confirmed:true,baseVersion:(await state()).profile.version});
@@ -165,6 +188,118 @@ async function runReadOnlyConfirmation(){
   await new Promise(resolve=>inspectionServer.close(resolve));
   inspectionServer=null;
   backendData='data';
+}
+
+async function runSelectionBaseline(){
+  await startInspectionSite();
+  backendData='data-inspection';
+  app=await startBackend();
+  const profileId=await connect();
+  await configureInspection();
+  await dashboard.goto(BASE+'/#queue');
+  await dashboard.getByLabel('岗位链接',{exact:true}).fill(realJobUrl);
+  await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
+  const item=task(await waitFor('isolated job added',state,value=>!!task(value,realJobId)),realJobId);
+  await dashboard.getByRole('row').filter({hasText:item.title}).getByRole('button',{name:'查看详情',exact:true}).click();
+  const approval=dashboard.getByRole('form',{name:/确认页面检查/});
+  const confirm=async()=>{
+    await approval.waitFor();
+    for(const box of await approval.getByRole('checkbox').all())await box.check();
+    await approval.getByRole('button',{name:'确认检查原申请页',exact:true}).click();
+  };
+  await confirm();
+  await waitFor('inspect approval',state,value=>task(value,realJobId)?.confirmation?.purpose==='inspect');
+  await action('resume');
+  const pending=task(await waitFor('country baseline and location question',state,value=>
+    task(value,realJobId)?.status==='waiting_answer'),realJobId);
+  assert.equal(pending.id,item.id);
+  const country=pending.answerBatch.questions.find(q=>q.controlKind==='phone-country');
+  const locality=pending.answerBatch.questions.find(q=>q.controlKind==='location');
+  assert.equal(country.selectedId,'us');
+  assert.equal(locality.profileKey,null);
+  assert.ok(!(await state()).profile.data.personal.location?.zh);
+  const details=dashboard.getByRole('dialog');
+  await details.getByRole('button',{name:'去补充答案',exact:true}).click();
+  const form=dashboard.getByRole('form',{name:/集中补充答案/});
+  await form.getByLabel(country.text+'：答案',{exact:true}).selectOption({label:'Canada +1'});
+  const locationRow=form.getByRole('group',{name:locality.text,exact:true});
+  await locationRow.getByLabel(locality.text+'：搜索城市',{exact:true}).fill('Twin City');
+  await locationRow.getByRole('button',{name:'搜索地点',exact:true}).click();
+  const city=locationRow.getByLabel(locality.text+'：答案',{exact:true});
+  await city.selectOption('fiction-place-b');
+  for(const q of [country,locality]){
+    const purpose=form.getByLabel(q.text+'：保存用途',{exact:true});
+    assert.deepEqual(await purpose.locator('option').evaluateAll(nodes=>nodes.map(node=>node.value)),['task']);
+    assert.equal(await purpose.inputValue(),'task');
+  }
+  const personal=form.getByLabel('LinkedIn Profile：保存用途',{exact:true});
+  assert.equal(await personal.inputValue(),'profile');
+  await form.getByLabel('LinkedIn Profile：答案',{exact:true}).fill('https://www.linkedin.com/in/isolated-fixture');
+  await action('pause');
+  const apiFailure=dashboard.route(BASE+'/api/action',async route=>{
+    if(route.request().postDataJSON()?.action!=='answers')return route.continue();
+    return route.fulfill({status:409,json:{error:'隔离测试拒绝：草稿应保留'}});
+  },{times:1});
+  await apiFailure;
+  const save=form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true});
+  await save.click();
+  await form.getByText('隔离测试拒绝：草稿应保留',{exact:true}).first().waitFor();
+  assert.equal(await form.getByLabel(country.text+'：答案',{exact:true}).inputValue(),'Canada +1');
+  assert.equal(await city.inputValue(),'fiction-place-b');
+  await save.click();
+  await waitFor('default save persisted',state,value=>task(value,realJobId)?.needsConfirmation&&
+    value.profile.data.links.linkedin?.zh==='https://www.linkedin.com/in/isolated-fixture'&&value.manualPaused);
+  await dashboard.goto(BASE+'/#queue');
+  await dashboard.getByRole('row').filter({hasText:pending.title}).getByRole('button',{name:'查看详情',exact:true}).click();
+  await confirm();
+  await waitFor('new ordinary profile version confirmed',state,value=>task(value,realJobId)?.needsConfirmation===false);
+  await dashboard.keyboard.press('Escape');
+  const persisted=async()=>task(JSON.parse(await fs.readFile(path.join(directory,backendData,'state.json'),'utf8')),realJobId);
+  const saved=await persisted();
+  assert.equal(saved.answers[country.scope].selectionId,'ca');
+  assert.equal(saved.answers[country.scope].pageBaselineId,'us');
+  assert.equal(saved.answers[locality.scope].location.id,'fiction-place-b');
+  const page=()=>context.pages().find(tab=>tab.url()===realJobUrl);
+  assert.equal(await page().locator('.iti__flag').getAttribute('class'),'iti__flag iti__us');
+  await page().close();
+  const pid=app.ready.pid;
+  await context.close();context=null;
+  await closeApp();
+  app=await startBackend();
+  assert.notEqual(app.ready.pid,pid);
+  assert.equal(await connect(),profileId);
+  await action('resume');
+  const result=await waitFor('same US baseline after independent restart',state,value=>
+    task(value,realJobId)?.issue?.title==='答案已保存，真实投递暂未开放');
+  assert.equal(task(result,realJobId).id,item.id);
+  assert.equal(result.tasks.length,1);
+  assert.deepEqual((await persisted()).answers,saved.answers);
+  assert.equal(await page().locator('.iti__flag').getAttribute('class'),'iti__flag iti__us');
+  // Simulate a later manual change in the isolated document only. The next
+  // inspection must show the conflict, preserving both the old answer and DOM.
+  await page().locator('.select__single-value').evaluate(node=>{
+    node.replaceChildren(Object.assign(document.createElement('span'),{className:'iti__flag iti__jp'}),'+81');
+  });
+  await action('task-resume',{taskId:item.id});
+  const changed=task(await waitFor('different page selection requires review',state,value=>
+    task(value,realJobId)?.answerBatch?.questions.some(q=>q.selectedId==='jp')),realJobId);
+  assert.equal(changed.id,item.id);
+  assert.deepEqual(changed.answerBatch.questions.map(q=>q.key),['country']);
+  assert.equal(changed.answerBatch.questions[0].priorAnswer.value,'Canada +1');
+  assert.equal(changed.answerBatch.questions[0].observedChoice,'Japan +81');
+  assert.equal(await page().locator('.iti__flag').getAttribute('class'),'iti__flag iti__jp');
+  assert.deepEqual((await persisted()).answers,saved.answers);
+  assert.equal(changed.submissionStarted,undefined);
+  assert.equal(Object.hasOwn(changed,'submitDay'),false);
+  const {localSubmissionAttempts={}}=await storage('localSubmissionAttempts');
+  assert.equal(Object.keys(localSubmissionAttempts).length,0);
+  assert.equal(await page().inputValue('#email'),'');
+  assert.equal(await page().locator('#resume').evaluate(input=>input.files.length),0);
+  assert.ok(realPageMethods.length>=2&&realPageMethods.every(method=>method==='GET'));
+  evidence.selectionBaseline={baseline:'us',intent:'ca',observedAfterRestart:'us',changed:'jp',sameTask:true,
+    taskOnlyDefault:true,failedSavePreservedDraft:true,ordinaryProfileDefault:true,locationSaved:true,
+    independentRestart:true,submissionBoundary:false,ledgerEntries:0,methods:realPageMethods};
+  console.log('PASS actual APP retains local CA intent against the same US baseline, handles later JP, and saves a city with the default scope');
 }
 
 async function runPublicInspection(){
@@ -350,7 +485,7 @@ async function connect(){
   // application POST must use the browser's own connection and retry logic.
   context.on('request',request=>{
     const url=new URL(request.url());
-    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!publicNavigation&&!(purposes&&backendData==='data-inspection'&&url.href===realJobUrl))
+    if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!publicNavigation&&!((purposes||selectionBaseline)&&backendData==='data-inspection'&&url.href===realJobUrl))
       evidence.externalRequests.push(url.origin);
   });
   // Let the loopback TLS page use Chrome's actual navigation and permissions.
@@ -558,8 +693,8 @@ function record(name,id,item){
 }
 async function startBackend(){
   const dataDir=path.join(directory,backendData);
-  if(!lifecycle&&!full&&!publicNavigation)return createApp({dataDir,startFixture:false,testMode:true,testKey});
-  const child=fork(fileURLToPath(new URL('./fixtures/greenhouse-native-gate-backend.mjs',import.meta.url)),[dataDir,testKey],
+  if(!lifecycle&&!full&&!publicNavigation&&!selectionBaseline)return createApp({dataDir,startFixture:false,testMode:true,testKey});
+  const child=fork(fileURLToPath(new URL('./fixtures/greenhouse-native-gate-backend.mjs',import.meta.url)),[dataDir,testKey,selectionBaseline?'selection-baseline':''],
     {cwd:projectRoot,stdio:['ignore','inherit','inherit','ipc']});
   const handle={child,events:[],exit:null};
   child.on('message',event=>handle.events.push(event));
@@ -577,7 +712,7 @@ async function backendEvent(type,jobId){
   },Boolean,10000);
 }
 async function closeApp(){
-  if(!lifecycle&&!full&&!publicNavigation){
+  if(!lifecycle&&!full&&!publicNavigation&&!selectionBaseline){
     const closing=app.close();
     app.server.closeAllConnections();
     await closing;
@@ -674,6 +809,11 @@ async function verifyFaults(){
 }
 
 try{
+  if(selectionBaseline){
+    await runSelectionBaseline();
+    assert.deepEqual(evidence.externalRequests,[]);
+    assert.deepEqual(workerErrors,[]);
+  }else{
   if(publicInspection)await runPublicInspection();
   if(purposes)await runReadOnlyConfirmation();
   fixture=await startNativeFixture(directory,resume,{full,dynamic});
@@ -792,6 +932,7 @@ try{
   }
   assert.deepEqual(evidence.externalRequests,[]);
   assert.deepEqual(workerErrors,[]);
+  }
 }catch(error){
   if(worker){
     try{

@@ -10,7 +10,7 @@ const ordinary=new Map([
  ['linkedin profile','links.linkedin'],['linkedin','links.linkedin'],['github','links.github'],['github profile','links.github'],['personal website','links.website']
 ]);
 export function stableProfileKey(question) {
- if(!question||question.unresolved||question.options?.length&&question.manualSelection!==true)return null;
+ if(!question||question.unresolved||question.controlKind||question.options?.length&&question.manualSelection!==true)return null;
  const label=String(question.text||'').normalize('NFKC').trim().replace(/[＊*：:]\s*$/,'').trim().toLowerCase();
  const key=ordinary.get(label);if(!key)return null;
  const identities={first_name:'personal.firstName',last_name:'personal.lastName',full_name:'personal.name',email:'personal.email',phone:'personal.phone','candidate-location':'personal.location'};
