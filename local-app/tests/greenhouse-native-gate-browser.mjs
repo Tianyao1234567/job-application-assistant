@@ -235,7 +235,7 @@ async function runPublicInspection(){
   for(const q of batch){
     const input=form.getByLabel(q.text+'：答案',{exact:true});
     if(q.controlKind==='location'){
-      const row=form.locator('fieldset').filter({has:input});
+      const row=form.getByRole('group',{name:q.text,exact:true});
       await row.getByLabel(q.text+'：搜索城市',{exact:true}).fill('Springfield');
       await row.getByRole('button',{name:'搜索地点',exact:true}).click();
       await input.locator('option').filter({hasText:/Springfield/}).first().waitFor();
@@ -474,7 +474,7 @@ async function runFullForm(id){
   for(const q of current.answerBatch.questions){
     await form.getByText(q.text,{exact:true}).waitFor();
     if(dynamic&&q.key==='candidate-location'){
-      const row=form.locator('fieldset').filter({has:form.getByLabel(q.text+'：答案',{exact:true})});
+      const row=form.getByRole('group',{name:q.text,exact:true});
       await row.getByLabel(q.text+'：搜索城市',{exact:true}).fill('Twin City');
       await row.getByRole('button',{name:'搜索地点',exact:true}).click();
       const select=row.getByLabel(q.text+'：答案',{exact:true});
@@ -502,7 +502,11 @@ async function runFullForm(id){
   }
   await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
   if(dynamic&&id!==fixtureJobs[3]){
-    const branch=task(await waitFor('explicit No exposes the Race question',state,value=>task(value,id)?.answerBatch?.questions.some(q=>q.key==='race')),id);
+    const branch=task(await waitFor('explicit No exposes the Race question',state,value=>{
+      const item=task(value,id);
+      if(['waiting_user','failed','unknown'].includes(item?.status))throw new Error(JSON.stringify({issue:item.issue,steps:item.steps.slice(-5)}));
+      return item?.answerBatch?.questions.some(q=>q.key==='race');
+    }),id);
     assert.deepEqual(branch.answerBatch.questions.map(q=>q.key),['race']);
     const race=branch.answerBatch.questions[0];
     const answerForm=dashboard.getByRole('form',{name:'集中补充答案：'+current.title});

@@ -26,7 +26,7 @@ export function locationCandidates(data){
   return candidates;
 }
 async function fetchLimited(url,type,max){
-  const response=await fetch(url,{headers:{Accept:type},redirect:'error',signal:AbortSignal.timeout(9000)});
+  const response=await fetch(url,{headers:{Accept:type,...(type==='application/json'&&url instanceof URL&&url.origin==='https://api-geocode-earth-proxy.greenhouse.io'?{Origin:'https://job-boards.greenhouse.io'}:{})},redirect:'error',signal:AbortSignal.timeout(9000)});
   if(!response.ok||!response.headers.get('content-type')?.includes(type))throw new Error('地点来源暂时无法读取');
   const reader=response.body.getReader(),parts=[];
   let total=0;

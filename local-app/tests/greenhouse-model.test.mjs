@@ -216,6 +216,35 @@ test('read-only batch saves exact choices and blanks despite unresolved controls
   assert.deepEqual(restarted.snapshot().tasks[0].answerBatch.questions.map(q=>q.scope),[changed.scope]);
 });
 
+test('dynamic answers bind exact country and most recent locality candidate rather than their display label',async t=>{
+  const env=setup(t,{production:true});begin(env);
+  const country=question(env,'country',{controlKind:'phone-country',type:'select-one',options:[
+    {id:'us',dial:'1',text:'United States +1'},{id:'ca',dial:'1',text:'Canada +1'}]});
+  const location=question(env,'candidate-location',{controlKind:'location',customControl:true,optionsComplete:false});
+  env.send(env.take(),{ok:true,layout:'layout',questions:[country,location],login:env.login});
+  const batch=env.store.answerBatch(env.task);
+  const body={action:'answers',taskId:env.task.id,batchVersion:batch.version,answers:[
+    {scope:country.scope,version:country.version,answer:'Canada +1',selectionId:'ca',save:'task'},
+    {scope:location.scope,version:location.version,answer:'Twin City',selectionId:'place-2',save:'task'}
+  ]};
+  const request={taskId:env.task.id,batchVersion:batch.version,scope:location.scope,query:'Twin City'};
+  const makePlace=(id,latitude)=>({id,label:'Twin City',latitude,longitude:'-75',country:'CA'});
+  const one=makePlace('place-1','40'),two=makePlace('place-2','41');
+  await env.store.findGreenhouseLocations(request,async()=>[one,two]);
+  await env.store.findGreenhouseLocations(request,async()=>[one]);
+  assert.throws(()=>env.store.action(body),/过期/);
+  await env.store.findGreenhouseLocations(request,async()=>[one,two]);
+  assert.throws(()=>env.store.action({...body,answers:[{...body.answers[0],selectionId:'us'},body.answers[1]]}),/实际选项/);
+  assert.equal(env.store.action(body).saved,2);
+  const restored=new Store(env.paths,{now:env.clock}),task=restored.task(env.task.id);
+  assert.deepEqual(task.answers[location.scope].location,two);
+  assert.equal(task.answers[country.scope].selectionId,'ca');
+  assert.equal(restored.applicableAnswer(task,{...location,selectedId:'place-1'}),null);
+  assert.equal(restored.applicableAnswer(task,{...country,selectedId:'us'}),null);
+  assert.equal(restored.applicableAnswer(task,location),'Twin City');
+  assert.equal(restored.dailyUsed(),0);
+});
+
 test('legacy real confirmation does not grant either new permission and preserves historical unknown',t=>{
   const env=setup(t,{production:true});begin(env);
   const original=env.task.confirmation;

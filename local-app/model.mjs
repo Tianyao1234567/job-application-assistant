@@ -237,7 +237,8 @@ export class Store {
       const answer={...q,value,confirmed:true,...(leaveBlank?{leaveBlank:true}:{}),...(selectionId?{selectionId}:{}),...(location?{location}: {})};
       if(q.controlKind==='hispanic')for(const previous of Object.values(t.answers)){
         if(previous.controlKind==='hispanic'&&previous.scope!==q.scope||previous.controlKind==='conditional-race'&&selectionId!=='0')previous.stale=true;
-      }delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
+      }
+      delete answer.profileKey;delete answer.existingFact;t.answers[q.scope]=answer;
       if(!isGreenhouse(site))t.answer=answer;
       if(input.save==='scope'){this.state.answers=this.state.answers.filter(a=>!(a.scope===q.scope&&a.siteId===site.id));this.state.answers.push({...clone(answer),siteId:site.id,confirmedAt:this.now()});}
     }
@@ -341,7 +342,7 @@ export class Store {
         if(entry.task_id&&entry.task_id!==task.id||entry.job_url&&!equivalent(entry.job_url,task.url)||entry.company&&entry.company!==(task.company||site.company||site.name))continue;
         if(entry.site_url){try{const u=new URL(entry.site_url);if(u.origin!==site.origin||u.pathname!=='/'&&![site.listUrl,site.loginUrl].some(url=>equivalent(entry.site_url,url)))continue;}catch{continue;}}
         const batch=this.answerBatch(task);
-        for(const question of batch.questions)if(question.text===entry.question&&this.validQuestion(task,question)){
+        for(const question of batch.questions)if(!question.controlKind&&question.text===entry.question&&this.validQuestion(task,question)){
           try{const value=isGreenhouse(site)?greenhouseAnswer(question,entry.answer):short(entry.answer,5000);if(value)matches.push({task,question,batch,value});}catch{}
         }
       }
@@ -543,6 +544,7 @@ export class Store {
       if(action==='verify'){if(!this.canVerifyTask(t))throw new Error('只有已提交或已有提交阶段记录的任务可核对');if(isGreenhouse(this.site(t.siteId))&&t.executionProfileId!==this.connection?.profileId)throw new Error('请返回原执行浏览器配置核对该申请');this.queue.push({id:uid(),op:'verify',siteId:t.siteId,taskId:t.id,payload:{},control:true});}
       if(action==='answer'){
         if(t.status!=='waiting_answer'||!t.question||this.hasSubmissionBoundary(t))throw new Error('此任务当前没有等待回答的普通问题');
+        if(t.question.controlKind)throw new Error('请通过集中补答确认实际选项');
         if(typeof body.answer!=='string'||!body.answer.trim()||body.answer.length>5000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(body.answer))throw new Error('请填写5000字以内的确认答案');
         if(!this.validQuestion(t,t.question))throw new Error('问题或限定用途未通过保护检查，不能保存答案');
         const answer=isGreenhouse(this.site(t.siteId))?greenhouseAnswer(t.question,body.answer):body.answer.trim();

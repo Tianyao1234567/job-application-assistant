@@ -83,7 +83,7 @@
     if(!controls||!job||job.demographic_questions?.questions?.length||!Array.isArray(job.eeoc_sections)||
       !expected.replay&&job.language!=='en')return null;
     const pageClient=expected.replay?Object.keys(controls.clients).find(asset=>controls.clients[asset]===loader.clientSha256):
-      [...document.querySelectorAll('link[rel="modulepreload"][href]')].map(link=>link.href).find(href=>Object.keys(controls.clients).some(asset=>href==='https://job-boards.cdn.greenhouse.io/assets/'+asset))?.split('/').at(-1);
+      [...[...document.querySelectorAll('link[rel="modulepreload"][href]')].map(link=>link.href),...(refreshedLoaders.get(location.pathname)?.links||[])].find(href=>Object.keys(controls.clients).some(asset=>href==='https://job-boards.cdn.greenhouse.io/assets/'+asset))?.split('/').at(-1);
     if(!pageClient||await sha(JSON.stringify(job.questions))!==controls.questionsSha||
        await sha(JSON.stringify(job.eeoc_sections.map(section=>section.questions)))!==controls.eeocSha)return null;
     return {controls,clientSha256:controls.clients[pageClient],job};
@@ -94,6 +94,7 @@
     const voluntary=Array.isArray(job.eeoc_sections)?job.eeoc_sections.flatMap(section=>Array.isArray(section?.questions)?section.questions:[]):[];
     return job.questions.length+voluntary.length<=60?[...job.questions,...voluntary]:job.questions;
   }
+  const refreshedLoaders=globalThis.__jobGreenhousePublicLoaders ||= new Map();
   function applicationLoader(expected) {
     try{
       for(const script of document.querySelectorAll('script')){
@@ -102,11 +103,44 @@
         let loader;
         try{loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];}
         catch{continue;}
-        if(loader?.urlToken!==expected.tenant||String(loader.jobPostId)!==expected.jobId||loader.jobPost?.public_url!==expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId)continue;
+        if(!matchesPublicLoader(expected,loader))continue;
         return loader;
       }
     }catch{}
-    return null;
+    return expected.replay?null:refreshedLoaders.get(location.pathname)?.loader||null;
+  }
+  function matchesPublicLoader(expected,loader){
+    return loader?.urlToken===expected.tenant&&String(loader.jobPostId)===expected.jobId&&
+      loader.jobPost?.public_url===expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId;
+  }
+  async function refreshPublicLoader(expected){
+    if(expected.replay||expected.confirmationPurpose!=='inspect'||!expected.applicantConfirmed||
+      !findForm()||applicationLoader(expected))return;
+    const source=expected.origin+'/'+expected.tenant+'/jobs/'+expected.jobId;
+    if(location.origin+location.pathname!==source)return;
+    try{
+      const response=await fetch(source,{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(6500)});
+      if(!response.ok||!response.headers.get('content-type')?.includes('text/html')||
+        Number(response.headers.get('content-length'))>250000)return;
+      const reader=response.body.getReader();
+      const decoder=new TextDecoder();
+      let html='',bytes=0;
+      try{
+        for(;;){
+          const {done,value}=await reader.read();
+          if(done){html+=decoder.decode();break;}
+          bytes+=value.length;if(bytes>250000)return;
+          html+=decoder.decode(value,{stream:true});
+        }
+      }finally{await reader.cancel().catch(()=>{});}
+      const json=html.match(/<script[^>]*>\s*window\.__remixContext\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/)?.[1];
+      const loader=json&&JSON.parse(json).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
+      if(matchesPublicLoader(expected,loader)&&norm(loader.jobPost.company_name)===norm(expected.company)&&
+        norm(loader.jobPost.title)===text(document.querySelector('h1'))){
+        const links=[...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(match=>match[1]);
+        refreshedLoaders.set(location.pathname,{loader,links});
+      }
+    }catch{}
   }
   function submissionProtocol(expected) {
     const loader=applicationLoader(expected);
@@ -284,7 +318,7 @@
     return expected.confirmedAnswers.some(answer=>answer?.confirmed===true&&['key','scope','version','text','source','purpose'].every(key=>answer[key]===q[key])&&(answer.value??answer.answer)===value);
   }
   function profileFact(expected,q,record,allowEmpty=false) {
-    if(q.customControl||!Array.isArray(expected.profileFields)||!expected.profileFields.includes(q.key)||!profileIds.has(q.key))return false;
+    if(q.controlKind||q.customControl||!Array.isArray(expected.profileFields)||!expected.profileFields.includes(q.key)||!profileIds.has(q.key))return false;
     const value=expected.profileValues?.[q.key];
     if(typeof value!=='string'||!value.trim())return false;
     if(!q.alreadyPopulated)return allowEmpty;
@@ -309,6 +343,7 @@
   }
   api.read=async(op,expected)=>{
     try{
+      if(op==='inspect')await refreshPublicLoader(expected);
       const current=context(expected);if(!current.ok)return current;
       if(op==='discover'){
         if(current.url.pathname!==current.base)return fail('structure','岗位发现入口不属于当前租户列表。');

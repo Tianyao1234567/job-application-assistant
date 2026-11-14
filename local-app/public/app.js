@@ -504,7 +504,7 @@ function locationInput(question,task,batch,id){
   };
   const prior=drafts.get(cacheKey);
   if(prior?.batchVersion===batch.version)show(prior.candidates,prior.selected);
-  const status=p('请输入城市名称，然后确认本次结果。','subtle');
+  const status=p('输入的城市名称会发送给 Greenhouse 地点服务来获取候选。','subtle');
   const buttonSearch=button('搜索地点',async()=>{
     const query=search.value.trim();
     select.replaceChildren();buttonSearch.disabled=true;
