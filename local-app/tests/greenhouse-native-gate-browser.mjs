@@ -468,7 +468,7 @@ async function collectPublicRequests(audit){
 }
 async function connect(){
   const options=browserOptions({headless:false,timezoneId:'UTC',args:['--disable-extensions-except='+extension,'--load-extension='+extension,
-    ...(inspectionServer?['--host-resolver-rules=MAP job-boards.greenhouse.io 127.0.0.1:4443','--no-proxy-server',
+    ...(inspectionServer?['--host-resolver-rules=MAP job-boards.greenhouse.io 127.0.0.1:4443'+(selectionBaseline?', MAP job-boards.cdn.greenhouse.io ~NOTFOUND':''),'--no-proxy-server',
       '--ignore-certificate-errors-spki-list='+inspectionCertificate]:[])]});
   context=await chromium.launchPersistentContext(path.join(directory,'browser-profile'),options);
   const observedWorkers=[];
@@ -485,6 +485,10 @@ async function connect(){
   // application POST must use the browser's own connection and retry logic.
   context.on('request',request=>{
     const url=new URL(request.url());
+    if(selectionBaseline&&url.origin==='https://job-boards.cdn.greenhouse.io'){
+      assert.equal(request.method(),'GET');
+      return; // The pinned asset hint is observed but DNS is explicitly disabled.
+    }
     if(['http:','https:'].includes(url.protocol)&&![BASE,fixtureOrigin].includes(url.origin)&&!publicNavigation&&!((purposes||selectionBaseline)&&backendData==='data-inspection'&&url.href===realJobUrl))
       evidence.externalRequests.push(url.origin);
   });
