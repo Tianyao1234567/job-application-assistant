@@ -308,7 +308,9 @@ async function runPublicInspection(){
   assert.deepEqual(audit.boardWrites,[]);
   assert.ok(audit.requests.length>=2&&audit.requests.every(method=>method==='GET'),JSON.stringify(audit));
   assert.equal(audit.pageResponses.filter(response=>response.status===200&&response.url===url).length,2);
+  const retainedControls=Object.values(saved.answers).filter(answer=>answer.controlKind);
   Object.assign(audit,{sameTask:true,independentRestart:true,saved:answers.size,
+    confirmedControls:retainedControls.map(({key,selectionId,leaveBlank,location})=>({key,selectionId,leaveBlank,location})),
     explicitBlanks:[...answers.values()].filter(answer=>answer.leaveBlank).length,
     exampleChoice:{key:authorization.key,labels:authorization.options.map(option=>option.text),required:true,version:authorization.version},
     attachments:finished.inspectionAttachments.map(({key,required,manualTextAlternative})=>({key,required,manualTextAlternative})),
@@ -502,6 +504,7 @@ async function runFullForm(id){
   }
   await form.getByRole('button',{name:'一次保存以上答案并继续原任务',exact:true}).click();
   if(dynamic&&id!==fixtureJobs[3]){
+    evidence.flow.push({id,stage:'confirmed-hispanic-no'});
     const branch=task(await waitFor('explicit No exposes the Race question',state,value=>{
       const item=task(value,id);
       if(['waiting_user','failed','unknown'].includes(item?.status))throw new Error(JSON.stringify({issue:item.issue,steps:item.steps.slice(-5)}));
@@ -704,6 +707,13 @@ try{
     assert.equal(await deniedPage.locator('form').getAttribute('data-native-submit-calls'),'1');
     assert.deepEqual(fixture.counts(wrong),{posts:0,accepted:0,confirmations:0,responseDropped:0});
     record('same-name different object rejected before native fetch release',wrong,denied);
+
+    if(dynamic){
+      const prior=task(await state(),wrong);
+      const changedPage=context.pages().find(page=>page.url()===jobURL(wrong));
+      assert.equal(prior.status,'unknown');
+      assert.equal(await changedPage.locator('#candidate-location').inputValue(),'fiction-place-a');
+    }
 
     if(!full){
     const authorize=app.store.authorize.bind(app.store);

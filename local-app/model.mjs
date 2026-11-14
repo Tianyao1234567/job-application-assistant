@@ -144,7 +144,7 @@ export class Store {
     const site=this.site(t.siteId),own=t.answers?.[q.scope],memory=this.state.answers.find(a=>a.siteId===site.id&&a.scope===q.scope&&a.confirmed===true);
     if(q.controlKind){
       if(!own?.confirmed||own.stale||!['scope','version','text','source','purpose'].every(key=>own[key]===q[key]))return null;
-      if(q.controlKind==='conditional-race'&&(!q.parentScope||t.answers[q.parentScope]?.selectionId!=='0'||t.answers[q.parentScope].stale))return null;
+      if(q.controlKind==='conditional-race'&&(!q.parentScope||own.parentScope!==q.parentScope||t.answers[q.parentScope]?.selectionId!=='0'||t.answers[q.parentScope].stale))return null;
       if(own.leaveBlank&&!q.required&&!q.alreadyPopulated)return '';
       if(q.selectedId&&q.selectedId!==own.selectionId)return null;
       if(q.controlKind==='location')return own.location?.id===own.selectionId?own.location.label:null;
@@ -209,6 +209,8 @@ export class Store {
       let selection,location;
       if(q.controlKind){
         if(input.save!=='task')throw new Error('此选择仅用于当前任务');
+        if(q.controlKind==='conditional-race'&&(!q.parentScope||t.answers?.[q.parentScope]?.selectionId!=='0'||t.answers[q.parentScope].stale))
+          throw new Error('请先确认当前问法中的 Hispanic/Latino 选项');
         if(!leaveBlank&&q.controlKind==='location'){
           const search=this.locationSearches?.get(t.id);
           location=search?.batchVersion===batch.version&&search.scope===q.scope&&search.candidates.find(candidate=>candidate.id===input.selectionId&&candidate.label===input.answer);
