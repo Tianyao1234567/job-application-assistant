@@ -99,7 +99,9 @@
       for(const script of document.querySelectorAll('script')){
         const source=script.textContent||'';if(source.length>1500000)continue;
         const match=/^\s*window\.__remixContext\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(source);if(!match)continue;
-        const loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
+        let loader;
+        try{loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];}
+        catch{continue;}
         if(loader?.urlToken!==expected.tenant||String(loader.jobPostId)!==expected.jobId||loader.jobPost?.public_url!==expected.origin+(expected.replay?'/greenhouse':'')+'/'+expected.tenant+'/jobs/'+expected.jobId)continue;
         return loader;
       }

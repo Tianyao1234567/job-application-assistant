@@ -195,7 +195,19 @@ async function runPublicInspection(){
   await collectPublicRequests(audit);
   audit.status=current.status;
   audit.issue=current.issue?.detail;
-  audit.documentTitle=await context.pages().find(page=>page.url()===url)?.title();
+  const activePage=context.pages().find(page=>page.url()===url);
+  audit.documentTitle=await activePage?.title();
+  audit.renderer=await activePage?.evaluate(()=>{
+    const source=[...document.scripts].filter(node=>node.textContent.trim().startsWith('window.__remixContext')).map(node=>{
+      const match=/^\s*window\.__remixContext\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(node.textContent);
+      try{
+        const data=JSON.parse(match?.[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
+        return {length:node.textContent.length,post:String(data?.jobPostId),language:data?.jobPost?.language,
+          count:data?.jobPost?.questions?.length,source:data?.jobPost?.public_url};
+      }catch{return {length:node.textContent.length,parse:false};}
+    });
+    return {source,preload:[...document.querySelectorAll('link[rel="modulepreload"]')].map(node=>new URL(node.href).pathname)};
+  });
   audit.questions=current.questions?.map(q=>({key:q.key,required:q.required,unresolved:q.unresolved,optionCount:q.options.length}));
   assert.equal(current.status,'waiting_answer',JSON.stringify(audit));
   assert.equal(current.id,added.id);
@@ -204,6 +216,7 @@ async function runPublicInspection(){
   assert.ok(audit.modules.some(asset=>asset.includes('entry.client-')));
   const batch=current.answerBatch.questions;
   const authorization=batch.find(q=>q.key==='question_18195692008');
+  assert.ok(authorization,JSON.stringify(audit));
   assert.match(authorization.text,/authorized to work in Japan/);
   assert.equal(authorization.required,true);
   assert.deepEqual(authorization.options.map(option=>option.text),['Yes','No']);
