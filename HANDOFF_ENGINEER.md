@@ -2,7 +2,15 @@
 
 更新：2026-11-14（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 010 实际 Greenhouse 页面接入集中补答
+## 011 区号、地点及条件自我识别接入，candidate.13 审查草稿
+
+已读取 Manager `6f3d7bb02ca3859acc4c8be6764669e143258678` 的交接及 011。原任务 `5c8b638`，工程起点 `c9a6a97e58a3690d3855004503f4bea42cab937a`，验证及打包源码 `d649586b54d006ee86e4fbd5367c500bd482532f`。使用已观察的英文公开客户端和表单版本，接通电话原文/ISO/区号、地点稳定标识/名称/坐标，以及依明确选择出现的 Race 分支。APP 沿原补答、确认和持久保存使用这些值。只读检查和虚构提交继续使用各自用途。 [阶段报告](docs/GREENHOUSE_DYNAMIC_CONTROLS_011.md)
+
+本机受影响定点 86 项通过。公开页实际 MV3 保存 14 项含 5 项明确留空，独立重启及重新配对后同任务复用，未有申请写入或占用额度。当前官方原生构造的隔离回放正常 1/1/1、错附件 0、接受后丢响应 2→2 且 `unknown`。坐标、Race 等请求差异在本机冻结比较中拒绝。Windows 从 .8/.10/.12 实际升级通过。 [MV3 验证](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43544483191/job/132292444119) · [Windows 验证](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43544483308/job/132292445685)
+
+candidate.13 独立审查草稿中的 `update.cmd` 实下载为 362783 字节，SHA-256 `63651d9293ef76eb501aeb070f925b09829ac68a8a6b8d49425dfbb92ad4540c`。下一责任人为 Manager 审查。candidate.12 原预发布保留，真实企业投递继续暂停，PR #5 保持 draft。 [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-e51eb5125a18b220e9da)
+
+## 010 实际 Greenhouse 页面接入集中补答（历史）
 
 已 fetch 并读取 Manager `628b7b5a05c407bd30dd497938d465231a35b87a` 的交接与 010。原任务 `5c8b638`，工程起点 `a76e79d01f33aa1277c503a2b27b8f8392b0bc7f`，验证源码 `2bbfca4767ea6a7240b0927f54ee7f899e8619b7`。009 已关闭，candidate.12 是已发布的预发布包。 [阶段报告](docs/GREENHOUSE_PUBLIC_ANSWER_FLOW_010.md)
 
