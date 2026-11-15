@@ -221,6 +221,8 @@ export async function createApp({dataDir = path.join(ROOT, '.runtime/data'), por
         }
         json(res, 200, store.action(body)); return;
       }
+      if(url.pathname==='/api/targets/preview'){json(res,200,{ok:true,...await store.previewTargetTable(body.csv)});return;}
+      if(url.pathname==='/api/targets/confirm'){json(res,200,{ok:true,...store.confirmTargetTable(body)});return;}
       if(url.pathname==='/api/greenhouse/locations'){
         json(res,200,{ok:true,...await store.findGreenhouseLocations(body,testMode&&testLocationSearch||searchGreenhouseLocations)});return;
       }

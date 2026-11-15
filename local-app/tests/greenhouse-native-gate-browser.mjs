@@ -23,6 +23,7 @@ const lifecycle=process.env.GREENHOUSE_NATIVE_GATE_LIFECYCLE==='1';
 const full=process.env.GREENHOUSE_NATIVE_FULL_FLOW==='1';
 const purposes=process.env.GREENHOUSE_CONFIRMATION_PURPOSE==='1';
 const publicPreflight=process.env.GREENHOUSE_PUBLIC_PREFLIGHT==='1';
+const targetTable=process.env.GREENHOUSE_TARGET_TABLE==='1';
 const publicInspection=process.env.GREENHOUSE_PUBLIC_INSPECTION==='1'||publicPreflight;
 const dynamic=process.env.GREENHOUSE_DYNAMIC_CONTROLS==='1'||publicPreflight;
 const selectionBaseline=process.env.GREENHOUSE_SELECTION_BASELINE==='1';
@@ -512,8 +513,46 @@ async function runPublicInspection(){
   const profileId=await connect();
   await configureInspection();
   await dashboard.goto(BASE+'/#queue');
-  await dashboard.getByLabel('岗位链接',{exact:true}).fill(url);
-  await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
+  if(targetTable){
+    const csv=['公司,岗位,地点,官方链接,来源,核实时间,有效状态,原因',
+      'Mattermost,Fictional test direction,Tokyo,'+url+',官网,2026-11-15,有效,',
+      'Mattermost,No link,,,,,待查,Waiting for source',
+      'Other company,Unsupported,,https://career.example.invalid/job/1,官网,,有效,',
+      'Mattermost,Already closed,,https://job-boards.greenhouse.io/mattermost/jobs/999999999999,官网,,已下架,',
+      'Mattermost,Duplicate in table,,'+url+'?gh_src=repeat,官网,,有效,',
+      'Mattermost,Invalid link,,javascript:example,官网,,有效,'
+    ].join('\n');
+    await action('resume');
+    await dashboard.getByLabel('目标表 CSV',{exact:true}).setInputFiles({name:'targets.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
+    await dashboard.getByRole('button',{name:'预览并核对',exact:true}).click();
+    const preview=dashboard.getByRole('table',{name:'目标表预览'});
+    await preview.waitFor();
+    assert.equal((await state()).tasks.length,0);
+    assert.equal(await preview.getByRole('row').count(),7);
+    const select=preview.getByRole('checkbox',{name:/选择第 1 行/});
+    assert.equal(await select.isEnabled(),true);
+    assert.equal(await select.isChecked(),false);
+    for(const label of ['缺少链接','未适配','已下架或关闭','已有同岗位','链接无效'])assert.ok(await preview.getByText(label,{exact:true}).isVisible());
+    assert.equal(await preview.locator('input[type=checkbox]:disabled').count(),5);
+    await select.check();
+    await dashboard.getByRole('button',{name:'将所选岗位加入队列'}).click();
+    const value=await waitFor('one target-table task',state,value=>task(value,id)?.source==='目标表');
+    const imported=task(value,id);
+    assert.equal(imported.status,'waiting_user');
+    assert.equal(imported.confirmation,undefined);
+    assert.equal(imported.executionOffer,null);
+    assert.equal(imported.submissionStarted,undefined);
+    assert.equal(value.running,true);
+    await dashboard.getByRole('button',{name:'预览并核对',exact:true}).click();
+    await preview.getByText('队列中已有同一岗位，保留原状态',{exact:true}).first().waitFor();
+    assert.equal(await preview.locator('input[type=checkbox]:enabled').count(),0);
+    assert.equal(task(await state(),id).id,imported.id);
+    audit.targetTable={previewRows:6,selectable:1,unselectedByDefault:true,added:1,repeatSelectable:0,
+      sameTask:true,writePermission:false,alreadyRunning:true};
+  }else{
+    await dashboard.getByLabel('岗位链接',{exact:true}).fill(url);
+    await dashboard.getByRole('button',{name:'加入队列',exact:true}).click();
+  }
   const added=task(await waitFor('public job added',state,value=>!!task(value,id)),id);
   await dashboard.getByRole('row').filter({hasText:added.title}).getByRole('button',{name:'查看详情',exact:true}).click();
   const approval=dashboard.getByRole('form',{name:/确认页面检查/});

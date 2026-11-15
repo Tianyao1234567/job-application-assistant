@@ -16,6 +16,7 @@ if(process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_WORKFLOW==='Fictional
   const subject=execFileSync('git',['log','-1','--format=%s'],{cwd:projectRoot,encoding:'utf8'});
   if(subject.includes('[public-preflight-014]')||subject.includes('[isolated-execution]')||subject.includes('[selection-baseline]')||subject.includes('[native-gate]')||subject.includes('[native-gate-lifecycle]')||subject.includes('[native-full-flow]')){
     if(subject.includes('[public-preflight-014]'))process.env.GREENHOUSE_PUBLIC_PREFLIGHT='1';
+    if(subject.includes('[target-table-014]'))process.env.GREENHOUSE_TARGET_TABLE='1';
     if(subject.includes('[isolated-execution]'))process.env.GREENHOUSE_ISOLATED_EXECUTION='1';
     if(subject.includes('[official-controls]'))process.env.GREENHOUSE_OFFICIAL_CONTROLS='1';
     if(subject.includes('[selection-baseline]'))process.env.GREENHOUSE_SELECTION_BASELINE='1';

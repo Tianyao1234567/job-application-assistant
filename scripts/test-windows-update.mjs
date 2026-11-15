@@ -13,11 +13,13 @@ if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true')throw new Err
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url))),parent=path.join(root,'.runtime/windows-update'),cache=path.join(parent,'cache'),BASE='http://127.0.0.1:17321';
 const subject=gitSubject();
 const checkPublished14=subject.includes('[upgrade-candidate14]');
-const candidateFlow=checkPublished14||subject.includes('[native-full-flow]');
+const checkPublished15=subject.includes('[upgrade-candidate15]');
+const checkPublished=checkPublished14||checkPublished15;
+const candidateFlow=checkPublished||subject.includes('[native-full-flow]');
 const checkPurpose=subject.includes('[confirmation-purpose]');
 const dynamic=subject.includes('[dynamic-controls]');
 function gitSubject(){const result=spawnSync('git',['log','-1','--format=%s'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);return result.stdout;}
-const evidence={source:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,scope:'Single CMD, fictional stopped '+(checkPublished14?'candidate.14':'earlier')+' installation moved to a short path; actual Windows Chromium and extension. No employer requests or personal data.',scenarios:[],status:'RUNNING'};
+const evidence={source:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,scope:'Single CMD, fictional stopped '+(checkPublished15?'candidate.15':checkPublished14?'candidate.14':'earlier')+' installation moved to a short path; actual Windows Chromium and extension. No employer requests or personal data.',scenarios:[],status:'RUNNING'};
 let phase='build',activeRoot,managed;
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const git=(args)=>{const result=spawnSync('git',args,{cwd:root,maxBuffer:8*1024*1024});assert.equal(result.status,0);return result.stdout;};
@@ -37,7 +39,7 @@ async function installOld(source,index){
  const {Store}=await import(pathToFileURL(path.join(directory,'local-app/model.mjs')).href);const store=new Store({data:path.join(directory,'.runtime/data')});store.demo();store.pause();store.save();return directory;
 }
 try{
- if(checkPurpose||dynamic||checkPublished14)run(process.execPath,['--test','local-app/tests/profile-update-package.test.mjs']);
+ if(checkPurpose||dynamic||checkPublished)run(process.execPath,['--test','local-app/tests/profile-update-package.test.mjs']);
  await fs.mkdir(parent,{recursive:true});const {report}=await buildUpdate({projectRoot:root}),updateFile=path.join(report.directory,'更新.cmd');evidence.update={...report,directory:undefined};
  assert.equal(report.source,process.env.GITHUB_SHA);
  const bytes=await fs.readFile(updateFile);assert.equal(bytes.length,report.bytes);assert.equal(hash(bytes),report.sha256);
@@ -46,9 +48,9 @@ try{
  const npm=path.join(path.dirname(process.execPath),'node_modules/npm/bin/npm-cli.js');const env={...process.env,PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:'1',PLAYWRIGHT_BROWSERS_PATH:path.join(cache,'.runtime/browsers'),npm_config_cache:path.join(parent,'npm-cache'),TEMP:path.join(parent,'tmp'),TMP:path.join(parent,'tmp'),TMPDIR:path.join(parent,'tmp')};await fs.mkdir(env.TEMP,{recursive:true});
  run(process.execPath,[npm,'ci','--ignore-scripts','--no-audit','--no-fund'],{cwd:path.join(cache,'runtime-deps'),env});
  run(process.execPath,[path.join(cache,'runtime-deps/node_modules/playwright/cli.js'),'install','--no-shell','chromium'],{cwd:cache,env:{...env,PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:'',PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT:'45000'},timeout:180000});
- for(const [index,source]of (checkPublished14?UPDATE_BASELINES.slice(-1):UPDATE_BASELINES.slice(2)).entries()){
+ for(const [index,source]of (checkPublished15?UPDATE_BASELINES.slice(-1):checkPublished14?UPDATE_BASELINES.slice(-2,-1):UPDATE_BASELINES.slice(2)).entries()){
   const baselineVersion=(await baselineManifest(root,source)).version;
-  const inspectBaseline=/\.(12|14)$/.test(baselineVersion);
+  const inspectBaseline=/\.(12|14|15)$/.test(baselineVersion);
   phase='old-'+baselineVersion+'-start';let directory=await installOld(source,index);activeRoot=directory;service(directory,'start');const {context,runner}=await connect(directory);
   const oldId=new URL(runner.url()).hostname,originalBridge=await runner.evaluate(async()=>(await chrome.storage.local.get('localBridge')).localBridge);assert.ok(originalBridge.profileId);
   await context.addCookies([{name:'fictional_migration_cookie',value:'preserve-fixture-session',url:BASE,httpOnly:true,sameSite:'Lax',expires:Math.floor(Date.now()/1000)+86400}]);
@@ -74,13 +76,13 @@ try{
   const pending={id:'fictional-pending',jobId:'cpp-001',siteId:state.sites[0].id,title:'Fictional pending task',url:'http://127.0.0.1:17322/site/alpha/jobs/cpp-001',company:'Fictional company',location:'Fictional city',mode:'demo',status:'waiting_answer',phase:'answer',steps:[],executionProfileId:originalBridge.profileId,profileSnapshot:structuredClone(state.profile),resumeSnapshot:structuredClone(state.resume),profileVersion:state.profile.version,resumeVersion:state.resume.version,question:{key:'motivation',text:'为什么希望申请这个岗位？',scope:`local-v1:${state.sites[0].tenant}:cpp-001:motivation:v1`}};
   state.tasks=[task,pending];state.answers=[{scope:'fictional-memory',value:'Preserve the answer'}];
   let legacyReal,legacyUnknown;
-  if(checkPurpose||dynamic||checkPublished14){
+  if(checkPurpose||dynamic||checkPublished){
    const origin='https://job-boards.greenhouse.io',url=origin+'/mattermost/jobs/900000002';
    const site={id:'fictional-old-real-site',adapter:'greenhouse-v1',mode:'real',origin,tenant:'mattermost',
      company:'Mattermost',name:'Fictional upgrade record',expectedAccount:'fictional-old@example.test',enabled:true,skipped:false,
      listUrl:origin+'/mattermost',loginUrl:origin+'/mattermost'};
    state.sites.push(site);
-   if(checkPublished14){
+   if(checkPublished){
     state.settings.mode='real';
     state.profile.mode='real';
     state.profile.data.personal.email={zh:site.expectedAccount,en:null,confirmed:true,source:'Fictional Windows upgrade verification'};
@@ -92,7 +94,7 @@ try{
      confirmation:{jobId:'900000002',url,company:site.company,expectedAccount:site.expectedAccount,
        profileId:originalBridge.profileId,profileVersion:state.profile.version,resumeVersion:state.resume.version,
        resumeSha256:state.resume.sha256,confirmedAt:new Date().toISOString(),...(inspectBaseline?{purpose:'inspect'}:{submitConfirmed:true})}};
-   if(checkPublished14){
+   if(checkPublished){
     legacyReal.profileSnapshot=structuredClone(state.profile);
     legacyReal.resumeSnapshot=structuredClone(state.resume);
    }else{
@@ -140,7 +142,7 @@ try{
     const request=await import(chrome.runtime.getURL('runner/greenhouse-native-request.js'));
     return typeof gate.installNativeGate==='function'&&typeof request.createNativeCapture==='function';
    }),true);
-   if(checkPurpose||dynamic||checkPublished14){
+   if(checkPurpose||dynamic||checkPublished){
     phase='legacy-real-consent-after-update';
     const saved=JSON.parse(await fs.readFile(path.join(directory,'.runtime/data/state.json'),'utf8'));
     for(const old of [legacyReal,legacyUnknown]){
@@ -154,7 +156,7 @@ try{
      assert.equal(exposed.submissionStarted,old.submissionStarted);
      assert.equal(exposed.canVerify,old.status==='unknown');
      assert.equal(exposed.executionOffer,null);
-     assert.equal(exposed.needsConfirmation,!checkPublished14&&old.status!=='unknown');
+     assert.equal(exposed.needsConfirmation,!checkPublished&&old.status!=='unknown');
      assert.equal(migrated.confirmation.submitConfirmed,undefined);
     }
     assert.match((await api(directory,'/action',{action:'task-resume',taskId:legacyUnknown.id},400)).error,/只能核对|不可重新/);
@@ -166,7 +168,7 @@ try{
    evidence.scenarios.push({baseline:baselineVersion,baselineSource:source,passed:true,installedNativeImports:true,
     profileEditsIdsMappingsAnswersAndTasksPreserved:true,attachmentBytesAndHashMatch:true,unknownCannotResume:true,
     originalProfileIdAndLedgersPreserved:true,extensionIdPreserved:true,freshActualHeartbeat:true,existingBrowserBinaryUnchanged:true,
-    ...(checkPurpose||dynamic||checkPublished14?{legacyRealConsentUnverified:!inspectBaseline,realInspectionConsentPreserved:inspectBaseline,realInspectionUsableWithMatchingVersions:checkPublished14,oldConsentCannotAuthorizeExecution:true,legacyRealUnknownPreserved:true}:{})});
+    ...(checkPurpose||dynamic||checkPublished?{legacyRealConsentUnverified:!inspectBaseline,realInspectionConsentPreserved:inspectBaseline,realInspectionUsableWithMatchingVersions:checkPublished,oldConsentCannotAuthorizeExecution:true,legacyRealUnknownPreserved:true}:{})});
    continue;
   }
   phase='repair-existing-and-answer';

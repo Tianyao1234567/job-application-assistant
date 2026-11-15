@@ -17,6 +17,8 @@ let state = null;
 let lastSignature = '';
 let renderedView = '';
 let taskDialogId = null;
+let targetTableFile=null, targetTablePreview=null, targetTableResult='';
+const targetTableSelection=new Set();
 let extensionReady = false;
 let pairingIntent = null;
 let pairingTimer;
@@ -361,6 +363,82 @@ function taskTable(tasks) {
   const headings=['岗位与公司','城市 / 来源','状态','最近进展',''];
   return el('div',{class:'table-wrap'},el('table',{},el('thead',{},el('tr',{},headings.map(text=>el('th',{scope:'col',text})))),el('tbody',{},tasks.map(task=>el('tr',{},el('td',{},el('div',{class:'job-title',text:task.title}),el('div',{class:'job-sub',text:task.company}),badge(modeLabel(task.mode))),el('td',{},task.location||'待核实',el('div',{class:'job-sub',text:task.source})),el('td',{},statusBadge(task)),el('td',{},el('div',{text:task.steps.at(-1)?.label || '等待执行'}),el('div',{class:'job-sub',text:fmtDate(task.updatedAt||task.discoveredAt)})),el('td',{},button('查看详情',()=>showTask(task.id),'text')))))));
 }
+function targetTableCard(){
+  const form=el('form',{class:'inline-form','aria-label':'导入目标表'});
+  const input=el('input',{type:'file',accept:'.csv,text/csv','aria-label':'目标表 CSV'});
+  input.addEventListener('change',()=>{
+    targetTableFile=input.files[0]||null;targetTablePreview=null;targetTableResult='';
+    targetTableSelection.clear();
+    render(true);
+  });
+  const previewButton=submitButton('预览并核对','target-preview');
+  previewButton.disabled=previewButton.disabled||!targetTableFile;
+  form.append(input,previewButton);
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const file=targetTableFile;
+    try{
+      if(!file||file.size>128000||!/\.csv$/i.test(file.name))throw new Error('请选择不超过 128 KB 的 UTF-8 CSV 目标表。');
+      await submitOnce(form,'target-preview',async()=>{
+        const preview=await api('/api/targets/preview',{csv:await file.text()});
+        if(file!==targetTableFile)return;
+        targetTablePreview=preview;targetTableResult='';targetTableSelection.clear();
+      });
+      render(true);
+    }catch(error){errorBox(form,error);}
+  });
+  const preview=targetTablePreview;
+  let review=null;
+  if(preview){
+    const statuses={ready:'可加入',duplicate:'已有同岗位',closed:'已下架或关闭',unsupported:'未适配',missing:'缺少链接',invalid:'链接无效',unverified:'待核实'};
+    const confirm=el('form',{'aria-label':'确认目标表入队'});
+    const submit=submitButton('将所选岗位加入队列','target-confirm');
+    submit.disabled=submit.disabled||!targetTableSelection.size;
+    const updateSelection=()=>{submit.disabled=!targetTableSelection.size||pendingForms.has('target-confirm');};
+    const rows=preview.rows.map(row=>{
+      const label='选择第 '+row.id+' 行 '+row.company+' '+(row.verifiedTitle||row.title);
+      const selection=el('input',{type:'checkbox','aria-label':label,disabled:row.status!=='ready'});
+      selection.checked=targetTableSelection.has(row.id);
+      selection.addEventListener('change',()=>{
+        if(selection.checked)targetTableSelection.add(row.id);else targetTableSelection.delete(row.id);
+        updateSelection();
+      });
+      const url=row.officialUrl||row.url;
+      const officialLink=row.officialUrl?el('a',{href:row.officialUrl,target:'_blank',rel:'noopener noreferrer',text:'查看官网'}):null;
+      return el('tr',{},
+        el('td',{},selection,' '+row.id),
+        el('td',{},el('strong',{text:row.verifiedTitle||row.title||'待核实'}),p(row.company||'公司待核实','subtle'),
+          row.verifiedTitle&&row.verifiedTitle!==row.title?p('表中目标 '+row.title,'subtle'):null),
+        el('td',{},row.verifiedLocation||row.location||'—'),
+        el('td',{},officialLink,url?p(url,'target-url subtle'):p('未提供','subtle')),
+        el('td',{},row.source||'—',row.checkedAt?p(row.checkedAt,'subtle'):null,row.reportedStatus?p('表中状态 '+row.reportedStatus,'subtle'):null),
+        el('td',{},badge(statuses[row.status],row.status==='ready'?'good':'neutral'),p(row.reason,'subtle'),
+          row.note&&!row.reason.includes(row.note)?p(row.note,'subtle'):null));
+    });
+    confirm.append(el('div',{class:'table-wrap'},el('table',{class:'target-table','aria-label':'目标表预览'},
+      el('thead',{},el('tr',{},['行','公司和岗位','地点','官方岗位链接','来源与核实','核对结果'].map(text=>el('th',{scope:'col',text})))),
+      el('tbody',{},rows))),el('div',{class:'form-actions'},submit));
+    confirm.addEventListener('submit',async event=>{
+      event.preventDefault();
+      try{
+        await submitOnce(confirm,'target-confirm',async()=>{
+          if(!targetTableSelection.size)throw new Error('请选择要加入的岗位。');
+          const result=await api('/api/targets/confirm',{id:preview.id,selected:[...targetTableSelection]});
+          targetTableResult='已加入 '+result.added+' 个岗位，保留 '+result.duplicates+' 个已有岗位。';
+          targetTablePreview=null;targetTableSelection.clear();
+          await refresh(true);
+        });
+        render(true);
+      }catch(error){errorBox(confirm,error);}
+    });
+    review=confirm;
+  }
+  return card('目标表导入',el('div',{},
+    p('选择搜集方给出的 UTF-8 CSV。预览后勾选已核实的行，入队后每个岗位仍须单独确认。','details-note'),
+    el('details',{},el('summary',{text:'目标表列名'}),p('公司、岗位、地点、官方链接、来源、核实时间、有效状态、原因。缺链接的行可以保留。')),
+    form,targetTableFile?p('已选 '+targetTableFile.name,'selected-file'):null,
+    targetTableResult?el('p',{role:'status',text:targetTableResult}):null,review));
+}
 function renderQueue() {
   const filter = drafts.get('queue-filter') || 'all';
   const groups = {all:()=>true,active:t=>['queued','running','submitting'].includes(t.status),waiting:t=>['waiting_answer','waiting_user','paused','unknown','failed'].includes(t.status),submitted:t=>t.status==='submitted',skipped:t=>['skipped','cancelled'].includes(t.status)};
@@ -370,7 +448,7 @@ function renderQueue() {
   form.append(input,submitButton('加入队列','add'));
   form.addEventListener('submit',async event=>{event.preventDefault();try {await submitOnce(form,'add',()=>perform('add',{url:input.value}));}catch(error){errorBox(form,error);}});
   const jobs=[...state.tasks].reverse().filter(groups[filter]||groups.all);
-  return el('div',{},modeStrip(),card('手动加入岗位',el('div',{},form,p('链接会按网站、租户、岗位与申请账号去重。未适配网站保留待办，不自动执行。','details-note'))),el('section',{class:'card'},el('div',{class:'toolbar'},tabs,el('span',{class:'subtle',text:`${jobs.length} 条记录`})),taskTable(jobs)));
+  return el('div',{},modeStrip(),targetTableCard(),card('手动加入岗位',el('div',{},form,p('链接会按网站、租户、岗位与申请账号去重。未适配网站保留待办，不自动执行。','details-note'))),el('section',{class:'card'},el('div',{class:'toolbar'},tabs,el('span',{class:'subtle',text:`${jobs.length} 条记录`})),taskTable(jobs)));
 }
 function taskActions(task) {
   const actions=[];

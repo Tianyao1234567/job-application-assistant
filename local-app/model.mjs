@@ -7,6 +7,7 @@ import {parseProfileImport,parseProjectRepair,previewProfileImport,applyProfileI
 import {stableProfileKey,profileFactAnswer} from '../autofill-extension/shared/profile-facts.js';
 import {emptyProfile, validateProfile, flattenProfile} from '../autofill-extension/shared/schema.js';
 import {isGreenhouse,greenhouseReplay,greenhouseJob,validateGreenhouseSite,greenhouseQuestion,greenhouseAnswer,validNetworkReceipt} from './greenhouse.mjs';
+import {BOARD_ORIGINS,parseTargetCSV,checkOfficialTarget} from './greenhouse-targets.mjs';
 
 export const VERSION = '0.2.0';
 export const DASHBOARD = 'http://127.0.0.1:17321';
@@ -524,19 +525,90 @@ export class Store {
     for(const key of changed)t[key]=metadata[key];
     // An absent source field stays unknown and never erases a verified value.
     t.jobMetadata={...metadata,source,checkedAt:this.now()};
-    if(changed.length)this.step(t,'岗位资料已核实',source==='detail'?'从当前岗位详情读取标题、公司和城市':'从当前站点列表补充同一岗位资料');
+    if(changed.length)this.step(t,'岗位资料已核实',source==='detail'?'从当前岗位详情读取标题、公司和城市':source==='target-table'?'已核对目标表对应的官网岗位':'从当前站点列表补充同一岗位资料');
   }
+  targetDedupeKey(site,jobId){return [site.origin,site.tenant,jobId,site.expectedAccount].join('|');}
   add(site,job,source='自动发现'){
     if(!job||typeof job.jobId!=='string'||!/^[\w-]{1,100}$/.test(job.jobId))throw new Error('岗位稳定标识无效');
     const parsed=new URL(job.url);if(isGreenhouse(site)){if(greenhouseJob(site,job.url).jobId!==job.jobId)throw new Error('岗位稳定标识不符');}
     else if(parsed.origin!==site.origin||parsed.username||parsed.password||parsed.hash||parsed.pathname!==`/site/${site.tenant}/jobs/${job.jobId}`)throw new Error('岗位链接与站点租户不符');
     if(source!=='手动加入')this.jobMetadata(site,job,job.jobId);
-    const dedupeKey=[site.origin,site.tenant,job.jobId,site.expectedAccount].join('|');
-    const existing=this.state.tasks.find(t=>t.dedupeKey===dedupeKey);if(existing){if(source!=='手动加入')this.mergeJobMetadata(existing,site,job,'list');return {task:existing,duplicate:true};}
+    const dedupeKey=this.targetDedupeKey(site,job.jobId);
+    const imported=source==='目标表';
+    const existing=this.state.tasks.find(t=>t.dedupeKey===dedupeKey);if(existing){if(source==='自动发现')this.mergeJobMetadata(existing,site,job,'list');return {task:existing,duplicate:true};}
     const title=short(job.title)||'待读取岗位',city=short(job.location),s=this.state.settings;
-    const accepted=source==='手动加入'||s.keywords.some(k=>title.toLowerCase().includes(k.toLowerCase()))&&s.cities.some(c=>city.includes(c));
-    const t={id:uid(),jobId:job.jobId,siteId:site.id,title,company:short(job.company)||site.company||'',location:city,url:parsed.origin+parsed.pathname,source,discoveredAt:this.now(),filterReason:source==='手动加入'?'手动加入，执行时仍检查站点、资料和账号':accepted?'符合关键词和城市筛选':'未符合关键词或城市筛选',dedupeKey,mode:site.mode,status:accepted?(site.adapter==='local-v1'?'queued':'waiting_user'):'skipped',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};
-    this.step(t,'岗位入队',t.filterReason);this.state.tasks.push(t);if(source!=='手动加入')this.mergeJobMetadata(t,site,job,'list');if(isGreenhouse(site)&&accepted)this.issue(t,'confirmation','请本人确认此次申请',greenhouseReplay(site)?'请核对本岗位、申请资料、附件及提交动作；确认前不会填写或上传。':'请核对本岗位、申请资料和附件，并确认只读检查原申请页。');else if(!supportedSite(site))this.issue(t,'adapter','网站待适配','尚未验证的网站不会自动填写或提交');return {task:t,duplicate:false};
+    const accepted=imported||source==='手动加入'||s.keywords.some(k=>title.toLowerCase().includes(k.toLowerCase()))&&s.cities.some(c=>city.includes(c));
+    const t={id:uid(),jobId:job.jobId,siteId:site.id,title,company:short(job.company)||site.company||'',location:city,url:parsed.origin+parsed.pathname,source,discoveredAt:this.now(),filterReason:imported?'目标表中明确选择，等待单独确认只读检查':source==='手动加入'?'手动加入，执行时仍检查站点、资料和账号':accepted?'符合关键词和城市筛选':'未符合关键词或城市筛选',dedupeKey,mode:site.mode,status:accepted?(site.adapter==='local-v1'?'queued':'waiting_user'):'skipped',phase:'inspect',steps:[],profileVersion:null,resumeVersion:null};
+    this.step(t,'岗位入队',t.filterReason);this.state.tasks.push(t);if(source!=='手动加入')this.mergeJobMetadata(t,site,job,imported?'target-table':'list');if(isGreenhouse(site)&&accepted)this.issue(t,'confirmation','请本人确认此次申请',greenhouseReplay(site)?'请核对本岗位、申请资料、附件及提交动作；确认前不会填写或上传。':'请核对本岗位、申请资料和附件，并确认只读检查原申请页。');else if(!supportedSite(site))this.issue(t,'adapter','网站待适配','尚未验证的网站不会自动填写或提交');return {task:t,duplicate:false};
+  }
+  targetSite(row){
+    if(!row.company||!row.title)return {status:'unverified',reason:'缺少公司或目标岗位'};
+    if(!row.url)return {status:'missing',reason:'没有可核实的官方岗位链接'+(row.note?' · '+short(row.note):'')};
+    let url;
+    try{url=new URL(row.url);}catch{return {status:'invalid',reason:'官方岗位链接格式不正确'};}
+    if(url.protocol!=='https:'||url.username||url.password)return {status:'invalid',reason:'需要无账号凭据的 HTTPS 官方岗位链接'};
+    if(/^(?:已下架|关闭|已关闭|已过期|closed|expired|removed)$/i.test(row.reportedStatus||''))
+      return {status:'closed',reason:'搜集方标为已下架、关闭或过期'+(row.note?' · '+short(row.note):'')};
+    if(!BOARD_ORIGINS.includes(url.origin))return {status:'unsupported',reason:'此招聘网站当前未适配'};
+    if(!/^\/[a-z0-9_-]+\/jobs\/\d{1,30}$/i.test(url.pathname))return {status:'invalid',reason:'链接未指向具体的官方 Greenhouse 岗位'};
+    const candidates=this.state.sites.flatMap(site=>{
+      if(site.adapter!=='greenhouse-v1'||site.mode!=='real'||!site.enabled||site.skipped||
+         site.company.toLowerCase()!==row.company.toLowerCase())return [];
+      try{return [{site,identity:greenhouseJob(site,site.origin+url.pathname)}];}catch{return [];}
+    });
+    if(candidates.length!==1||this.state.settings.mode!=='real')return {status:'unsupported',reason:candidates.length>1?
+      '此公司匹配多个申请账号，无法确定入队范围':'当前没有启用与公司、租户匹配的真实招聘站'};
+    return candidates[0];
+  }
+  async previewTargetTable(csv,verify=checkOfficialTarget){
+    const rows=parseTargetCSV(csv),work=[];
+    const draft={id:uid(),rows,entries:new Map(),expires:0};
+    this.targetTableDraft=draft;
+    const first=new Map();
+    for(const row of rows){
+      const matched=this.targetSite(row);
+      if(!matched.site){Object.assign(row,matched);continue;}
+      const {site,identity}=matched,key=this.targetDedupeKey(site,identity.jobId);
+      const existing=this.state.tasks.find(task=>task.dedupeKey===key);
+      if(existing){Object.assign(row,{status:'duplicate',reason:'队列中已有同一岗位，保留原状态',taskId:existing.id});continue;}
+      if(first.has(key)){Object.assign(row,{status:'duplicate',reason:'与表内第 '+first.get(key)+' 行是同一岗位'});continue;}
+      first.set(key,row.id);
+      work.push({row,site:clone(site),identity});
+    }
+    const signal=AbortSignal.timeout(9500);
+    const check=async()=>{
+      for(let entry;entry=work.shift();){
+        const {row,site,identity}=entry;
+        const result=signal.aborted?{status:'unverified',reason:'本轮官网核对超时，请缩小批次后重新预览'}:await verify(site,identity,{signal});
+        if(result.status!=='ready'){Object.assign(row,result);continue;}
+        const job=this.jobMetadata(site,{...identity,tenant:site.tenant,company:site.company,title:result.title,location:result.location},identity.jobId);
+        Object.assign(row,{status:'ready',reason:'官网已核实，可加入队列',verifiedTitle:job.title,verifiedLocation:job.location,officialUrl:job.url});
+        draft.entries.set(row.id,{site,job});
+      }
+    };
+    await Promise.all([check(),check()]);
+    if(this.targetTableDraft!==draft)throw new Error('请使用最新的目标表预览');
+    draft.expires=this.clock()+10*60*1000;
+    return {id:draft.id,rows};
+  }
+  confirmTargetTable({id,selected}){
+    const draft=this.targetTableDraft;
+    if(!draft||draft.id!==id||draft.expires<=this.clock())throw new Error('目标表预览已失效，请重新预览');
+    if(!Array.isArray(selected)||!selected.length||new Set(selected).size!==selected.length||selected.some(row=>!draft.entries.has(row)))
+      throw new Error('请选择预览中已核实的岗位');
+    const entries=selected.map(row=>{
+      const entry=draft.entries.get(row),site=this.state.sites.find(site=>site.id===entry.site.id);
+      if(!sameTarget(site,entry.site)||!site.enabled||site.skipped||site.mode!==this.state.settings.mode)
+        throw new Error('招聘站设置已变化，请重新预览目标表');
+      return {site,job:entry.job};
+    });
+    let added=0,duplicates=0;
+    for(const {site,job} of entries){
+      if(this.add(site,job,'目标表').duplicate)duplicates++;else added++;
+    }
+    this.save();
+    this.targetTableDraft=null;
+    return {added,duplicates};
   }
   manual(url){
     let parsed;try{parsed=new URL(url);}catch{throw new Error('请输入完整岗位链接');}
