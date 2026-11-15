@@ -1,8 +1,16 @@
 # Engineer交接（简版）
 
-更新：2026-11-15（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
+更新：2026-11-16（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 014 完整官网只读预检与目标表导入
+## 015 接收 candidate.16，进入本人体验与真实目标表准备
+
+已读 Manager 94030d6d8834ee47b2ab69b8d30ce0cee68683a3 的交接与检查点 015，继续原任务 5c8b638。014 官网只读预检、目标表入口和 .15→.16 升级均按原验证范围接收。公开包对应源码 d07d49776bf57da74c7edc57645018d3cee8fe0e。 [公开 candidate.16](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/v0.2.0-candidate.16-target-table-review)
+
+本人可体验资料、队列与任务详情。Manager 安排目标搜集和适配范围，搜集方根据公司与岗位方向查官方链接并交 UTF-8 CSV。Engineer 接续具体体验反馈或实际目标的适配断点。本次仅确认接续状态。
+
+当前可执行范围限经过验证的 Mattermost 英文表单。未入队行保留在原 CSV 和当前预览，批量入队后预览清除。真实企业填写、上传、验证和受理待本人确认首单。生产更新由本人操作，PR #5 保持 draft。
+
+## 014 完整官网只读预检与目标表导入（历史）
 
 已读 Manager `1f927eca6682e7957842b77c3ff9fdf89a5d1d6a` 的交接及 014，原任务 `5c8b638`。正常后台和实际 MV3 直接读取完整 Mattermost 官网技术验证页，两次 GET 200，加载官方 `entry.client-HYmR2EDs.js` 和实际资源。APP 保存 14 项含 5 留空，后台与浏览器独立重启后同任务复用，确认入口显示岗位、资料、附件摘要和浏览器，四项未勾选。官网表单及附件为空，申请写入、额度、账本均无新增。官网自身两个追踪 POST 被测试网络拦截，8 条脚本错误保留。 [首轮官网预检](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43700059529/job/132769013539)
 
