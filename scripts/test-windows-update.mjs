@@ -12,12 +12,12 @@ import {buildUpdate,baselineManifest,UPDATE_BASELINES} from './package-update.mj
 if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true')throw new Error('HOSTED_WINDOWS_REQUIRED');
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url))),parent=path.join(root,'.runtime/windows-update'),cache=path.join(parent,'cache'),BASE='http://127.0.0.1:17321';
 const subject=gitSubject();
-const candidateFlow=subject.includes('[native-full-flow]');
-const checkPurpose=subject.includes('[confirmation-purpose]');
 const checkPublished14=subject.includes('[upgrade-candidate14]');
+const candidateFlow=checkPublished14||subject.includes('[native-full-flow]');
+const checkPurpose=subject.includes('[confirmation-purpose]');
 const dynamic=subject.includes('[dynamic-controls]');
 function gitSubject(){const result=spawnSync('git',['log','-1','--format=%s'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);return result.stdout;}
-const evidence={source:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,scope:'Single CMD, candidate8/10, fictional stopped old installation moved to a short path; actual Windows Chromium and extension. No employer requests or personal data.',scenarios:[],status:'RUNNING'};
+const evidence={source:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,scope:'Single CMD, fictional stopped '+(checkPublished14?'candidate.14':'earlier')+' installation moved to a short path; actual Windows Chromium and extension. No employer requests or personal data.',scenarios:[],status:'RUNNING'};
 let phase='build',activeRoot,managed;
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const git=(args)=>{const result=spawnSync('git',args,{cwd:root,maxBuffer:8*1024*1024});assert.equal(result.status,0);return result.stdout;};
@@ -80,13 +80,25 @@ try{
      company:'Mattermost',name:'Fictional upgrade record',expectedAccount:'fictional-old@example.test',enabled:true,skipped:false,
      listUrl:origin+'/mattermost',loginUrl:origin+'/mattermost'};
    state.sites.push(site);
+   if(checkPublished14){
+    state.settings.mode='real';
+    state.profile.mode='real';
+    state.profile.data.personal.email={zh:site.expectedAccount,en:null,confirmed:true,source:'Fictional Windows upgrade verification'};
+    state.resume.mode='real';
+   }
    legacyReal={...structuredClone(task),id:'fictional-old-real-consent',jobId:'900000002',siteId:site.id,url,
      company:site.company,mode:'real',status:'queued',phase:'inspect',submissionStarted:false,
      answers:{fictional:{value:'Preserve original fictional answer',confirmed:true}},
      confirmation:{jobId:'900000002',url,company:site.company,expectedAccount:site.expectedAccount,
        profileId:originalBridge.profileId,profileVersion:state.profile.version,resumeVersion:state.resume.version,
        resumeSha256:state.resume.sha256,confirmedAt:new Date().toISOString(),...(inspectBaseline?{purpose:'inspect'}:{submitConfirmed:true})}};
-   legacyReal.profileSnapshot.mode='real';legacyReal.resumeSnapshot.mode='real';
+   if(checkPublished14){
+    legacyReal.profileSnapshot=structuredClone(state.profile);
+    legacyReal.resumeSnapshot=structuredClone(state.resume);
+   }else{
+    legacyReal.profileSnapshot.mode='real';
+    legacyReal.resumeSnapshot.mode='real';
+   }
    legacyUnknown={...structuredClone(legacyReal),id:'fictional-old-real-unknown',status:'unknown',phase:'verify',submissionStarted:true};
    state.tasks.push(legacyReal,legacyUnknown);
   }
@@ -142,7 +154,7 @@ try{
      assert.equal(exposed.submissionStarted,old.submissionStarted);
      assert.equal(exposed.canVerify,old.status==='unknown');
      assert.equal(exposed.executionOffer,null);
-     assert.equal(exposed.needsConfirmation,old.status!=='unknown');
+     assert.equal(exposed.needsConfirmation,!checkPublished14&&old.status!=='unknown');
      assert.equal(migrated.confirmation.submitConfirmed,undefined);
     }
     assert.match((await api(directory,'/action',{action:'task-resume',taskId:legacyUnknown.id},400)).error,/只能核对|不可重新/);
@@ -154,7 +166,7 @@ try{
    evidence.scenarios.push({baseline:baselineVersion,baselineSource:source,passed:true,installedNativeImports:true,
     profileEditsIdsMappingsAnswersAndTasksPreserved:true,attachmentBytesAndHashMatch:true,unknownCannotResume:true,
     originalProfileIdAndLedgersPreserved:true,extensionIdPreserved:true,freshActualHeartbeat:true,existingBrowserBinaryUnchanged:true,
-    ...(checkPurpose||dynamic||checkPublished14?{legacyRealConsentUnverified:!inspectBaseline,realInspectionConsentPreserved:inspectBaseline,legacyRealUnknownPreserved:true}:{})});
+    ...(checkPurpose||dynamic||checkPublished14?{legacyRealConsentUnverified:!inspectBaseline,realInspectionConsentPreserved:inspectBaseline,realInspectionUsableWithMatchingVersions:checkPublished14,oldConsentCannotAuthorizeExecution:true,legacyRealUnknownPreserved:true}:{})});
    continue;
   }
   phase='repair-existing-and-answer';
