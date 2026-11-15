@@ -22,8 +22,9 @@ const BASE='http://127.0.0.1:17321';
 const lifecycle=process.env.GREENHOUSE_NATIVE_GATE_LIFECYCLE==='1';
 const full=process.env.GREENHOUSE_NATIVE_FULL_FLOW==='1';
 const purposes=process.env.GREENHOUSE_CONFIRMATION_PURPOSE==='1';
-const publicInspection=process.env.GREENHOUSE_PUBLIC_INSPECTION==='1';
-const dynamic=process.env.GREENHOUSE_DYNAMIC_CONTROLS==='1';
+const publicPreflight=process.env.GREENHOUSE_PUBLIC_PREFLIGHT==='1';
+const publicInspection=process.env.GREENHOUSE_PUBLIC_INSPECTION==='1'||publicPreflight;
+const dynamic=process.env.GREENHOUSE_DYNAMIC_CONTROLS==='1'||publicPreflight;
 const selectionBaseline=process.env.GREENHOUSE_SELECTION_BASELINE==='1';
 const isolatedExecution=process.env.GREENHOUSE_ISOLATED_EXECUTION==='1';
 const isolatedHosts=['job-boards.greenhouse.io','boards.greenhouse.io',new URL(nativeUploadOrigin).hostname,'api-geocode-earth-proxy.greenhouse.io'];
@@ -503,7 +504,7 @@ async function runIsolatedExecution(){
 
 async function runPublicInspection(){
   const url=realOrigin+'/mattermost/jobs/5381946008',id='5381946008';
-  const audit={url,readAt:new Date().toISOString(),pageResponses:[],modules:[],requests:[],blockedWrites:[],boardWrites:[],sitePageErrors:[]};
+  const audit={url,readAt:new Date().toISOString(),normalStartup:publicPreflight,pageResponses:[],modules:[],requests:[],blockedWrites:[],boardWrites:[],sitePageErrors:[]};
   publicNavigation=audit;
   evidence.publicInspection=audit;
   backendData='data-public';
@@ -626,6 +627,11 @@ async function runPublicInspection(){
   const finished=task(after,id);
   assert.equal(finished.id,added.id);assert.equal(after.tasks.length,1);
   assert.equal(finished.needsConfirmation,false);
+  if(publicPreflight){
+    const inspected=await persisted();
+    audit.executionOffer={present:!!finished.executionOffer,issue:finished.issue,inspection:inspected.executionInspection,
+      unresolved:finished.questions?.filter(q=>q.unresolved).map(q=>q.key)};
+  }
   assert.equal(finished.answerBatch,undefined);
   assert.equal(finished.submissionStarted,undefined);
   assert.equal(Object.hasOwn(finished,'submitDay'),false);
@@ -639,6 +645,8 @@ async function runPublicInspection(){
   await collectPublicRequests(audit);
   const records=await storage(['localSubmissionAttempts','greenhouseUploadProofs']);
   assert.ok(!Object.values(records.localSubmissionAttempts||{}).some(attempt=>attempt.taskId===added.id));
+  assert.ok(finished.steps.every(step=>!['普通资料已填写','简历已附加','限定用途答案已填写','提交阶段已记录','本人已授权本次申请'].includes(step.label)));
+  assert.equal(finished.confirmation.purpose,'inspect');
   assert.equal(records.greenhouseUploadProofs?.[added.id],undefined);
   assert.deepEqual(audit.blockedWrites.filter(write=>[realOrigin,'https://boards.greenhouse.io'].includes(write.origin)),[]);
   assert.deepEqual(audit.boardWrites,[]);
@@ -651,6 +659,22 @@ async function runPublicInspection(){
     exampleChoice:{key:authorization.key,labels:authorization.options.map(option=>option.text),required:true,version:authorization.version},
     attachments:finished.inspectionAttachments.map(({key,required,manualTextAlternative})=>({key,required,manualTextAlternative})),
     status:finished.status,issue:finished.issue.title,submissionBoundary:false,dailySlot:false,employerInputsEmpty:true,ledgerEntries:0});
+  if(publicPreflight){
+    assert.match(finished.executionOffer||'',/^[a-f0-9]{64}$/,JSON.stringify(audit.executionOffer));
+    const bound=(await persisted()).executionInspection;
+    assert.equal(bound.profileId,profileId);
+    assert.equal(bound.tabId,finished.tabId);
+    assert.ok(bound.documentId);
+    await dashboard.goto(BASE+'/#queue');
+    await dashboard.getByRole('row').filter({hasText:finished.title}).getByRole('button',{name:'查看详情',exact:true}).click();
+    const approval=dashboard.getByRole('form',{name:/确认本次申请/});
+    assert.equal(await approval.getByRole('button',{name:'授权填写并提交本次申请'}).isEnabled(),true);
+    assert.equal(await approval.getByRole('checkbox',{checked:false}).count(),4);
+    assert.equal(await approval.getByRole('link',{name:'查看并核对完整资料'}).count(),1);
+    const visible=await approval.innerText();
+    for(const value of [url,String(finished.profileVersion),after.resume.sha256,after.resume.name,profileId])assert.ok(visible.includes(value));
+    audit.executionOffer.uncheckedAndEnabled=true;
+  }
   console.log('PASS public HTTPS application -> real APP batch save -> independent restart -> same read-only task');
   await context.close();context=null;
   await closeApp();
@@ -900,11 +924,14 @@ function record(name,id,item){
 }
 async function startBackend(){
   const dataDir=path.join(directory,backendData);
-  if(isolatedExecution){
-    const child=spawn(process.execPath,['--use-env-proxy','local-app/server.mjs','--data-dir',dataDir],{
-      cwd:projectRoot,stdio:['ignore','inherit','inherit'],env:{...process.env,HTTPS_PROXY:networkProxy.url,
-        HTTP_PROXY:networkProxy.url,NO_PROXY:'127.0.0.1,localhost',NODE_EXTRA_CA_CERTS:networkProxy.certFile}
-    });
+  if(publicPreflight||isolatedExecution){
+    const args=['local-app/server.mjs','--data-dir',dataDir];
+    const env={...process.env};
+    if(isolatedExecution){
+      args.unshift('--use-env-proxy');
+      Object.assign(env,{HTTPS_PROXY:networkProxy.url,HTTP_PROXY:networkProxy.url,NO_PROXY:'127.0.0.1,localhost',NODE_EXTRA_CA_CERTS:networkProxy.certFile});
+    }
+    const child=spawn(process.execPath,args,{cwd:projectRoot,stdio:['ignore','inherit','inherit'],env});
     const handle={child,ready:{pid:child.pid},exit:null};
     child.once('exit',(code,signal)=>{handle.exit={code,signal};});
     await waitFor('normal product service',()=>fetch(BASE,{signal:AbortSignal.timeout(1000)}).then(response=>response.ok).catch(()=>false),Boolean,10000);
@@ -939,7 +966,7 @@ async function closeApp(){
   const handle=app;
   try{
     if(!handle.exit){
-      if(isolatedExecution)handle.child.kill('SIGTERM');
+      if(publicPreflight||isolatedExecution)handle.child.kill('SIGTERM');
       else handle.child.send({type:'stop'});
       await waitFor('backend process exit',async()=>handle.exit,Boolean,10000);
     }
@@ -1027,7 +1054,10 @@ async function verifyFaults(){
 }
 
 try{
-  if(isolatedExecution){
+  if(publicPreflight){
+    await runPublicInspection();
+    assert.deepEqual(workerErrors,[]);
+  }else if(isolatedExecution){
     await runIsolatedExecution();
     assert.deepEqual(evidence.externalRequests,[]);
     assert.deepEqual(workerErrors,[]);
