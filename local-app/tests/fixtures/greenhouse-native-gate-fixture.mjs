@@ -28,6 +28,7 @@ const questions=Object.entries(labels).map(([name,label])=>({label,required:true
 const phone='10000000000';
 const csrf={key:'fixture_dynamic_csrf',value:fixtureAccount+'-fictional-csrf'};
 const requestToken='fictional-request-token',fingerprint='fictional-browser-fingerprint';
+const enterpriseToken='fictional_assessment_from_isolation_only';
 const cookie='fictional_native=synthetic-session';
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const reference=key=>fixtureOrigin+'/greenhouse-upload/'+key;
@@ -43,7 +44,7 @@ function applicationPage(id,full,dynamic,isolated){
     csrfToken:csrf,jobApplicationRequestToken:requestToken,...(full?{clientSha256:dynamic?currentClientSha:archivedClientSha}:{fingerprint})};
   const remix={state:{loaderData:{'routes/$url_token_.jobs_.$job_post_id':loader,...(isolated?{root:{ENV:{
     LOCATION_CONTROL_PROVIDER:'pelias',LOCATION_CONTROL_BASE_URL:'https://api-geocode-earth-proxy.greenhouse.io/',LOCATION_CONTROL_API_KEY:'fictional-key'
-  }}}:{})}}};
+  },boardConfiguration:{disable_captcha:false}}}:{})}}};
   const script=[
     'import {buildApplication,nativeSubmit} from "/native-fixture-client.js";',
     'const loader=window.__remixContext.state.loaderData["routes/$url_token_.jobs_.$job_post_id"];',
@@ -84,7 +85,8 @@ function applicationPage(id,full,dynamic,isolated){
     ...(isolated?.renderer?['  const {city,...choices}=officialValues(); Object.assign(values,choices);']:[]),
     '  const application=buildApplication(loader.jobPost,{...'+(dynamic?'('+currentValues.toString()+')(values,places'+(isolated?.renderer?',city':'')+')':full?'('+fullValues.toString()+')(values)':'values')+',resume},[],{},[],[],new URLSearchParams(window.location.search));',
     '  try{const response=await nativeSubmit({application,submitPath:loader.submitPath,csrfToken:loader.csrfToken,',
-    '    fingerprint:'+(full?'loader.jobPost.fingerprint':'loader.fingerprint')+',jobApplicationRequestToken:loader.jobApplicationRequestToken});',
+    '    fingerprint:'+(full?'loader.jobPost.fingerprint':'loader.fingerprint')+',jobApplicationRequestToken:loader.jobApplicationRequestToken'+
+      (isolated?',recaptchaClient:{performAssessment:async()=>'+JSON.stringify(enterpriseToken)+'}':'')+'});',
     '    if(response.ok)window.location.assign(loader.confirmationPath);',
     '  }catch{form.dataset.nativeSubmitOutcome="rejected";}',
     '});',
@@ -188,7 +190,8 @@ export async function startNativeFixture(directory,resume,{full=false,dynamic=fa
       if(full){
         if(dynamic)assertCurrentApplication(body.job_application,ref(key),file,id,isolated?isolatedAccount:fixtureAccount);
         else assertFullApplication(body.job_application,reference(key),file);
-        assert.deepEqual({...body,job_application:null},{job_application:null,[csrf.key]:csrf.value,request_token:requestToken,fingerprint});
+        assert.deepEqual({...body,job_application:null},{job_application:null,[csrf.key]:csrf.value,request_token:requestToken,fingerprint,
+          ...(isolated?{'g-recaptcha-enterprise-token':enterpriseToken}:{})});
       }else assert.deepEqual(body,{
         job_application:{first_name:fixtureAnswers.first_name,last_name:fixtureAnswers.last_name,email:fixtureAccount,phone,
           answers_attributes:{123:{question_id:'123',priority:0,text_value:fixtureAnswers.question_123}},

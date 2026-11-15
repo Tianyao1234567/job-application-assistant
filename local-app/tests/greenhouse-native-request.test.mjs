@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {buildApplication,nativeSubmit} from './fixtures/greenhouse-native-client.js';
 import {CLIENT_SHA256,createOfflineCapture,sha256} from '../experiments/greenhouse-native-request.mjs';
+import {createNativeCapture} from '../../autofill-extension/runner/greenhouse-native-request.js';
 
 // Fictional values only. These tests validate an in-memory offline capture;
 // they do not send, certify server acceptance or exercise a production gate.
@@ -48,6 +49,22 @@ test('pinned native state builds the complete JSON request with dynamic CSRF, qu
   assert.deepEqual(body.job_application,f.expected.application);
   assert.equal(frozen.bodySha256,await sha256(f.request.body));
   assert.equal(await capture.revalidate(frozen,f.request,f.spec),true);
+});
+
+test('live capture freezes the native enterprise assessment and rejects missing or added verification inputs',async()=>{
+  const f=await setup(),expected={...f.expected,verification:{kind:'native-enterprise'}};
+  const create=()=>createNativeCapture({spec:f.spec,expected,scope:'managed-application'});
+  const capture=create(),frozen=await capture.freeze(f.request,f.spec);
+  assert.equal(frozen.bodySha256,await sha256(f.request.body));
+  assert.ok(!JSON.stringify(capture.summary(frozen)).includes(f.expected.verification.value));
+  const body=JSON.parse(f.request.body);
+  body['g-recaptcha-enterprise-token']='another_valid_assessment_value';
+  await assert.rejects(capture.revalidate(frozen,{...f.request,body:JSON.stringify(body)},f.spec),/REQUEST_CHANGED/);
+  body['g-recaptcha-enterprise-token']='';
+  await assert.rejects(create().freeze({...f.request,body:JSON.stringify(body)},f.spec),/VERIFICATION_SCOPE/);
+  body['g-recaptcha-enterprise-token']=f.expected.verification.value;
+  body.security_code='unreviewed';
+  await assert.rejects(create().freeze({...f.request,body:JSON.stringify(body)},f.spec),/STATE_OR_PROTOCOL_CHANGED/);
 });
 
 test('security-code and absent-verification branches retain their distinct native request semantics',async()=>{

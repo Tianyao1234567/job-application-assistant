@@ -102,13 +102,19 @@
         const source=script.textContent||'';if(source.length>1500000)continue;
         const match=/^\s*window\.__remixContext\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(source);if(!match)continue;
         let loader;
-        try{loader=JSON.parse(match[1]).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];}
+        try{loader=parsePublicLoader(match[1]);}
         catch{continue;}
         if(!matchesPublicLoader(expected,loader))continue;
         return loader;
       }
     }catch{}
     return expected.replay?null:refreshedLoaders.get(location.pathname)?.loader||null;
+  }
+  function parsePublicLoader(json){
+    const data=JSON.parse(json).state?.loaderData;
+    const loader=data?.['routes/$url_token_.jobs_.$job_post_id'];
+    const config=data?.root?.boardConfiguration;
+    return loader&&typeof config?.disable_captcha==='boolean'?{...loader,disableCaptcha:config.disable_captcha}:loader;
   }
   function matchesPublicLoader(expected,loader){
     return loader?.urlToken===expected.tenant&&String(loader.jobPostId)===expected.jobId&&
@@ -135,7 +141,7 @@
         }
       }finally{await reader.cancel().catch(()=>{});}
       const json=html.match(/<script[^>]*>\s*window\.__remixContext\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/)?.[1];
-      const loader=json&&JSON.parse(json).state?.loaderData?.['routes/$url_token_.jobs_.$job_post_id'];
+      const loader=json&&parsePublicLoader(json);
       if(matchesPublicLoader(expected,loader)&&norm(loader.jobPost.company_name)===norm(expected.company)&&
         norm(loader.jobPost.title)===text(document.querySelector('h1'))){
         const links=[...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(match=>match[1]);
@@ -412,9 +418,9 @@
           questions.push(race);
         }
       }
-      const protocol=submissionProtocol(expected);
-      return {ok:true,login:current.login,jobMetadata,submissionProtocol:protocol,executionVersion:!expected.replay&&control&&protocol?
-        await sha(JSON.stringify([control.clientSha256,control.controls.questionsSha,control.controls.eeocSha,protocol])):null,nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
+      const protocol=submissionProtocol(expected),disableCaptcha=applicationLoader(expected)?.disableCaptcha;
+      return {ok:true,login:current.login,jobMetadata,submissionProtocol:protocol,executionVersion:!expected.replay&&control&&protocol&&typeof disableCaptcha==='boolean'?
+        await sha(JSON.stringify([control.clientSha256,control.controls.questionsSha,control.controls.eeocSha,protocol,disableCaptcha])):null,nativeProtocolDetected:!!applicationLoader(expected),uploadedResumeConfirmed:!!uploaded.get(result.form)&&!result.form.querySelector('#resume'),applyUrl:current.source,layout:result.layout,formVersion:await sha(result.layout),fields,questions,question:questions[0]||null,anonymousApplication:true,verificationVisible:[...document.querySelectorAll('iframe[src*="captcha" i],iframe[src*="verify" i]')].some(visible),productionReceiptObserved:false};
     }catch{return fail('structure','Greenhouse 回执、原问题或页面范围未通过保护检查。');}
   };
   function matchingChoices(node,field,selected,value) {
@@ -551,7 +557,7 @@
       const loader=applicationLoader(expected),control=await publicControlSchema(expected,loader);
       const current=checked(expected,layout,true,control);if(!current.ok)return current;
       const values=captureValues(current),job=loader?.jobPost,schema=job?.questions;
-      if(executionDocument(expected)&&!control)return fail('structure','当前执行未匹配已核实的原生结构。');
+      if(executionDocument(expected)&&(!control||typeof loader?.disableCaptcha!=='boolean'))return fail('structure','当前执行未匹配已核实的原生结构和验证设置。');
       if(!schema?.length||schema.length>60||!control&&job.eeoc_sections?.length||job.demographic_questions?.questions?.length)
         return fail('manual','当前原生申请结构缺少独立确认来源。');
       const versioned=schema.some(question=>question.fields?.some(field=>field.name==='candidate_location'));
@@ -663,7 +669,7 @@
       Object.assign(application,{resume_url_filename:file.file.name,mapped_url_token:url.searchParams.get('t')||url.searchParams.get('gh_src'),
         appcast_click_id:url.searchParams.get('ccuid'),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone});
       return {ok:true,schema:control?{questions:schema,eeoc:job.eeoc_sections.map(section=>section.questions),hispanic:control.controls.hispanic}:schema,protocol,...(versioned?{clientSha256:control?.clientSha256||archivedClientSha}:{}),expected:{application,csrfToken:loader.csrfToken,requestToken:loader.jobApplicationRequestToken,
-        fingerprint:job.fingerprint??loader.fingerprint,verification:{kind:'none'}}};
+        fingerprint:job.fingerprint??loader.fingerprint,verification:{kind:!expected.replay&&loader.disableCaptcha===false?'native-enterprise':'none'}}};
     }catch{return fail('manual','未能冻结已确认申请内容。');}
   };
   async function questionForNative(expected,record) {

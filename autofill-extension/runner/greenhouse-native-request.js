@@ -38,7 +38,8 @@ export function createNativeCapture({spec,expected,scope,bindReferenceByDigest=f
   if(!receiptScope(spec)||!verifiedUpload(spec)||
     !['authorizationId','stateVersion','schemaSha256'].every(key=>typeof spec[key]==='string'&&!!spec[key])||
     !['profileVersion','resumeVersion'].every(key=>Number.isInteger(spec[key])&&spec[key]>0))fail('AUTHORIZATION');
-  const body=expectedBody(expected);
+  const nativeEnterprise=expected.verification?.kind==='native-enterprise';
+  const body=expectedBody(nativeEnterprise?{...expected,verification:{kind:'none'}}:expected);
   let reserved=false;
   const snapshots=new WeakMap();
   async function inspect(request,current) {
@@ -49,9 +50,18 @@ export function createNativeCapture({spec,expected,scope,bindReferenceByDigest=f
     try{actual=JSON.parse(view.body);}catch{fail('JSON');}
     // The pinned client's JSON.stringify representation disallows duplicate keys.
     if(JSON.stringify(actual)!==view.body)fail('STATE_OR_PROTOCOL_CHANGED');
-    const comparison=bindReferenceByDigest&&actual?.job_application?
-      {...actual,job_application:{...actual.job_application}}:actual;
-    if(bindReferenceByDigest&&comparison?.job_application)delete comparison.job_application.resume_url;
+    const comparison={...actual};
+    if(nativeEnterprise){
+      // The pinned page obtains this value immediately before fetch. Freeze its
+      // original bytes and leave verification of the assessment to the server.
+      const token=comparison['g-recaptcha-enterprise-token'];
+      if(typeof token!=='string'||!/^[-\w.]{20,12000}$/.test(token))fail('VERIFICATION_SCOPE');
+      delete comparison['g-recaptcha-enterprise-token'];
+    }
+    if(bindReferenceByDigest&&comparison.job_application){
+      comparison.job_application={...comparison.job_application};
+      delete comparison.job_application.resume_url;
+    }
     if(!equal(comparison,body))fail('STATE_OR_PROTOCOL_CHANGED');
     if(!await boundApplication(spec,actual)||bindReferenceByDigest&&typeof actual.job_application.resume_url!=='string')fail('UPLOAD_BINDING');
     return view;
