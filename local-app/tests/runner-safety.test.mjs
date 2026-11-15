@@ -39,14 +39,16 @@ function harness(options={}){
     querySelectorAll(selector){if(selector==='input[type="file"][name="resume"]')return [h.upload];if(selector==='[data-submit-application]')return [button];return [];}};
   h.form=form;
   const receipt={dataset:{receiptId:'receipt-1',jobId:'web-001',tenant:'beta',account:'demo',fileName:file.name,fileSize:String(file.size),sha256}};
+  h.jobDetail={dataset:{tenant:'beta',jobId:'web-001',title:'Ignored dataset title',company:'Ignored dataset company',location:'Ignored dataset city',status:'submitted',id:'page-task'},
+    querySelector(selector){const values={'[data-job-title]':'Web 前端工程师','[data-job-company]':'虚构乙公司','[data-job-location]':options.noLocation?'':'上海'};return Object.hasOwn(values,selector)?{textContent:values[selector]}:null;}};
   class DataTransfer{constructor(){this.files=[];this.items={add:file=>this.files.push(file)};}}
   const page=vm.createContext({console,URL,Date,Map,Uint8Array,Array,File,Event,atob,AbortSignal,queueMicrotask,
     DataTransfer,
     setTimeout:callback=>{queueMicrotask(callback);return 1;},
-    location:{origin:'http://127.0.0.1:17322',pathname:'/site/beta/apply/web-001'},
+    location:{origin:'http://127.0.0.1:17322',pathname:'/site/beta/apply/web-001',href:'http://127.0.0.1:17322/site/beta/apply/web-001'},
     HTMLInputElement:Input,HTMLTextAreaElement:Input,HTMLSelectElement:Input,
     crypto:{randomUUID:()=>webcrypto.randomUUID(),subtle:{async digest(...args){if(options.hashGate)await options.hashGate.wait();return webcrypto.subtle.digest(...args);}}},
-    document:{getElementById:()=>null,querySelector(selector){if(selector==='[data-page-status="unavailable"]')return options.unavailable?{dataset:{pageStatus:'unavailable'}}:null;if(selector==='[data-session-status]')return marker;if(selector==='[data-application-form]')return form;if(selector==='[data-receipt-id]')return h.receipt?receipt:null;return null;}},
+    document:{getElementById:()=>null,querySelector(selector){if(selector==='[data-page-status="unavailable"]')return options.unavailable?{dataset:{pageStatus:'unavailable'}}:null;if(selector==='[data-session-status]')return marker;if(selector==='[data-application-form]')return form;if(selector==='[data-receipt-id]')return h.receipt?receipt:null;if(selector==='[data-job-detail]')return options.noDetail?null:h.jobDetail;if(selector==='a[data-apply-link]')return {href:'http://127.0.0.1:17322/site/beta/apply/web-001'};return null;}},
     getComputedStyle:()=>({display:'block'}),
     async fetch(){if(options.sessionGate)await options.sessionGate.wait();return {ok:true,json:async()=>({login:{status:'ready',tenant:'beta',account:'demo'}})};},
     JobFill:{nodes:new Map([['name',{node:h.field}],['answer',{node:h.answer}]]),undoBatches:[],editable:node=>node?.isConnected===true,
@@ -58,15 +60,19 @@ function harness(options={}){
     async fetch(url){assert.equal(url,'http://127.0.0.1:17321/api/bridge/authorize');h.authorizations++;h.afterAuthorize?.();if(options.authFailure)throw new Error('Disconnected');return {ok:true,json:async()=>({allowed:h.allowed})};},
     chrome:{runtime:{id:'test-extension',onMessage:{addListener(){}}},tabs:{
       get:async id=>{assert.ok(tabs.has(id),'tab must remain open');return tabs.get(id);},
-      async create(details){const created={id:8,status:'complete',...details};tabs.set(created.id,created);h.createdTabs.push(created);return created;},
+      async create(details){const created={id:8,status:'complete',...details};tabs.set(created.id,created);h.createdTabs.push({...created});return created;},
       async remove(id){h.closedTabs.push(id);tabs.delete(id);},
       async update(id,details){h.updatedTabs.push(id);Object.assign(tabs.get(id),details);return tabs.get(id);}},storage:{local:{
       async get(){return structuredClone(h.storage);},async set(value){if(value.localSubmissionAttempts && Object.keys(value.localSubmissionAttempts).length && options.storageGate)await options.storageGate.wait();Object.assign(h.storage,structuredClone(value));}}},
       scripting:{async executeScript(request){assert.equal(request.world,'ISOLATED');assert.ok([7,8].includes(request.target.tabId));assert.ok(!JSON.stringify(request.args || []).includes('fictional-key'),'bridge key must remain in extension runner');
         if(request.target.tabId===8){
           if(request.files)return [{result:null}];
-          assert.equal(request.args[0],'verify','temporary tab may only inspect the receipt');
-          return [{result:{ok:true,receipt:options.existingReceipt?receipt.dataset:null,login:{status:'ready',tenant:'beta',account:'demo'}}}];
+          assert.ok(['verify','detail'].includes(request.args[0]),'temporary tab is GET-only receipt/detail reading');
+          if(request.args[0]==='verify')return [{result:{ok:!options.unavailable,kind:options.unavailable?'structure':undefined,message:options.unavailable?'岗位页面已失效':undefined,receipt:options.existingReceipt?receipt.dataset:null,login:{status:'ready',tenant:'beta',account:'demo'}}}];
+          const previous={...page.location},url=new URL(tabs.get(8).url);
+          Object.assign(page.location,{origin:url.origin,pathname:url.pathname,href:url.href});
+          try{vm.runInContext(adapterSource,page);const func=vm.runInContext('('+request.func.toString()+')',page);return [{result:await func(...structuredClone(request.args))}];}
+          finally{Object.assign(page.location,previous);}
         }
         if(request.files){vm.runInContext(fillSource,page);vm.runInContext(adapterSource,page);return [{result:null}];}
         const func=vm.runInContext('('+request.func.toString()+')',page);
@@ -76,7 +82,7 @@ function harness(options={}){
   vm.runInContext(runnerSource.replace(/^import[^\n]+\n/,'').replace(/start\(\)\.catch\([\s\S]*$/,'globalThis.runCommand=execute;'),runner);
   vm.runInContext("bridge={key:'fictional-key',profileId:'isolated-test'};",runner);
   h.run=(op)=>runner.runCommand({id:'command-'+op,op,site:{adapter:'local-v1',origin:'http://127.0.0.1:17322',mode:'demo',tenant:'beta',expectedAccount:'demo'},
-    task:{id:'task',jobId:'web-001',mode:'demo'},payload:op==='fill'?{layout,entries:[{key:'personal.name',value:'Fictional Applicant',confirmed:true}]}:op==='upload'?{layout,file}:op==='answer'?{layout,key:'motivation',text:'Why this role?',scope:'local-v1:beta:web-001:motivation:v1',answer:'Fictional confirmed answer'}:{layout,file}});
+    task:{id:'task',jobId:'web-001',url:'http://127.0.0.1:17322/site/beta/jobs/web-001',mode:'demo'},payload:op==='fill'?{layout,entries:[{key:'personal.name',value:'Fictional Applicant',confirmed:true}]}:op==='upload'?{layout,file}:op==='answer'?{layout,key:'motivation',text:'Why this role?',scope:'local-v1:beta:web-001:motivation:v1',answer:'Fictional confirmed answer'}:{layout,file}});
   h.page=page;
   return h;
 }
@@ -132,13 +138,22 @@ test('reinspection checks receipts separately and preserves the live form and at
   const h=harness(),manualFile=new File(['Manual fictional resume'],'manual.txt');h.field._value='Manual takeover';h.upload._files=[manualFile];
   const result=await h.run('inspect');assert.equal(result.ok,true);assert.equal(result.tabId,7);assert.equal(result.layout,layout);
   assert.equal(h.field.value,'Manual takeover');assert.equal(h.upload.files[0],manualFile);assert.equal(h.writes,0);assert.equal(h.uploads,0);
-  assert.deepEqual(h.updatedTabs,[]);assert.deepEqual(h.closedTabs,[8]);assert.equal(h.createdTabs.length,1);
+  assert.deepEqual(h.updatedTabs,[8]);assert.deepEqual(h.closedTabs,[8]);assert.equal(h.createdTabs.length,1);
   assert.equal(h.createdTabs[0].url,'http://127.0.0.1:17322/site/beta/receipt/web-001');assert.equal(h.createdTabs[0].active,true);assert.equal(h.storage.localTaskTabs.task,7);
+  assert.equal(result.jobMetadata.title,'Web 前端工程师');assert.equal(result.jobMetadata.company,'虚构乙公司');assert.equal(result.jobMetadata.location,'上海');
 });
 test('a receipt found during reinspection returns without editing the retained form',async()=>{
   const h=harness({existingReceipt:true});h.field._value='Manual takeover';
   const result=await h.run('inspect');assert.equal(result.ok,true);assert.ok(result.receipt);assert.equal(result.tabId,7);
   assert.equal(h.field.value,'Manual takeover');assert.deepEqual(h.updatedTabs,[]);assert.deepEqual(h.closedTabs,[8]);assert.equal(h.clicks,0);
+});
+test('failed detail identity during recovery preserves manual values and closes only its temporary tab',async()=>{
+  const h=harness({noDetail:true}),manualFile=new File(['Manual fictional resume'],'manual.txt');
+  h.field._value='Manual takeover';h.upload._files=[manualFile];
+  const result=await h.run('inspect');
+  assert.equal(result.ok,false);assert.equal(result.kind,'structure');assert.equal(result.tabId,7);assert.equal(result.jobMetadata,undefined);
+  assert.equal(h.field.value,'Manual takeover');assert.equal(h.upload.files[0],manualFile);assert.equal(h.writes,0);assert.equal(h.uploads,0);assert.equal(h.clicks,0);
+  assert.deepEqual(h.updatedTabs,[8]);assert.deepEqual(h.closedTabs,[8]);assert.equal(h.storage.localTaskTabs.task,7);
 });
 test('prepared tokens are one-use and commit performs its write before returning',async()=>{
   const h=harness();vm.runInContext(fillSource,h.page);vm.runInContext(adapterSource,h.page);
@@ -179,4 +194,20 @@ test('fixed unavailable-page marker stops inspection and never authorizes a muta
 test('a question text change after authorization prevents reuse of the confirmed old answer',async()=>{
   const h=harness();h.afterAuthorize=()=>{h.answer.dataset.questionText='Changed fictional ordinary question';};
   const result=await h.run('answer');assert.equal(result.kind,'structure');assert.equal(h.writes,0);assert.equal(h.clicks,0);
+});
+
+test('detail metadata reads only visible source fields and leaves an absent city unknown',()=>{
+  const h=harness({noLocation:true});vm.runInContext(adapterSource,h.page);
+  Object.assign(h.page.location,{pathname:'/site/beta/jobs/web-001',href:'http://127.0.0.1:17322/site/beta/jobs/web-001'});
+  const result=h.page.JobLocal.read('detail',expected);
+  assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.jobMetadata)),{tenant:'beta',jobId:'web-001',url:'http://127.0.0.1:17322/site/beta/jobs/web-001',title:'Web 前端工程师',company:'虚构乙公司',location:''});
+  assert.equal(h.writes,0);assert.equal(h.uploads,0);assert.equal(h.clicks,0);
+});
+for(const change of ['tenant','job','path','missing'])test(`detail metadata rejects unverified ${change} identity`,()=>{
+  const h=harness({noDetail:change==='missing'});vm.runInContext(adapterSource,h.page);
+  Object.assign(h.page.location,{pathname:'/site/beta/jobs/web-001',href:'http://127.0.0.1:17322/site/beta/jobs/web-001'});
+  if(change==='tenant')h.jobDetail.dataset.tenant='alpha';
+  if(change==='job')h.jobDetail.dataset.jobId='design-001';
+  if(change==='path')h.page.location.pathname='/site/beta/apply/web-001';
+  const result=h.page.JobLocal.read('detail',expected);assert.equal(result.ok,false);assert.equal(result.kind,'structure');assert.equal(result.jobMetadata,undefined);
 });

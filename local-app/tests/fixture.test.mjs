@@ -67,6 +67,25 @@ test('loopback fixture exposes real session, list, detail, form and question mar
   assert.doesNotMatch(loginPage,/type="password"/);
 });
 
+test('detail metadata is sourced from the identified job and remains public before alpha login',async t=>{
+  const fixture=await setup(t);
+  for(const job of [
+    {tenant:'alpha',id:'cpp-001',title:'C++ 开发工程师',company:'虚构甲公司',location:'上海'},
+    {tenant:'beta',id:'design-001',title:'平面设计师',company:'虚构乙公司',location:'深圳'}
+  ]){
+    const response=await fetch(fixture.url+`/site/${job.tenant}/jobs/${job.id}`);
+    assert.equal(response.status,200);
+    const html=await response.text();
+    assert.ok(html.includes(`<section data-job-detail data-tenant="${job.tenant}" data-job-id="${job.id}" data-title="${job.title}" data-company="${job.company}" data-location="${job.location}">`));
+    for(const [field,value] of [['title',job.title],['company',job.company],['location',job.location]])assert.ok(html.includes(`<span data-job-${field}>${value}</span>`));
+    assert.ok(html.includes(`<a data-apply-link href="/site/${job.tenant}/apply/${job.id}">`));
+    assert.doesNotMatch(html,/data-application-form/);
+    if(job.tenant==='alpha')assert.match(html,/data-session-status="login"/);
+  }
+  const state=(await testApi(fixture,'state')).body;
+  assert.equal(state.submitRequests.length,0);assert.equal(state.receipts.length,0);
+});
+
 test('actual multipart bytes, multi-entry fields and a SHA-256 receipt persist across restart',async t=>{
   const fixture=await setup(t);
   const {cookie}=await session(fixture);
@@ -325,7 +344,7 @@ test('authenticated unavailable scenario returns real 410 detail/application pag
     assert.match(html,/data-page-status="unavailable"/);
     assert.match(html,/岗位已失效/);
     assert.match(html,/data-session-status="ready" data-account="demo" data-tenant="beta"/);
-    assert.doesNotMatch(html,/data-application-form|data-submit-application/);
+    assert.doesNotMatch(html,/data-application-form|data-submit-application|data-job-detail/);
     assert.equal(response.headers.get('access-control-allow-origin'),null);
     assert.match(response.headers.get('content-security-policy'),/frame-ancestors 'none'/);
   }

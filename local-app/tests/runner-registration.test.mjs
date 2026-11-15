@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
-const source=(await readFile(new URL('../../autofill-extension/background.js',import.meta.url),'utf8')).replace(/^import[^\n]+\n/,'');
+const source=(await readFile(new URL('../../autofill-extension/background.js',import.meta.url),'utf8')).replace(/^import[^\n]+\n/gm,'');
 const id='a'.repeat(32),url=`chrome-extension://${id}/runner/index.html`;
 function harness(){
   let listener,alarmListener;
