@@ -165,7 +165,7 @@ async function runReadOnlyConfirmation(){
   const held=await waitFor('actual MV3 real-mode read-only pause',state,value=>{
     const current=task(value,realJobId);
     if(current?.status==='failed')throw new Error(JSON.stringify({issue:current.issue?.detail,requests:realPageMethods,pages:context.pages().map(page=>page.url())}));
-    return current?.issue?.title==='真实投递暂未开放';
+    return current?.issue?.title==='原申请页保持只读';
   });
   const before=task(held,realJobId);
   assert.equal(before.id,item.id);
@@ -196,7 +196,7 @@ async function runReadOnlyConfirmation(){
   await action('resume');
   await waitFor('same inspection after restart',state,value=>{
     const resumed=task(value,realJobId);
-    return resumed?.status==='waiting_user'&&resumed.issue?.title==='真实投递暂未开放'&&resumed.steps.length>before.steps.length;
+    return resumed?.status==='waiting_user'&&resumed.issue?.title==='原申请页保持只读'&&resumed.steps.length>before.steps.length;
   });
   assert.ok(realPageMethods.length>=2);
   assert.ok(realPageMethods.every(method=>method==='GET'));
@@ -289,7 +289,7 @@ async function runSelectionBaseline(){
   assert.equal(await connect(),profileId);
   await action('resume');
   const result=await waitFor('same US baseline after independent restart',state,value=>
-    task(value,realJobId)?.issue?.title==='答案已保存，真实投递暂未开放');
+    task(value,realJobId)?.issue?.title==='答案已保存，页面保持只读');
   assert.equal(task(result,realJobId).id,item.id);
   assert.equal(result.tasks.length,1);
   assert.deepEqual((await persisted()).answers,saved.answers);
@@ -619,8 +619,10 @@ async function runPublicInspection(){
   assert.equal(await connect(),profileId);
   assert.deepEqual((await persisted()).answers,saved.answers);
   await action('resume');
-  const after=await waitFor('same public job after independent restart',state,value=>
-    task(value,id)?.issue?.title==='答案已保存，真实投递暂未开放');
+  const after=await waitFor('same public job after independent restart',state,value=>{
+    const item=task(value,id);
+    return item?.status==='waiting_user'&&['答案已保存，页面保持只读','原申请页检查完成'].includes(item.issue?.title);
+  });
   const finished=task(after,id);
   assert.equal(finished.id,added.id);assert.equal(after.tasks.length,1);
   assert.equal(finished.needsConfirmation,false);
@@ -631,7 +633,7 @@ async function runPublicInspection(){
   assert.deepEqual(after.stats.real,{submitted:0,today:0});
   assert.deepEqual((await persisted()).answers,saved.answers);
   await dashboard.goto(BASE+'/#issues');
-  await dashboard.getByRole('heading',{name:'答案已保存，真实投递暂未开放',exact:true}).waitFor();
+  await dashboard.getByRole('heading',{name:finished.issue.title,exact:true}).waitFor();
   assert.equal(await dashboard.getByRole('form',{name:/集中补充答案/}).count(),0);
   await verifyEmpty();
   await collectPublicRequests(audit);

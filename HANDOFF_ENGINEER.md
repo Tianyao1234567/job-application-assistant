@@ -1,16 +1,26 @@
 # Engineer交接（简版）
 
-更新：2026-11-14（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
+更新：2026-11-15（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 012 补答保存窄修与 candidate.14
+## 013 正常 APP 逐任务执行与 candidate.15
+
+已读 Manager `5ff3484cb56aefd688891b852f90766bf1dc4f75` 的交接及 013。原任务 `5c8b638`。013 接收 012 两条交付，已公开 candidate.14。本轮固定验证及打包源码 `498af00ff9bda4de855f16f8e1694c0a6f29ffb4`。正常产品启动和 APP 同一任务先只读补答，符合已核实的英文 Mattermost renderer/schema 时再独立确认岗位、资料、附件、浏览器及执行用途。实际 tab/document、精确原生 S3 上传、冻结正文、最后授权、原生响应和对应确认连续绑定。旧检查及隔离许可无写权限，已跨边界的任务只核对。 [阶段报告](docs/GREENHOUSE_TASK_EXECUTION_013.md)
+
+本机 103 项通过。正常启动的托管 MV3 在隔离网络验证授权前和确认失效时零写，正常到达／受理／确认 1／1／1，错附件零到达。受理后丢响应，独立后台与浏览器重启重新配对后仍为 `unknown`，到达 1→1，账本一致。 [MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43687633573/job/132731328754)
+
+Windows 从已发布 candidate.14 对应源码实际升级至 candidate.15，保留任务、资料、答案、附件、浏览器身份、账本、旧 `inspect` 许可和 `unknown`，直接请求升级权限被拒。candidate.15 草稿实下载 371467 字节，SHA-256 `6f1fb2214dee1b2c67c61c0c41e64a605a0ee46286c2ece909537726c74b7c0d`。 [Windows 升级](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43687633584/job/132731328840) · [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-e0f1460c73a39208b424)
+
+下一责任人为 Manager 审查候选和首单准备。生产完整表单、实际验证服务和企业受理语义未执行或验证。真实填写、上传及提交暂停，PR #5 保持 draft。首次真实岗位、资料、附件及提交仍须本人明确确认。
+
+## 012 补答保存窄修与 candidate.14（历史）
 
 已读 Manager `c68a4c79cb6345d17763949e9f88751de9c604cb` 的交接和 012。原任务 `5c8b638`。验证及打包源码 `620dbb8ea8f06233b5a81f0d299c8d62e45e2571`。只读检查分别记录本地确认和网页基线。同一基线复用答案，网页实际变化时提示核对。结构化控件仅任务保存，普通事实仍可进资料。 [阶段报告](docs/GREENHOUSE_SELECTION_FIX_012.md)
 
 本机 74 项通过。实际 APP 与 MV3 在隔离 HTTPS 上保存 CA、保留 US，独立重启后无重复问题，后续改变为 JP 只重新核对国家。地点为空时使用默认用途成功保存，模拟失败保留草稿。Windows 从 .8/.10/.12 成功升级。candidate.14 草稿实下载 363247 字节，SHA-256 `99987c553d4aa33de4a245850b7c4540cf3e067450cd3b6c4590480c04a80cd0`。 [MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43571972486/job/132378102740) · [Windows](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43571972509/job/132378124530) · [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-900b66b9e0daf39cf4e0)
 
-candidate.14 待 Manager 审查。真实企业提交暂停，PR #5 draft。
+candidate.14 已由 Manager 审查并公开预发布，真实企业提交暂停，PR #5 draft。 [公开 candidate.14](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/v0.2.0-candidate.14-selection-review)
 
-## 012 隔离执行准备
+## 012 隔离执行准备（历史）
 
 独立验证源码 `afa29a3d824403b111c1e78aa1759d7b8e40c3cf`。现有任务先按 `inspect` 只读补答，隔离测试进程及文档匹配时才可在任务详情再次明确授权本岗位、资料、精确附件和执行浏览器。当前官方国家、Pelias 地点和条件识别组件在隔离表单内使用实际事件。沿用页面 XHR、原生请求冻结和响应及确认关联。APP 的地点查询改为读取实际岗位的匹配配置。 [阶段报告](docs/GREENHOUSE_ISOLATED_EXECUTION_012.md)
 
