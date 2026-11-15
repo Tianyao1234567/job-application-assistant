@@ -1,12 +1,24 @@
 # Manager交接（简版）
 
-更新：2026-11-14（北京时间）。新会话第一句：**先读HANDOFF_MANAGER.md，接续Manager。**
+更新：2026-11-15（北京时间）。新会话第一句：**先读HANDOFF_MANAGER.md，接续Manager。**
 
 - **分工：** 本会话是Manager，负责需求、派工、交付审查和验收，独立维护本文件。Engineer负责实现、验证、打包及`HANDOFF_ENGINEER.md`；`HANDOFF.md`仅导航。另一个GPT仅教用户操作，不是新Manager。
 - **仓库：** `Tianyao1234567/job-application-assistant`。Manager文档分支`dev/pm9-demo-windows-readiness`；当前工程实现分支`engineer/profile-import-usability`。PR #5保持draft，不合并、不强推，不覆盖其他写入者。
 - **核心目标：** 实际缺项→平台记录原题→本人直接回答确认→持久保存→同任务继续→适用事实复用。普通补答无需JSON、工程师或另一GPT中转。JSON仅用于首次导入、大改、批量维护或内部交换。
 
-## 当前执行：013发布candidate.14，接收隔离执行，接通正常产品授权路径
+## 当前执行：014接收正常产品执行、发布candidate.15，推进完整官网只读预检
+
+2026-11-15，Engineer已读经理 `5ff3484cb56aefd688891b852f90766bf1dc4f75`。固定验证/打包源码 `498af00ff9bda4de855f16f8e1694c0a6f29ffb4`，工程交接/HEAD/远端 `913c65e7344dfa62119fddfe37ef287f1e7b94a2`，检查时干净。交接另改了历史浏览器脚本标签/断言且未运行，不能称验证后仅文档变化；包仍固定498af00。
+
+**按[验收与派工014](docs/PROFILE_USABILITY_CHECKPOINT_014.md)接收013正常产品逐任务执行集成，无本轮阻断返工。** 正常启动无需testMode，实际APP先检查再明确execute，绑定岗位/资料/附件/浏览器/tab/document；旧许可不升格，陈旧确认拒绝，unknown不重投。原生S3对象证明、完整请求冻结、最后授权、原生响应与对应确认接通。MV3正常1/1/1、错附件0、失效确认0上传0申请、丢响应独立重启1→1unknown；Windows.14升级同包保留数据/身份/账本和可用inspect，103项为工程本机报告。
+
+[公开下载candidate.15 update.cmd](https://github.com/Tianyao1234567/job-application-assistant/releases/download/v0.2.0-candidate.15-task-execution-review/update.cmd)：371467字节，SHA-256 `6f1fb2214dee1b2c67c61c0c41e64a605a0ee46286c2ece909537726c74b7c0d`。经理核对草稿及公开实下载、固定tag、两项原始作业日志。非draft的prerelease、不标Latest，公开.14保留。可选停止→同目录update→UPDATE_COMPLETE→原启动；未操作生产安装。
+
+**下一责任人为Engineer：正常产品启动、未改写的完整官网页面只读预检，证明同任务补答/恢复后有可用执行确认入口，止于execute确认之前。** 当前隔离测试仅挂载官方组件/上传管理器，页面外壳及验证/接受服务仍虚构；现有公开页脚本仍test后台且新标签未跑，不能称生产完整页兼容已验证。直接修具体断点，不重派已过权限架构/S3/冻结；产品不变复用.15，不为报告另造包。
+
+已请用户补充首个目标岗位，尚无具体链接或本人动作授权。先用已有公开技术验证页推进，不能当作用户目标；收到目标后只读核对。真实企业填写/上传/提交继续暂停，实际验证码/受理/重复受理未验，本轮1→1不推翻旧2/3次观察。原任务5c8b638、004范围、005资源保持，PR #5 draft未合并，完整项目未最终验收。以下历史保留，当前按014。
+
+## 2026-11-14审查013（历史）：正常产品执行已由014接收
 
 2026-11-14，Engineer已读经理 `c68a4c79cb6345d17763949e9f88751de9c604cb` 及012。候选14固定源码 `620dbb8ea8f06233b5a81f0d299c8d62e45e2571`；独立执行验证 `afa29a3d824403b111c1e78aa1759d7b8e40c3cf`；工程交接/HEAD/远端 `afed94070e94d81370f294129cbf4abfbebab330`，检查时干净，afa到交接仅文档变化。两段源码明确分开，后续代码未混入candidate.14。
 
