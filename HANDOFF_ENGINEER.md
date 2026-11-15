@@ -2,7 +2,17 @@
 
 更新：2026-11-15（北京时间）。新工程师第一句：**先读HANDOFF_ENGINEER.md，接续Engineer。**
 
-## 013 正常 APP 逐任务执行与 candidate.15
+## 014 完整官网只读预检与目标表导入
+
+已读 Manager `1f927eca6682e7957842b77c3ff9fdf89a5d1d6a` 的交接及 014，原任务 `5c8b638`。正常后台和实际 MV3 直接读取完整 Mattermost 官网技术验证页，两次 GET 200，加载官方 `entry.client-HYmR2EDs.js` 和实际资源。APP 保存 14 项含 5 留空，后台与浏览器独立重启后同任务复用，确认入口显示岗位、资料、附件摘要和浏览器，四项未勾选。官网表单及附件为空，申请写入、额度、账本均无新增。官网自身两个追踪 POST 被测试网络拦截，8 条脚本错误保留。 [首轮官网预检](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43700059529/job/132769013539)
+
+目标表已进入正常 APP。「岗位队列 → 目标表导入」预览搜集方提供的 UTF-8 CSV。只允许勾选已核实且已适配的岗位，缺链接、下架、未适配、无效和重复行显示原因。新增任务沿原队列待只读确认，重复保留同一任务及 `unknown`。本机受影响定点 106 项，托管 APP 六行混合预览、勾选及重复导入通过。 [阶段报告](docs/GREENHOUSE_TARGET_TABLE_014.md) · [托管 APP/MV3](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43700660743/job/132770851741)
+
+验证及打包源码 `d07d49776bf57da74c7edc57645018d3cee8fe0e`。Windows 从 candidate.15 实际升级成功，旧检查许可、任务、资料、答案、附件、浏览器身份和账本保留。candidate.16 草稿实下载 `393975` 字节，SHA-256 `a11a8c1aafb8e3ce2dcdcd8d2f78668040745a86c7a1cb5bbd25bab634a1dfd8`。 [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-c1a5f280c2b8fd085f3a) · [Windows](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43700660801/job/132770852412)
+
+下一责任人为 Manager 审查候选并与用户界面体验、搜集方目标表交接并行。用户只提供公司和岗位方向。真实企业填写、上传及提交暂停，首次具体岗位、资料、附件及提交动作仍须本人确认。PR #5 保持 draft。
+
+## 013 正常 APP 逐任务执行与 candidate.15（历史）
 
 已读 Manager `5ff3484cb56aefd688891b852f90766bf1dc4f75` 的交接及 013。原任务 `5c8b638`。013 接收 012 两条交付，已公开 candidate.14。本轮固定验证及打包源码 `498af00ff9bda4de855f16f8e1694c0a6f29ffb4`。正常产品启动和 APP 同一任务先只读补答，符合已核实的英文 Mattermost renderer/schema 时再独立确认岗位、资料、附件、浏览器及执行用途。实际 tab/document、精确原生 S3 上传、冻结正文、最后授权、原生响应和对应确认连续绑定。旧检查及隔离许可无写权限，已跨边界的任务只核对。 [阶段报告](docs/GREENHOUSE_TASK_EXECUTION_013.md)
 
@@ -10,7 +20,7 @@
 
 Windows 从已发布 candidate.14 对应源码实际升级至 candidate.15，保留任务、资料、答案、附件、浏览器身份、账本、旧 `inspect` 许可和 `unknown`，直接请求升级权限被拒。candidate.15 草稿实下载 371467 字节，SHA-256 `6f1fb2214dee1b2c67c61c0c41e64a605a0ee46286c2ece909537726c74b7c0d`。 [Windows 升级](https://github.com/Tianyao1234567/job-application-assistant/actions/runs/43687633584/job/132731328840) · [候选草稿](https://github.com/Tianyao1234567/job-application-assistant/releases/tag/untagged-e0f1460c73a39208b424)
 
-下一责任人为 Manager 审查候选和首单准备。生产完整表单、实际验证服务和企业受理语义未执行或验证。真实填写、上传及提交暂停，PR #5 保持 draft。首次真实岗位、资料、附件及提交仍须本人明确确认。
+candidate.15 已由 Manager 审查并公开预发布。013 暂无生产完整表单、实际验证服务和企业受理语义证据。真实填写、上传及提交暂停，PR #5 保持 draft。首次真实岗位、资料、附件及提交仍须本人明确确认。
 
 ## 012 补答保存窄修与 candidate.14（历史）
 
